@@ -103,7 +103,7 @@ class UPnPTest(unittest.TestCase):
             b"<errorDescription>ConflictInMappingEntry</errorDescription></e>"
         )
         self.assertIn("718", msg)
-        self.assertIn("이미", msg)
+        self.assertIn("already uses this port", msg)
 
     def test_is_public(self):
         self.assertTrue(network.is_public("8.8.8.8"))

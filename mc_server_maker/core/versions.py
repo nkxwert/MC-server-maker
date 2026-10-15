@@ -1,4 +1,4 @@
-"""마인크래프트 버전 비교 / 필요한 Java 버전 계산."""
+"""Minecraft version ordering / required Java version."""
 
 import re
 from typing import Optional
@@ -12,7 +12,7 @@ _version_json_cache: dict = {}
 
 
 def version_key(v: str) -> tuple:
-    """'1.21.1' < '1.21.2-pre1' < '1.21.2' < '26.1' 순서가 되도록 비교 키를 만든다."""
+    """Sort key so that '1.21.1' < '1.21.2-pre1' < '1.21.2' < '26.1'."""
     main, _, suffix = v.partition("-")
     nums = tuple(int(n) for n in re.findall(r"\d+", main))
     suffix_nums = tuple(int(n) for n in re.findall(r"\d+", suffix))
@@ -54,12 +54,12 @@ def _guess_java(mc_version: str) -> int:
 
 
 def required_java(mc_version: str) -> int:
-    """이 마인크래프트 버전을 실행하는 데 필요한 최소 Java 버전."""
+    """Minimum Java version for this Minecraft version."""
     try:
         data = mojang_version_json(mc_version)
         if data and data.get("javaVersion"):
             return int(data["javaVersion"]["majorVersion"])
     except net.NetError:
         pass
-    # Mojang 목록에 없거나(구 버전 등) 연결 실패 시 추정값 사용
+    # fall back to an estimate when Mojang has no data or is unreachable
     return _guess_java(mc_version)

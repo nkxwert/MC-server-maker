@@ -1,22 +1,22 @@
-"""외부(다른 집)에서 접속할 수 있게 하기: 공인 IP 확인, UPnP 자동 포트 열기, 방화벽.
+"""Let players from other homes join: public IP, automatic port opening (UPnP), firewall.
 
-UPnP(IGD)는 대부분의 가정용 공유기가 지원하는 '자동 포트포워딩' 기능이다.
-공유기 설정에서 UPnP가 꺼져 있으면 동작하지 않는다.
+UPnP (IGD) is the "automatic port forwarding" most home routers support.
+It does nothing if UPnP is turned off in the router settings.
 """
 
 import ipaddress
 import os
 import socket
-import subprocess
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 from urllib.parse import urljoin, urlparse
 from xml.sax.saxutils import escape as xml_escape
 
 from mc_server_maker.core import net
+from mc_server_maker.i18n import t
 
 SSDP_ADDR = ("239.255.255.250", 1900)
 SEARCH_TARGETS = (
@@ -28,7 +28,7 @@ SEARCH_TARGETS = (
 WAN_SERVICES = ("WANIPConnection", "WANPPPConnection")
 PUBLIC_IP_URLS = ("https://api.ipify.org", "https://checkip.amazonaws.com", "https://ifconfig.me/ip")
 
-# 공유기와의 통신은 프록시를 거치지 않는다
+# talk to the router directly, never through a proxy
 _LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -39,7 +39,7 @@ class UPnPError(Exception):
 def lan_ip() -> str:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("10.255.255.255", 1))  # 실제로 패킷을 보내지 않음
+            s.connect(("10.255.255.255", 1))  # no packet is actually sent
             return s.getsockname()[0]
     except OSError:
         return "127.0.0.1"
@@ -53,7 +53,7 @@ def is_public(ip: str) -> bool:
 
 
 def public_ip() -> str:
-    """인터넷에서 보이는 내 IP."""
+    """This network's IP as seen from the internet."""
     last = None
     for url in PUBLIC_IP_URLS:
         try:
@@ -62,7 +62,7 @@ def public_ip() -> str:
             return ip
         except (net.NetError, ValueError) as e:
             last = e
-    raise net.NetError(f"공인 IP를 확인하지 못했습니다. ({last})")
+    raise net.NetError(t("Could not get the public IP. ({err})", err=last))
 
 
 # ------------------------------------------------------------------ UPnP
@@ -73,13 +73,13 @@ def _local(tag: str) -> str:
 
 
 def discover(timeout: float = 2.5) -> List[str]:
-    """SSDP로 공유기를 찾아 설명 XML 주소(LOCATION) 목록을 돌려준다."""
+    """Find routers via SSDP and return their description URLs (LOCATION)."""
     locations: List[str] = []
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     try:
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
         try:
-            sock.bind((lan_ip(), 0))  # 올바른 네트워크 카드로 보내기
+            sock.bind((lan_ip(), 0))  # send from the right network adapter
         except OSError:
             pass
         sock.settimeout(timeout)
@@ -142,14 +142,14 @@ class Gateway:
             with _LOCAL.open(req, timeout=8) as resp:
                 xml = resp.read()
         except urllib.error.HTTPError as e:
-            raise UPnPError(_soap_error(e.read()) or f"공유기 오류 (HTTP {e.code})") from e
+            raise UPnPError(_soap_error(e.read()) or t("Router error (HTTP {code})", code=e.code)) from e
         except (urllib.error.URLError, OSError) as e:
-            raise UPnPError(f"공유기와 통신하지 못했습니다: {e}") from e
+            raise UPnPError(t("Could not talk to the router: {err}", err=e)) from e
         result: Dict[str, str] = {}
         try:
             root = ET.fromstring(xml)
         except ET.ParseError as e:
-            raise UPnPError("공유기 응답을 읽지 못했습니다.") from e
+            raise UPnPError(t("Could not read the router response.")) from e
         for el in root.iter():
             if _local(el.tag).endswith("Response"):
                 for child in el:
@@ -159,9 +159,9 @@ class Gateway:
     def external_ip(self) -> str:
         return self.call("GetExternalIPAddress").get("NewExternalIPAddress", "")
 
-    def add_port(self, port: int, internal_ip: str, description: str) -> None:
+    def add_port(self, port: int, internal_ip: str, description: str, protocol: str = "TCP") -> None:
         last = None
-        # 영구(0) 매핑을 거부하는 공유기가 있어서 하루짜리도 시도한다
+        # some routers reject permanent (0) leases, so also try one day
         for lease in (0, 86400):
             try:
                 self.call(
@@ -169,7 +169,7 @@ class Gateway:
                     {
                         "NewRemoteHost": "",
                         "NewExternalPort": port,
-                        "NewProtocol": "TCP",
+                        "NewProtocol": protocol,
                         "NewInternalPort": port,
                         "NewInternalClient": internal_ip,
                         "NewEnabled": 1,
@@ -182,8 +182,8 @@ class Gateway:
                 last = e
         raise last
 
-    def delete_port(self, port: int) -> None:
-        self.call("DeletePortMapping", {"NewRemoteHost": "", "NewExternalPort": port, "NewProtocol": "TCP"})
+    def delete_port(self, port: int, protocol: str = "TCP") -> None:
+        self.call("DeletePortMapping", {"NewRemoteHost": "", "NewExternalPort": port, "NewProtocol": protocol})
 
 
 def _soap_error(xml: bytes) -> str:
@@ -201,10 +201,10 @@ def _soap_error(xml: bytes) -> str:
     if not code:
         return ""
     hints = {
-        "718": "다른 기기가 이미 이 포트를 쓰고 있습니다. 다른 포트를 쓰거나 공유기에서 기존 설정을 지워 주세요.",
-        "606": "공유기가 이 요청을 허용하지 않습니다 (UPnP 권한 제한).",
+        "718": t("Another device already uses this port. Use another port or remove the old rule in the router."),
+        "606": t("The router refused the request (UPnP permissions)."),
     }
-    return f"공유기 오류 {code} {desc}".strip() + (f" - {hints[code]}" if code in hints else "")
+    return t("Router error {code} {desc}", code=code, desc=desc).strip() + (f" - {hints[code]}" if code in hints else "")
 
 
 def gateway_from_location(location: str) -> Optional[Gateway]:
@@ -234,8 +234,7 @@ def find_gateway(timeout: float = 2.5) -> Gateway:
         if gw:
             return gw
     raise UPnPError(
-        "공유기에서 자동 포트 열기(UPnP)를 찾지 못했습니다.\n"
-        "공유기 관리 페이지에서 UPnP를 켜거나, 아래 안내대로 포트포워딩을 직접 설정해 주세요."
+        t("No UPnP router found.\nTurn on UPnP in your router settings, or set up port forwarding manually (see below).")
     )
 
 
@@ -243,15 +242,23 @@ def find_gateway(timeout: float = 2.5) -> Gateway:
 class PortResult:
     port: int
     lan_ip: str
-    router_ip: str  # 공유기가 알려준 외부 IP
-    router_host: str  # 공유기 관리 페이지 주소
-    cgnat: bool  # 공유기 외부 IP가 사설 IP면 통신사 NAT 뒤라 포트포워딩이 안 된다
+    router_ip: str  # external IP reported by the router
+    router_host: str  # router admin page host
+    cgnat: bool  # router WAN IP is private -> behind carrier NAT, forwarding cannot work
 
 
-def open_port(port: int, description: str = "Minecraft Server", gateway: Optional[Gateway] = None) -> PortResult:
+def open_port(
+    port: int,
+    description: str = "Minecraft Server",
+    gateway: Optional[Gateway] = None,
+    udp_ports: Sequence[int] = (),
+) -> PortResult:
+    """Open the Java TCP port (plus UDP ports, e.g. 19132 for Bedrock players)."""
     gw = gateway or find_gateway()
     ip = lan_ip()
     gw.add_port(port, ip, description)
+    for udp in udp_ports:
+        gw.add_port(udp, ip, description + " (Bedrock)", "UDP")
     try:
         ext = gw.external_ip()
     except UPnPError:
@@ -259,38 +266,29 @@ def open_port(port: int, description: str = "Minecraft Server", gateway: Optiona
     return PortResult(port, ip, ext, gw.host, cgnat=bool(ext) and not is_public(ext))
 
 
-def close_port(port: int, gateway: Optional[Gateway] = None) -> None:
-    (gateway or find_gateway()).delete_port(port)
+def close_port(port: int, gateway: Optional[Gateway] = None, udp_ports: Sequence[int] = ()) -> None:
+    gw = gateway or find_gateway()
+    gw.delete_port(port)
+    for udp in udp_ports:
+        try:
+            gw.delete_port(udp, "UDP")
+        except UPnPError:
+            pass
 
 
-# ------------------------------------------------------------------ 방화벽
+# ---------------------------------------------------------------- firewall
 
 
-def allow_firewall(port: int) -> bool:
-    """Windows 방화벽에 포트 허용 규칙 추가 (관리자 권한 창이 뜬다)."""
+def allow_firewall(port: int, udp_ports: Sequence[int] = ()) -> bool:
+    """Add Windows Firewall allow rules (shows one admin prompt)."""
     if os.name != "nt":
         return False
     import ctypes
 
-    params = (
-        f'advfirewall firewall add rule name="Minecraft Server {port}" '
-        f"dir=in action=allow protocol=TCP localport={port}"
-    )
-    # ShellExecute 반환값이 32보다 크면 성공
-    return ctypes.windll.shell32.ShellExecuteW(None, "runas", "netsh", params, None, 0) > 32
-
-
-def firewall_rule_exists(port: int) -> bool:
-    if os.name != "nt":
-        return True
-    try:
-        out = subprocess.run(
-            ["netsh", "advfirewall", "firewall", "show", "rule", f"name=Minecraft Server {port}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=0x08000000,
-        )
-        return out.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+    rules = [f'netsh advfirewall firewall add rule name="Minecraft Server {port}" dir=in action=allow protocol=TCP localport={port}']
+    rules += [
+        f'netsh advfirewall firewall add rule name="Minecraft Bedrock {u}" dir=in action=allow protocol=UDP localport={u}'
+        for u in udp_ports
+    ]
+    # ShellExecute returns > 32 on success
+    return ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd", "/c " + " && ".join(rules), None, 0) > 32

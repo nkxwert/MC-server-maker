@@ -163,6 +163,69 @@ class ProviderParsingTest(unittest.TestCase):
             self.assertEqual(f.forge_version("1.20.1"), "47.3.0")
 
 
+class NeoForgeTest(unittest.TestCase):
+    def test_version_mapping(self):
+        m = providers.NeoForgeProvider.mc_version_of
+        self.assertEqual(m("21.1.77"), "1.21.1")
+        self.assertEqual(m("21.0.5-beta"), "1.21")
+        self.assertEqual(m("20.4.237"), "1.20.4")
+        self.assertEqual(m("26.1.0.3"), "26.1")
+        self.assertEqual(m("26.1.2.7"), "26.1.2")
+
+    def test_list_and_pick(self):
+        data = {"versions": ["20.4.237", "21.1.70", "21.1.77", "21.4.1-beta", "26.1.0.3"]}
+        with mock.patch.object(net, "get_json", lambda url: data):
+            p = providers.NeoForgeProvider()
+            self.assertEqual(p.list_versions(), ["26.1", "1.21.1", "1.20.4"])
+            self.assertEqual(p.list_versions(True), ["26.1", "1.21.4", "1.21.1", "1.20.4"])
+            self.assertEqual(p.loader_version("1.21.1"), "21.1.77")
+            self.assertEqual(p.loader_version("1.21.4"), "21.4.1-beta")
+
+
+class BedrockTest(Base):
+    def test_install_update_remove(self):
+        from mc_server_maker.core import plugins
+
+        meta = self.create()
+        meta.software = "paper"
+        api = {
+            plugins.GEYSER_API.format(project=p): {
+                "build": 900, "downloads": {"spigot": {"name": f"{p.capitalize()}-Spigot.jar", "sha256": "x"}}
+            }
+            for p in plugins.PROJECTS
+        }
+        downloads = []
+
+        def fake_download(url, dest, task=None, **kw):
+            downloads.append(url)
+            Path(dest).write_text("jar")
+
+        with mock.patch.object(net, "get_json", lambda url: api[url]), mock.patch.object(net, "download", fake_download):
+            self.assertFalse(plugins.bedrock_installed(meta))
+            self.assertEqual(plugins.udp_ports(meta), [])
+            plugins.install_bedrock(meta)
+        self.assertTrue(plugins.bedrock_installed(meta))
+        self.assertEqual(plugins.udp_ports(meta), [19132])
+        self.assertTrue(downloads[0].endswith("/geyser/versions/latest/builds/latest/downloads/spigot"))
+
+        cfg = meta.folder / "plugins" / "Geyser-Spigot" / "config.yml"
+        cfg.parent.mkdir()
+        cfg.write_text("bedrock:\n  # The port\n  address: 0.0.0.0\n  port: 19200\nremote:\n  port: 25565\n")
+        self.assertEqual(plugins.bedrock_port(meta), 19200)
+
+        plugins.remove_bedrock(meta)
+        self.assertFalse(plugins.bedrock_installed(meta))
+
+    def test_vanilla_not_supported(self):
+        from mc_server_maker.core import plugins
+
+        meta = self.create()
+        meta.software = "vanilla"
+        self.assertFalse(plugins.supports_bedrock(meta))
+        with self.assertRaises(ValueError):
+            plugins.install_bedrock(meta)
+
+
 class ServerTest(Base):
     def test_create_random(self):
         meta = self.create(motd="§a안녕")

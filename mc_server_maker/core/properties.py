@@ -1,7 +1,7 @@
-"""server.properties 읽기/쓰기 (주석과 순서를 유지한다).
+"""Read/write server.properties, keeping comments and order.
 
-Java .properties 형식 규칙을 따른다. 한글이나 '§' 같은 문자는 \\uXXXX 로 저장해서
-모든 마인크래프트 버전에서 깨지지 않게 한다.
+Follows Java .properties rules. Non-ASCII characters (Korean, '§', ...) are written as
+\\uXXXX so every Minecraft version reads them correctly.
 """
 
 import re
@@ -25,7 +25,7 @@ def unescape(s: str) -> str:
             continue
         out.append(c)
         i += 1
-    # 😀 처럼 나뉜 서로게이트 쌍을 합친다
+    # join split UTF-16 surrogate pairs (e.g. emoji)
     return "".join(out).encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
@@ -59,7 +59,7 @@ def _utf16(c: str) -> List[int]:
 
 
 def _split_line(line: str):
-    """'key=value' 줄을 (key, value)로 나눈다 (이스케이프된 구분자는 무시)."""
+    """Split a 'key=value' line (escaped separators are ignored)."""
     i = 0
     while i < len(line):
         c = line[i]
@@ -93,7 +93,7 @@ class Properties:
             text = raw.decode("utf-8")
         except UnicodeDecodeError:
             text = raw.decode("latin-1")
-        # 줄 끝 '\'로 이어지는 줄을 합친다
+        # join lines continued with a trailing backslash
         logical: List[str] = []
         buf = ""
         for line in text.splitlines():

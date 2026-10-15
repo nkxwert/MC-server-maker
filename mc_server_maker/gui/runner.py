@@ -1,13 +1,13 @@
-"""서버 프로세스 실행 / 콘솔 입출력 / 접속자 추적."""
+"""Run server processes, console I/O and online-player tracking."""
 
 import re
-import time
 from collections import deque
 from typing import Deque, Dict, Set
 
 from PySide6.QtCore import QObject, QProcess, Signal
 
 from mc_server_maker.core import server as srv
+from mc_server_maker.i18n import t
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 JOIN_RE = re.compile(r":\s(?:\[[^\]]*\]\s)?([A-Za-z0-9_.]{1,16}) joined the game")
@@ -19,9 +19,9 @@ STOPPED, STARTING, RUNNING, STOPPING = "stopped", "starting", "running", "stoppi
 
 
 class ServerRunner(QObject):
-    line = Signal(str, str)  # (서버 폴더, 한 줄)
-    state_changed = Signal(str, str)  # (서버 폴더, 상태)
-    players_changed = Signal(str)  # (서버 폴더)
+    line = Signal(str, str)  # (server folder, one line)
+    state_changed = Signal(str, str)  # (server folder, state)
+    players_changed = Signal(str)  # (server folder)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,10 +29,9 @@ class ServerRunner(QObject):
         self.logs: Dict[str, Deque[str]] = {}
         self.players: Dict[str, Set[str]] = {}
         self.status: Dict[str, str] = {}
-        self.started_at: Dict[str, float] = {}
         self._partial: Dict[str, str] = {}
 
-    # ---------------------------------------------------------------- 상태
+    # ------------------------------------------------------------------ state
 
     def state(self, key: str) -> str:
         return self.status.get(key, STOPPED)
@@ -50,15 +49,12 @@ class ServerRunner(QObject):
     def online_players(self, key: str):
         return sorted(self.players.get(key, set()), key=str.lower)
 
-    def uptime(self, key: str) -> float:
-        return time.time() - self.started_at[key] if self.is_running(key) and key in self.started_at else 0
-
     def _set_state(self, key: str, state: str):
         if self.status.get(key) != state:
             self.status[key] = state
             self.state_changed.emit(key, state)
 
-    # ---------------------------------------------------------------- 출력
+    # ----------------------------------------------------------------- output
 
     def _emit_line(self, key: str, text: str):
         self.logs.setdefault(key, deque(maxlen=MAX_LINES)).append(text)
@@ -75,7 +71,7 @@ class ServerRunner(QObject):
             self.players_changed.emit(key)
 
     def system_line(self, key: str, text: str):
-        """프로그램이 콘솔에 남기는 안내 메시지."""
+        """A message from this app shown in the console."""
         self._emit_line(key, "»» " + text)
 
     def _read(self, key: str, proc: QProcess):
@@ -85,13 +81,13 @@ class ServerRunner(QObject):
         for ln in lines:
             self._emit_line(key, ln)
 
-    # ---------------------------------------------------------------- 제어
+    # ---------------------------------------------------------------- control
 
     def start(self, meta: srv.ServerMeta) -> None:
         key = str(meta.folder)
         if self.is_running(key):
             return
-        cmd = srv.launch_command(meta)  # Java를 못 찾으면 ServerError
+        cmd = srv.launch_command(meta)  # ServerError if Java is missing
         srv.write_start_scripts(meta)
         proc = QProcess(self)
         proc.setProgram(cmd[0])
@@ -104,8 +100,7 @@ class ServerRunner(QObject):
         self.procs[key] = proc
         self.players[key] = set()
         self._partial[key] = ""
-        self.started_at[key] = time.time()
-        self.system_line(key, f"서버 시작: {' '.join(cmd)}")
+        self.system_line(key, t("Starting: {cmd}", cmd=" ".join(cmd)))
         self._set_state(key, STARTING)
         proc.start()
 
@@ -113,14 +108,14 @@ class ServerRunner(QObject):
         rest = self._partial.pop(key, "")
         if rest:
             self._emit_line(key, rest)
-        self.system_line(key, f"서버가 종료되었습니다. (코드 {code})")
+        self.system_line(key, t("Server stopped (exit code {code}).", code=code))
         self.players[key] = set()
         self.players_changed.emit(key)
         self._set_state(key, STOPPED)
 
     def _error(self, key: str, proc: QProcess, err):
         if err == QProcess.FailedToStart:
-            self.system_line(key, f"서버를 시작하지 못했습니다: {proc.errorString()}")
+            self.system_line(key, t("Could not start the server: {err}", err=proc.errorString()))
             self._set_state(key, STOPPED)
 
     def send(self, key: str, command: str) -> bool:

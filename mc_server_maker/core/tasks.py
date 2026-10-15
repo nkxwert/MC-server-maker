@@ -1,6 +1,19 @@
-"""오래 걸리는 작업(다운로드, 설치)에 진행 상황을 전달하기 위한 객체."""
+"""Progress reporting for long jobs (downloads, installs)."""
 
 from typing import Callable, Optional
+
+from mc_server_maker.i18n import t
+
+
+def _safe_print(msg: str) -> None:
+    """print() that never crashes on consoles that can't show the text (e.g. cp1252)."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        import sys
+
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(msg.encode(enc, errors="replace").decode(enc, errors="replace"))
 
 
 class Cancelled(Exception):
@@ -13,7 +26,7 @@ class Task:
         log: Optional[Callable[[str], None]] = None,
         progress: Optional[Callable[[int, int], None]] = None,
     ):
-        self._log = log or print
+        self._log = log or _safe_print
         self._progress = progress or (lambda done, total: None)
         self.cancelled = False
 
@@ -25,4 +38,4 @@ class Task:
 
     def check(self) -> None:
         if self.cancelled:
-            raise Cancelled("작업이 취소되었습니다.")
+            raise Cancelled(t("Cancelled."))

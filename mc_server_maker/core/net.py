@@ -1,4 +1,4 @@
-"""HTTP 요청 / 파일 다운로드."""
+"""HTTP requests / file downloads."""
 
 import hashlib
 import json
@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from mc_server_maker import APP_VERSION
+from mc_server_maker.i18n import t
 from mc_server_maker.core.tasks import Task
 
 USER_AGENT = f"MC-Server-Maker/{APP_VERSION} (+https://github.com/nkxwert/MC-server-maker)"
@@ -20,7 +21,7 @@ class NetError(Exception):
 
 
 def _ssl_context() -> ssl.SSLContext:
-    # macOS의 python.org 설치본은 인증서가 없을 수 있어서 certifi가 있으면 사용한다.
+    # python.org builds on macOS may lack CA certificates; prefer certifi when available.
     try:
         import certifi
 
@@ -39,7 +40,7 @@ def _open(url: str):
     except urllib.error.HTTPError as e:
         raise NetError(f"HTTP {e.code}: {url}") from e
     except urllib.error.URLError as e:
-        raise NetError(f"연결 실패 ({e.reason}): {url}") from e
+        raise NetError(t("Connection failed ({reason}): {url}", reason=e.reason, url=url)) from e
 
 
 def get_json(url: str):
@@ -68,7 +69,7 @@ def download(
     sha256: Optional[str] = None,
     md5: Optional[str] = None,
 ) -> Path:
-    """url을 dest에 내려받고 해시가 주어지면 검증한다."""
+    """Download url to dest, verifying the hash when one is given."""
     task = task or Task()
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +79,7 @@ def download(
         for name, expected in (("sha1", sha1), ("sha256", sha256), ("md5", md5))
         if expected
     }
-    task.log(f"다운로드: {url}")
+    task.log(t("Downloading: {url}", url=url))
     with _open(url) as resp, open(tmp, "wb") as f:
         total = int(resp.headers.get("Content-Length") or 0)
         done = 0
@@ -95,6 +96,6 @@ def download(
     for name, (h, expected) in hashers.items():
         if h.hexdigest() != expected:
             tmp.unlink(missing_ok=True)
-            raise NetError(f"파일 검증 실패({name}): {dest.name} - 다시 시도해 주세요.")
+            raise NetError(t("File check failed ({algo}): {file} - please try again.", algo=name, file=dest.name))
     tmp.replace(dest)
     return dest

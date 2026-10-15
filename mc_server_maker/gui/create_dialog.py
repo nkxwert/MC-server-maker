@@ -1,4 +1,4 @@
-"""새 서버 만들기 창."""
+"""New server dialog."""
 
 import random
 
@@ -24,11 +24,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mc_server_maker.core import plugins
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.providers import PROVIDERS
 from mc_server_maker.gui.theme import set_kind
-from mc_server_maker.gui.widgets import COLOR_HELP, amp_to_section
+from mc_server_maker.gui.widgets import amp_to_section, color_help
 from mc_server_maker.gui.workers import run_async
+from mc_server_maker.i18n import t
 
 
 def hint_label(text: str) -> QLabel:
@@ -43,7 +45,7 @@ def random_seed() -> str:
 
 
 class VersionLoader:
-    """구동기를 바꾸면 버전 목록을 백그라운드에서 받아와 콤보박스를 채운다."""
+    """Fetch the version list in the background and fill a combo box."""
 
     def __init__(self, combo: QComboBox, status: QLabel):
         self.combo = combo
@@ -55,21 +57,22 @@ class VersionLoader:
         req = self._request
         self.combo.clear()
         self.combo.setEnabled(False)
-        self.status.setText("버전 목록 불러오는 중...")
+        self.status.setText(t("Loading versions..."))
 
         def done(result):
             if req != self._request:
                 return
             items = [v for v in result if not filter_fn or filter_fn(v)]
-            self.combo.addItems(items)
+            for i, v in enumerate(items):
+                self.combo.addItem(v + (f"  ({t('latest')})" if i == 0 and not filter_fn else ""), v)
             self.combo.setEnabled(bool(items))
             if keep and keep in items:
-                self.combo.setCurrentText(keep)
-            self.status.setText(f"{len(items)}개 버전" if items else "선택할 수 있는 버전이 없습니다.")
+                self.combo.setCurrentIndex(items.index(keep))
+            self.status.setText(t("{n} versions", n=len(items)) if items else t("No versions available."))
 
         def fail(msg):
             if req == self._request:
-                self.status.setText("⚠ 버전 목록을 불러오지 못했습니다: " + msg)
+                self.status.setText("⚠ " + t("Could not load versions: {msg}", msg=msg))
 
         run_async(lambda task: provider.list_versions(include_unstable), done, fail)
 
@@ -77,8 +80,8 @@ class VersionLoader:
 class CreateServerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("새 서버 만들기")
-        self.resize(660, 800)
+        self.setWindowTitle(t("New server"))
+        self.resize(680, 780)
         self.options = None
 
         outer = QVBoxLayout(self)
@@ -91,52 +94,52 @@ class CreateServerDialog(QDialog):
         scroll.setWidget(body)
         outer.addWidget(scroll)
 
-        # --- 1. 구동기 / 버전
-        box = QGroupBox("1. 구동기와 버전")
+        # --- 1. software / version
+        box = QGroupBox(t("1. Software and version"))
         form = QFormLayout(box)
-        self.name = QLineEdit("내 서버")
-        form.addRow("서버 이름", self.name)
+        self.name = QLineEdit(t("My Server"))
+        form.addRow(t("Name"), self.name)
         cards = QGridLayout()
         cards.setSpacing(8)
         self.software = QButtonGroup(self)
         for i, p in enumerate(PROVIDERS):
-            card = set_kind(QPushButton(f"{p.name}\n{p.short}"), "card")
+            card = set_kind(QPushButton(f"{p.name}\n{t(p.short)}"), "card")
             card.setCheckable(True)
             card.setMinimumHeight(54)
-            card.setToolTip(p.description)
+            card.setToolTip(t(p.description))
             self.software.addButton(card, i)
-            cards.addWidget(card, i // 2, i % 2)
+            cards.addWidget(card, i // 3, i % 3)
         self.software.button(0).setChecked(True)
-        form.addRow("구동기 종류", cards)
-        self.software_desc = hint_label("")
-        form.addRow("", self.software_desc)
+        form.addRow(t("Software"), cards)
         self.version = QComboBox()
-        form.addRow("버전", self.version)
+        form.addRow(t("Version"), self.version)
+        row = QHBoxLayout()
         self.version_status = hint_label("")
-        form.addRow("", self.version_status)
-        self.unstable = QCheckBox("스냅샷 / 테스트 버전도 표시")
-        form.addRow("", self.unstable)
+        self.unstable = QCheckBox(t("Show snapshots"))
+        row.addWidget(self.version_status, 1)
+        row.addWidget(self.unstable)
+        form.addRow("", row)
         layout.addWidget(box)
 
-        # --- 2. 실행 환경
-        box = QGroupBox("2. 실행 환경")
+        # --- 2. runtime
+        box = QGroupBox(t("2. Runtime"))
         form = QFormLayout(box)
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64, value=2)
-        form.addRow("메모리(RAM)", self.ram)
-        self.auto_java = QCheckBox("필요한 Java가 없으면 자동으로 설치 (권장)")
+        form.addRow(t("Memory (RAM)"), self.ram)
+        self.auto_java = QCheckBox(t("Install the right Java automatically"))
         self.auto_java.setChecked(True)
         form.addRow("Java", self.auto_java)
-        hint = hint_label("버전에 맞는 Java(Eclipse Temurin)를 runtime 폴더에 받아서 이 프로그램만 사용합니다.")
-        form.addRow("", hint)
+        self.bedrock = QCheckBox(t("Let Bedrock players join (phone / console) — Geyser + Floodgate"))
+        form.addRow("Bedrock", self.bedrock)
         layout.addWidget(box)
 
-        # --- 3. 맵
-        box = QGroupBox("3. 맵(월드)")
+        # --- 3. world
+        box = QGroupBox(t("3. World"))
         v = QVBoxLayout(box)
         self.world_group = QButtonGroup(self)
-        self.rb_random = QRadioButton("무작위 맵 생성")
-        self.rb_seed = QRadioButton("시드로 생성")
-        self.rb_import = QRadioButton("기존 맵 불러오기 (폴더 또는 .zip)")
+        self.rb_random = QRadioButton(t("Random world"))
+        self.rb_seed = QRadioButton(t("From seed"))
+        self.rb_import = QRadioButton(t("Import existing world (folder or .zip)"))
         self.rb_random.setChecked(True)
         for i, rb in enumerate((self.rb_random, self.rb_seed, self.rb_import)):
             self.world_group.addButton(rb, i)
@@ -144,8 +147,8 @@ class CreateServerDialog(QDialog):
         v.addWidget(self.rb_random)
         v.addWidget(self.rb_seed)
         seed_row = QHBoxLayout()
-        self.seed = QLineEdit(placeholderText="시드 입력 (숫자 또는 글자)")
-        self.seed_dice = QPushButton("🎲 무작위 시드")
+        self.seed = QLineEdit(placeholderText=t("Seed (numbers or text)"))
+        self.seed_dice = QPushButton("🎲 " + t("Random"))
         self.seed_dice.clicked.connect(lambda: self.seed.setText(random_seed()))
         seed_row.addSpacing(24)
         seed_row.addWidget(self.seed, 1)
@@ -154,10 +157,10 @@ class CreateServerDialog(QDialog):
 
         v.addWidget(self.rb_import)
         imp_row = QHBoxLayout()
-        self.import_path = QLineEdit(placeholderText="맵 폴더 또는 zip 파일 경로")
-        btn_dir = QPushButton("폴더...")
+        self.import_path = QLineEdit(placeholderText=t("World folder or zip file"))
+        btn_dir = QPushButton(t("Folder..."))
         btn_dir.clicked.connect(self._pick_world_dir)
-        btn_zip = QPushButton("zip...")
+        btn_zip = QPushButton(t("Zip..."))
         btn_zip.clicked.connect(self._pick_world_zip)
         imp_row.addSpacing(24)
         imp_row.addWidget(self.import_path, 1)
@@ -167,38 +170,37 @@ class CreateServerDialog(QDialog):
         self.import_widgets = (self.import_path, btn_dir, btn_zip)
 
         type_row = QHBoxLayout()
-        type_row.addWidget(QLabel("맵 종류"))
+        type_row.addWidget(QLabel(t("World type")))
         self.level_type = QComboBox()
         for key, label in srv.LEVEL_TYPES:
-            self.level_type.addItem(label, key)
+            self.level_type.addItem(t(label), key)
         type_row.addWidget(self.level_type, 1)
         v.addLayout(type_row)
         layout.addWidget(box)
 
-        # --- 4. 기본 설정
-        box = QGroupBox("4. 기본 설정 (나중에 바꿀 수 있어요)")
+        # --- 4. basics
+        box = QGroupBox(t("4. Basics (can be changed later)"))
         form = QFormLayout(box)
-        self.motd = QLineEdit("&a마인크래프트 서버에 오신 걸 환영합니다!")
-        form.addRow("서버 설명(MOTD)", self.motd)
-        color_help = hint_label(COLOR_HELP)
-        form.addRow("", color_help)
+        self.motd = QLineEdit(t("&aWelcome to my Minecraft server!"))
+        form.addRow(t("Description (MOTD)"), self.motd)
+        form.addRow("", hint_label(color_help()))
         self.gamemode = QComboBox()
         for key, label in srv.GAMEMODES:
-            self.gamemode.addItem(label, key)
-        form.addRow("게임 모드", self.gamemode)
+            self.gamemode.addItem(t(label), key)
+        form.addRow(t("Game mode"), self.gamemode)
         self.difficulty = QComboBox()
         for key, label in srv.DIFFICULTIES:
-            self.difficulty.addItem(label, key)
+            self.difficulty.addItem(t(label), key)
         self.difficulty.setCurrentIndex(1)
-        form.addRow("난이도", self.difficulty)
+        form.addRow(t("Difficulty"), self.difficulty)
         self.max_players = QSpinBox(minimum=1, maximum=1000, value=20)
-        form.addRow("최대 인원", self.max_players)
+        form.addRow(t("Max players"), self.max_players)
         self.port = QSpinBox(minimum=1, maximum=65535, value=25565)
-        form.addRow("포트", self.port)
-        self.online_mode = QCheckBox("정품 인증 (끄면 비정품 계정도 접속 가능)")
+        form.addRow(t("Port"), self.port)
+        self.online_mode = QCheckBox(t("Online mode (turn off to allow non-premium accounts)"))
         self.online_mode.setChecked(True)
         form.addRow("", self.online_mode)
-        self.pvp = QCheckBox("PvP 허용")
+        self.pvp = QCheckBox("PvP")
         self.pvp.setChecked(True)
         form.addRow("", self.pvp)
         layout.addWidget(box)
@@ -206,7 +208,7 @@ class CreateServerDialog(QDialog):
         # --- EULA
         self.eula = QCheckBox()
         eula_label = QLabel(
-            '<a href="https://aka.ms/MinecraftEULA">마인크래프트 EULA(최종 사용자 라이선스)</a>에 동의합니다. (필수)'
+            t('I accept the <a href="https://aka.ms/MinecraftEULA">Minecraft EULA</a> (required).')
         )
         eula_label.setOpenExternalLinks(True)
         eula_row = QHBoxLayout()
@@ -216,8 +218,8 @@ class CreateServerDialog(QDialog):
         layout.addStretch()
 
         buttons = QDialogButtonBox()
-        self.create_btn = set_kind(buttons.addButton("서버 만들기", QDialogButtonBox.AcceptRole), "primary")
-        buttons.addButton("취소", QDialogButtonBox.RejectRole)
+        self.create_btn = set_kind(buttons.addButton(t("Create server"), QDialogButtonBox.AcceptRole), "primary")
+        buttons.addButton(t("Cancel"), QDialogButtonBox.RejectRole)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
@@ -235,11 +237,14 @@ class CreateServerDialog(QDialog):
         return PROVIDERS[self.software.checkedId()]
 
     def _software_changed(self):
-        self.software_desc.setText(self._provider().description)
+        ok = self._provider().id in plugins.PLUGIN_SOFTWARE
+        self.bedrock.setEnabled(ok)
+        if not ok:
+            self.bedrock.setChecked(False)
         self._reload_versions()
 
     def _reload_versions(self):
-        self.loader.load(self._provider(), self.unstable.isChecked(), keep=self.version.currentText())
+        self.loader.load(self._provider(), self.unstable.isChecked(), keep=self.version.currentData())
 
     def _world_mode_changed(self, *_):
         mode = self.world_group.checkedId()
@@ -250,35 +255,35 @@ class CreateServerDialog(QDialog):
         self.level_type.setEnabled(mode != 2)
 
     def _pick_world_dir(self):
-        d = QFileDialog.getExistingDirectory(self, "맵 폴더 선택 (level.dat 이 있는 폴더)")
+        d = QFileDialog.getExistingDirectory(self, t("Choose a world folder (with level.dat)"))
         if d:
             self.import_path.setText(d)
 
     def _pick_world_zip(self):
-        f, _ = QFileDialog.getOpenFileName(self, "맵 zip 파일 선택", "", "Zip 파일 (*.zip)")
+        f, _ = QFileDialog.getOpenFileName(self, t("Choose a world zip"), "", "Zip (*.zip)")
         if f:
             self.import_path.setText(f)
 
     def _accept(self):
         name = self.name.text().strip()
-        version = self.version.currentText()
+        version = self.version.currentData()
         mode = ("random", "seed", "import")[self.world_group.checkedId()]
         problems = []
         if not name:
-            problems.append("서버 이름을 입력해 주세요.")
+            problems.append(t("Enter a server name."))
         if not version:
-            problems.append("버전을 선택해 주세요. (목록이 안 나오면 인터넷 연결을 확인해 주세요)")
+            problems.append(t("Choose a version. (If the list is empty, check your internet connection.)"))
         if mode == "seed" and not self.seed.text().strip():
-            problems.append("시드를 입력하거나 🎲 버튼을 눌러 주세요.")
+            problems.append(t("Enter a seed or press 🎲."))
         if mode == "import":
             try:
                 srv.find_world_root(self.import_path.text().strip())
             except srv.ServerError as e:
                 problems.append(str(e))
         if not self.eula.isChecked():
-            problems.append("EULA에 동의해야 서버를 만들 수 있습니다.")
+            problems.append(t("You must accept the Minecraft EULA to create a server."))
         if problems:
-            QMessageBox.warning(self, "확인해 주세요", "\n".join(problems))
+            QMessageBox.warning(self, t("Check these"), "\n".join(problems))
             return
 
         self.options = srv.CreateOptions(
@@ -301,5 +306,6 @@ class CreateServerDialog(QDialog):
             pvp=self.pvp.isChecked(),
             port=self.port.value(),
             eula_accepted=True,
+            bedrock=self.bedrock.isChecked(),
         )
         self.accept()

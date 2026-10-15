@@ -1,4 +1,4 @@
-"""OP / 화이트리스트 (서버가 꺼져 있을 때 ops.json, whitelist.json 직접 편집)."""
+"""OPs / whitelist (edits ops.json and whitelist.json while the server is stopped)."""
 
 import hashlib
 import json
@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List
 
 from mc_server_maker.core import net
+from mc_server_maker.i18n import t
 
 MOJANG_PROFILE = "https://api.mojang.com/users/profiles/minecraft/{}"
 
@@ -23,15 +24,15 @@ def offline_uuid(name: str) -> str:
 
 
 def lookup_uuid(name: str, online_mode: bool) -> tuple:
-    """(정확한 이름, uuid)"""
+    """(exact name, uuid)"""
     if not online_mode:
         return name, offline_uuid(name)
     try:
         data = net.get_json(MOJANG_PROFILE.format(name))
     except net.NetError as e:
-        raise PlayerError(f"'{name}' 플레이어를 찾지 못했습니다. ({e})") from e
+        raise PlayerError(t("Player '{name}' not found. ({err})", name=name, err=e)) from e
     if not data or "id" not in data:
-        raise PlayerError(f"'{name}' 플레이어를 찾지 못했습니다.")
+        raise PlayerError(t("Player '{name}' not found.", name=name))
     return data["name"], str(uuid.UUID(data["id"]))
 
 
@@ -54,7 +55,7 @@ def list_names(server_dir: Path, kind: str) -> List[str]:
 
 
 def add(server_dir: Path, kind: str, name: str, online_mode: bool) -> str:
-    """kind: 'ops' 또는 'whitelist'."""
+    """kind: 'ops' or 'whitelist'."""
     path = Path(server_dir) / f"{kind}.json"
     data = _read(path)
     real_name, pid = lookup_uuid(name, online_mode)

@@ -1,4 +1,4 @@
-"""공용 위젯: MOTD 미리보기, 서버 아이콘 변환."""
+"""Shared widgets: MOTD preview, server icon conversion."""
 
 import html
 import re
@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+from mc_server_maker.i18n import t
 
 COLORS = {
     "0": "#000000", "1": "#0000AA", "2": "#00AA00", "3": "#00AAAA",
@@ -14,11 +15,10 @@ COLORS = {
     "8": "#555555", "9": "#5555FF", "a": "#55FF55", "b": "#55FFFF",
     "c": "#FF5555", "d": "#FF55FF", "e": "#FFFF55", "f": "#FFFFFF",
 }
-COLOR_HELP = (
-    "색 코드: &0검정 &1진파랑 &2초록 &3청록 &4빨강 &5보라 &6금색 &7회색 "
-    "&8진회색 &9파랑 &a연두 &b하늘 &c연빨강 &d분홍 &e노랑 &f흰색 · "
-    "&l굵게 &o기울임 &n밑줄 &m취소선 &r초기화"
-)
+def color_help() -> str:
+    return t("Colors: &0 black &1 dark blue &2 green &3 teal &4 red &5 purple &6 gold &7 gray "
+             "&8 dark gray &9 blue &a lime &b aqua &c light red &d pink &e yellow &f white · "
+             "&l bold &o italic &n underline &m strike &r reset")
 _CODE_RE = re.compile(r"&([0-9a-fk-or])", re.IGNORECASE)
 
 
@@ -31,7 +31,7 @@ def section_to_amp(text: str) -> str:
 
 
 def motd_to_html(motd: str) -> str:
-    """'§a안녕 §l서버' 같은 MOTD를 HTML로 바꾼다."""
+    """Convert a MOTD like '§aHello §lworld' to HTML."""
     out = []
     color = COLORS["7"]
     styles = set()
@@ -76,7 +76,7 @@ def motd_to_html(motd: str) -> str:
 
 
 class MotdPreview(QFrame):
-    """마인크래프트 서버 목록처럼 보이는 미리보기."""
+    """Preview that looks like the Minecraft server list."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -107,18 +107,18 @@ class MotdPreview(QFrame):
             self.icon.setText("")
         else:
             self.icon.setPixmap(QPixmap())
-            self.icon.setText("<span style='color:#888'>아이콘<br>없음</span>")
+            self.icon.setText("<span style='color:#888'>" + t("No icon") + "</span>")
 
 
 def convert_icon(src: str, dest: Path) -> None:
-    """아무 이미지나 가운데를 정사각형으로 잘라 64x64 PNG로 저장한다."""
+    """Center-crop any image to a square and save it as a 64x64 PNG."""
     img = QImage(src)
     if img.isNull():
-        raise ValueError("이미지를 열 수 없습니다. PNG/JPG/BMP/GIF 파일을 골라 주세요.")
+        raise ValueError(t("Can't open that image. Choose a PNG/JPG/BMP/GIF file."))
     side = min(img.width(), img.height())
     x = (img.width() - side) // 2
     y = (img.height() - side) // 2
     img = img.copy(x, y, side, side).scaled(64, 64, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
     img = img.convertToFormat(QImage.Format_ARGB32)
     if not img.save(str(dest), "PNG"):
-        raise ValueError("아이콘 저장에 실패했습니다.")
+        raise ValueError(t("Could not save the icon."))

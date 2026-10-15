@@ -1,4 +1,4 @@
-"""서버 만들기 / 업그레이드 / 월드 관리."""
+"""Create / upgrade servers, manage worlds and backups."""
 
 import json
 import re
@@ -15,19 +15,20 @@ from mc_server_maker.core import paths, versions
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import get_provider
 from mc_server_maker.core.tasks import Task
+from mc_server_maker.i18n import t
 
 META_FILE = "server-maker.json"
 BACKUP_DIR = "backups"
-# 백업에서 제외 (용량이 크고 다시 받을 수 있는 것들)
+# Excluded from backups (large and re-downloadable)
 BACKUP_EXCLUDE = {BACKUP_DIR, "libraries", "cache", "logs", ".fabric", "versions", "crash-reports"}
 
-GAMEMODES = [("survival", "서바이벌"), ("creative", "크리에이티브"), ("adventure", "모험"), ("spectator", "관전")]
-DIFFICULTIES = [("peaceful", "평화로움"), ("easy", "쉬움"), ("normal", "보통"), ("hard", "어려움")]
+GAMEMODES = [("survival", "Survival"), ("creative", "Creative"), ("adventure", "Adventure"), ("spectator", "Spectator")]
+DIFFICULTIES = [("peaceful", "Peaceful"), ("easy", "Easy"), ("normal", "Normal"), ("hard", "Hard")]
 LEVEL_TYPES = [
-    ("normal", "기본"),
-    ("flat", "평지"),
-    ("large_biomes", "큰 생물 군계"),
-    ("amplified", "확대"),
+    ("normal", "Default"),
+    ("flat", "Flat"),
+    ("large_biomes", "Large biomes"),
+    ("amplified", "Amplified"),
 ]
 _LEGACY_LEVEL_TYPES = {"normal": "default", "flat": "flat", "large_biomes": "largeBiomes", "amplified": "amplified"}
 
@@ -47,7 +48,7 @@ class ServerMeta:
     java_path: str = "java"
     launch: dict = field(default_factory=dict)
     created: str = ""
-    upnp: bool = False  # 서버를 켤 때 공유기 포트를 자동으로 열지
+    upnp: bool = False  # open router ports automatically on start
     folder: Path = field(default=None, compare=False)
 
     def save(self) -> None:
@@ -102,9 +103,10 @@ class CreateOptions:
     pvp: bool = True
     port: int = 25565
     eula_accepted: bool = False
+    bedrock: bool = False  # install Geyser + Floodgate (Paper/Purpur)
 
 
-# ---------------------------------------------------------------- 서버 목록
+# ------------------------------------------------------------ server list
 
 
 def list_servers() -> List[ServerMeta]:
@@ -130,11 +132,11 @@ def folder_name_for(name: str) -> Path:
     return candidate
 
 
-# ------------------------------------------------------- server.properties 값
+# ------------------------------------------------- server.properties values
 
 
 def _legacy_names(mc_version: str) -> bool:
-    # 1.14 미만은 gamemode/difficulty를 숫자로 저장한다.
+    # Before 1.14 gamemode/difficulty are stored as numbers.
     return not versions.is_at_least(mc_version, "1.14")
 
 
@@ -151,7 +153,7 @@ def difficulty_value(diff: str, mc_version: str) -> str:
 
 
 def parse_choice(value: Optional[str], choices: list, default: str) -> str:
-    """'1', 'creative' 둘 다 'creative'로 해석한다."""
+    """Both '1' and 'creative' mean 'creative'."""
     keys = [k for k, _ in choices]
     if value is None:
         return default
@@ -174,7 +176,7 @@ def parse_level_type(value: Optional[str]) -> str:
     return v if v in dict(LEVEL_TYPES) else "normal"
 
 
-# --------------------------------------------------------------- 실행 명령
+# --------------------------------------------------------- launch command
 
 
 def resolve_java(meta: ServerMeta) -> str:
@@ -182,14 +184,14 @@ def resolve_java(meta: ServerMeta) -> str:
         return meta.java_path
     found = javamod.find_java(meta.java_major, strict=False)
     if not found:
-        raise ServerError(f"Java {meta.java_major}을(를) 찾지 못했습니다. 업그레이드 탭에서 Java를 다시 설치해 주세요.")
+        raise ServerError(t("Java {v} not found. Reinstall it from the Update tab.", v=meta.java_major))
     meta.java_path = found.path
     meta.save()
     return found.path
 
 
 def launch_args(meta: ServerMeta, windows: Optional[bool] = None) -> List[str]:
-    """java 경로를 뺀 실행 인자."""
+    """Launch arguments without the java executable."""
     windows = javamod.IS_WINDOWS if windows is None else windows
     xms = min(meta.ram_mb, 1024)
     args = [f"-Xms{xms}M", f"-Xmx{meta.ram_mb}M", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8"]
@@ -207,7 +209,7 @@ def launch_command(meta: ServerMeta) -> List[str]:
 
 
 def write_start_scripts(meta: ServerMeta) -> None:
-    """프로그램 없이도 서버를 켤 수 있게 start.bat / start.sh를 만든다."""
+    """Write start.bat / start.sh so the server can run without this app."""
     java = meta.java_path or "java"
     win_args = " ".join(launch_args(meta, windows=True))
     unix_args = " ".join(launch_args(meta, windows=False))
@@ -227,33 +229,33 @@ def _java_for(software: str, mc_version: str, auto_java: bool, task: Task) -> ja
     hint = get_provider(software).java_hint(mc_version)
     if hint and hint > required:
         required = hint
-    task.log(f"마인크래프트 {mc_version}에는 Java {javamod.install_target(required)}이(가) 필요합니다.")
+    task.log(t("Minecraft {mc} needs Java {v}.", mc=mc_version, v=javamod.install_target(required)))
     return javamod.ensure_java(required, auto_java, task)
 
 
-# --------------------------------------------------------------- 서버 생성
+# ---------------------------------------------------------------- create
 
 
 def create_server(opts: CreateOptions, task: Optional[Task] = None) -> ServerMeta:
     task = task or Task()
     if not opts.eula_accepted:
-        raise ServerError("마인크래프트 EULA에 동의해야 서버를 만들 수 있습니다.")
+        raise ServerError(t("You must accept the Minecraft EULA to create a server."))
     if opts.world.mode == "import":
-        find_world_root(Path(opts.world.import_path))  # 먼저 검사해서 실패를 빨리 알린다
+        find_world_root(Path(opts.world.import_path))  # fail early
 
     paths.ensure_dirs()
     folder = folder_name_for(opts.name)
     folder.mkdir(parents=True)
-    task.log(f"서버 폴더: {folder}")
+    task.log(t("Server folder: {path}", path=folder))
     try:
         provider = get_provider(opts.software)
         java = _java_for(opts.software, opts.mc_version, opts.auto_java, task)
         task.check()
-        task.log(f"{provider.name} {opts.mc_version} 설치 중...")
+        task.log(t("Installing {name} {v}...", name=provider.name, v=opts.mc_version))
         result = provider.install(folder, opts.mc_version, java, task)
 
         (folder / "eula.txt").write_text(
-            "# https://aka.ms/MinecraftEULA (MC Server Maker에서 동의함)\neula=true\n", encoding="utf-8"
+            "# https://aka.ms/MinecraftEULA (accepted in MC Server Maker)\neula=true\n", encoding="utf-8"
         )
 
         props = Properties(folder / "server.properties")
@@ -271,7 +273,7 @@ def create_server(opts: CreateOptions, task: Optional[Task] = None) -> ServerMet
         props.save()
 
         if opts.world.mode == "import":
-            task.log("맵 불러오는 중...")
+            task.log(t("Importing world..."))
             import_world(folder, Path(opts.world.import_path), "world")
 
         meta = ServerMeta(
@@ -288,14 +290,21 @@ def create_server(opts: CreateOptions, task: Optional[Task] = None) -> ServerMet
         )
         meta.save()
         write_start_scripts(meta)
-        task.log("서버 만들기 완료!")
+        if opts.bedrock:
+            from mc_server_maker.core import plugins
+
+            try:
+                plugins.install_bedrock(meta, task)
+            except Exception as e:  # noqa: BLE001 - the server itself is fine; Bedrock can be added later
+                task.log(t("Could not install Bedrock support: {err} (you can retry in Settings)", err=e))
+        task.log(t("Server created!"))
         return meta
     except BaseException:
         shutil.rmtree(folder, ignore_errors=True)
         raise
 
 
-# ------------------------------------------------------------- 업그레이드
+# --------------------------------------------------------------- upgrade
 
 
 def upgrade_server(
@@ -312,12 +321,12 @@ def upgrade_server(
     java = _java_for(meta.software, new_version, auto_java, task)
     task.check()
     provider = get_provider(meta.software)
-    task.log(f"{provider.name} {old_version} → {new_version} 업그레이드 중...")
+    task.log(t("Upgrading {name} {old} → {new}...", name=provider.name, old=old_version, new=new_version))
 
     old_launch = meta.launch or {}
     result = provider.install(meta.folder, new_version, java, task)
     new_launch = result["launch"]
-    # 이름이 다른 예전 실행 파일(Forge 구버전 jar 등) 정리
+    # remove an old launcher jar with a different name (old Forge jars etc.)
     if old_launch.get("type") == "jar" and old_launch != new_launch:
         old_jar = meta.folder / old_launch["jar"]
         if old_jar.name != new_launch.get("jar"):
@@ -325,7 +334,7 @@ def upgrade_server(
 
     props = meta.properties()
     if props.get("level-type"):
-        # 1.19부터 level-type 값 형식이 바뀌었다
+        # level-type values changed format in 1.19
         props.set("level-type", level_type_value(parse_level_type(props.get("level-type")), new_version))
         props.save()
 
@@ -336,7 +345,12 @@ def upgrade_server(
     meta.java_path = java.path
     meta.save()
     write_start_scripts(meta)
-    task.log("업그레이드 완료! 서버를 켜면 월드가 새 버전으로 변환됩니다.")
+    from mc_server_maker.core import plugins
+
+    if plugins.bedrock_installed(meta):
+        task.log(t("Updating Geyser/Floodgate for the new version..."))
+        plugins.install_bedrock(meta, task)
+    task.log(t("Upgrade complete! The world is converted to the new version on next start."))
     return meta
 
 
@@ -350,7 +364,7 @@ def change_java(meta: ServerMeta, auto_java: bool, task: Optional[Task] = None) 
     return meta
 
 
-# ------------------------------------------------------------------ 백업
+# ----------------------------------------------------------------- backups
 
 
 def world_dirs(meta: ServerMeta) -> List[Path]:
@@ -375,7 +389,7 @@ def backup_server(meta: ServerMeta, label: str = "", worlds_only: bool = False, 
             files.append(root)
         else:
             files.extend(p for p in root.rglob("*") if p.is_file())
-    task.log(f"백업 중... ({len(files)}개 파일)")
+    task.log(t("Backing up... ({n} files)", n=len(files)))
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
         for i, f in enumerate(files):
             task.check()
@@ -383,7 +397,7 @@ def backup_server(meta: ServerMeta, label: str = "", worlds_only: bool = False, 
                 continue
             z.write(f, f.relative_to(meta.folder).as_posix())
             task.progress(i + 1, len(files))
-    task.log(f"백업 저장: {dest}")
+    task.log(t("Backup saved: {path}", path=dest))
     return dest
 
 
@@ -392,29 +406,29 @@ def list_backups(meta: ServerMeta) -> List[Path]:
     return sorted(d.glob("*.zip"), reverse=True) if d.exists() else []
 
 
-# ------------------------------------------------------------------ 월드
+# ------------------------------------------------------------------ worlds
 
 
 def find_world_root(src: Path) -> Path:
-    """폴더/zip 안에서 level.dat 이 있는 위치를 찾는다 (폴더면 경로, zip이면 zip 경로)."""
+    """Locate level.dat inside a folder or zip (returns the folder, or the zip path)."""
     if not str(src).strip():
-        raise ServerError("불러올 맵(폴더 또는 zip)을 선택해 주세요.")
+        raise ServerError(t("Choose a world (folder or zip) to import."))
     src = Path(src)
     if not src.exists():
-        raise ServerError(f"맵 경로가 없습니다: {src}")
+        raise ServerError(t("World path does not exist: {path}", path=src))
     if src.is_dir():
         if (src / "level.dat").exists():
             return src
         for sub in sorted(src.iterdir()):
             if sub.is_dir() and (sub / "level.dat").exists():
                 return sub
-        raise ServerError("선택한 폴더에서 level.dat 을 찾지 못했습니다. 맵(월드) 폴더를 골라 주세요.")
+        raise ServerError(t("No level.dat found in that folder. Choose a world folder."))
     if zipfile.is_zipfile(src):
         with zipfile.ZipFile(src) as z:
             if not any(n.endswith("level.dat") and n.count("/") <= 1 for n in z.namelist()):
-                raise ServerError("zip 파일 안에 level.dat 이 없습니다.")
+                raise ServerError(t("The zip file has no level.dat."))
         return src
-    raise ServerError("맵은 폴더 또는 .zip 파일이어야 합니다.")
+    raise ServerError(t("A world must be a folder or a .zip file."))
 
 
 def import_world(server_dir: Path, src: Path, level_name: str = "world") -> None:
@@ -430,7 +444,7 @@ def import_world(server_dir: Path, src: Path, level_name: str = "world") -> None
         with zipfile.ZipFile(root) as z:
             for name in z.namelist():
                 if not (tmp_path / name).resolve().is_relative_to(tmp_path):
-                    raise ServerError("zip 파일 경로가 올바르지 않습니다.")
+                    raise ServerError(t("The archive contains an invalid path."))
             z.extractall(tmp_path)
         shutil.copytree(find_world_root(tmp_path), dest, ignore=shutil.ignore_patterns("session.lock"))
 
@@ -448,13 +462,13 @@ def replace_world_with_import(meta: ServerMeta, src: Path, task: Optional[Task] 
         backup_server(meta, "world-before-import", worlds_only=True, task=task)
     _remove_worlds(meta)
     level = meta.properties().get("level-name") or "world"
-    task.log("맵 불러오는 중...")
+    task.log(t("Importing world..."))
     import_world(meta.folder, src, level)
-    task.log("맵 불러오기 완료!")
+    task.log(t("World imported!"))
 
 
 def regenerate_world(meta: ServerMeta, seed: str, level_type: str, task: Optional[Task] = None) -> None:
-    """기존 맵을 백업 후 지우고, 다음 실행 때 새 맵이 만들어지게 한다."""
+    """Back up and delete the world so a new one is generated on next start."""
     task = task or Task()
     if any(d.exists() for d in world_dirs(meta)):
         backup_server(meta, "world-before-reset", worlds_only=True, task=task)
@@ -463,4 +477,4 @@ def regenerate_world(meta: ServerMeta, seed: str, level_type: str, task: Optiona
     props.set("level-seed", seed.strip())
     props.set("level-type", level_type_value(level_type, meta.mc_version))
     props.save()
-    task.log("기존 맵을 지웠습니다. 서버를 켜면 새 맵이 만들어집니다.")
+    task.log(t("Old world removed. A new world is generated on next start."))

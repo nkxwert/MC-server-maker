@@ -1,4 +1,4 @@
-"""Java 찾기 / 자동 설치 (Eclipse Temurin, Adoptium)."""
+"""Find Java / install it automatically (Eclipse Temurin via Adoptium)."""
 
 import os
 import platform
@@ -13,8 +13,9 @@ from typing import List, Optional
 
 from mc_server_maker.core import net, paths
 from mc_server_maker.core.tasks import Task
+from mc_server_maker.i18n import t
 
-# Adoptium에서 받을 수 있는 LTS 버전
+# LTS versions available from Adoptium
 LTS_VERSIONS = (8, 11, 17, 21, 25)
 IS_WINDOWS = os.name == "nt"
 JAVA_EXE = "java.exe" if IS_WINDOWS else "java"
@@ -29,11 +30,11 @@ class JavaError(Exception):
 class JavaInfo:
     path: str
     major: int
-    bundled: bool  # 이 프로그램이 runtime/ 에 설치한 Java인지
+    bundled: bool  # installed by this app into runtime/
 
 
 def install_target(required: int) -> int:
-    """필요 버전 이상인 가장 가까운 LTS (예: 16 -> 17)."""
+    """Closest LTS at or above the required version (e.g. 16 -> 17)."""
     for v in LTS_VERSIONS:
         if v >= required:
             return v
@@ -103,11 +104,11 @@ def find_java_candidates() -> List[JavaInfo]:
 
 
 def find_java(required: int, strict: bool = True) -> Optional[JavaInfo]:
-    """알맞은 Java를 찾는다.
+    """Pick a suitable Java.
 
-    strict=True 이면 권장 LTS 버전(예: 1.20.1 -> 17)과 정확히 같은 것만 고른다.
-    너무 새로운 Java에서는 구버전 서버/모드가 깨지는 경우가 있기 때문이다.
-    strict=False 이면 필요 버전 이상인 것 중 가장 낮은 것을 고른다.
+    strict=True only accepts the recommended LTS (e.g. 1.20.1 -> 17), because old
+    servers and mods can break on much newer Java. strict=False accepts the lowest
+    version that is at least `required`.
     """
     target = install_target(required)
     candidates = find_java_candidates()
@@ -124,7 +125,7 @@ def _platform() -> tuple:
     system = platform.system().lower()
     os_name = {"windows": "windows", "darwin": "mac", "linux": "linux"}.get(system)
     if not os_name:
-        raise JavaError(f"지원하지 않는 OS입니다: {platform.system()}")
+        raise JavaError(t("Unsupported OS: {os}", os=platform.system()))
     machine = platform.machine().lower()
     arch = {
         "amd64": "x64",
@@ -133,12 +134,12 @@ def _platform() -> tuple:
         "aarch64": "aarch64",
     }.get(machine)
     if not arch:
-        raise JavaError(f"지원하지 않는 CPU 종류입니다: {platform.machine()}")
+        raise JavaError(t("Unsupported CPU: {cpu}", cpu=platform.machine()))
     return os_name, arch
 
 
 def _find_package(major: int, os_name: str, arch: str) -> dict:
-    # JRE를 먼저 시도하고 없으면 JDK. Apple Silicon에 Java 8이 없으면 x64(Rosetta)로.
+    # Try a JRE first, then a JDK. Apple Silicon without Java 8 falls back to x64 (Rosetta).
     archs = [arch] + (["x64"] if os_name == "mac" and arch == "aarch64" else [])
     for a in archs:
         for image in ("jre", "jdk"):
@@ -152,33 +153,34 @@ def _find_package(major: int, os_name: str, arch: str) -> dict:
                 continue
             if assets:
                 return assets[0]["binary"]["package"]
-    raise JavaError(f"Java {major} 설치 파일을 찾지 못했습니다 ({os_name}/{arch}).")
+    raise JavaError(t("Could not find a Java {v} download ({os}/{arch}).", v=major, os=os_name, arch=arch))
 
 
 def _safe_extract(archive: Path, dest: Path) -> None:
     dest_resolved = dest.resolve()
+    bad = t("The archive contains an invalid path.")
     if archive.name.endswith(".zip"):
         with zipfile.ZipFile(archive) as z:
             for name in z.namelist():
                 if not (dest / name).resolve().is_relative_to(dest_resolved):
-                    raise JavaError("압축 파일 경로가 올바르지 않습니다.")
+                    raise JavaError(bad)
             z.extractall(dest)
     else:
-        with tarfile.open(archive) as t:
+        with tarfile.open(archive) as tf:
             try:
-                t.extractall(dest, filter="data")
-            except TypeError:  # 오래된 Python
-                for m in t.getmembers():
+                tf.extractall(dest, filter="data")
+            except TypeError:  # older Python
+                for m in tf.getmembers():
                     if not (dest / m.name).resolve().is_relative_to(dest_resolved):
-                        raise JavaError("압축 파일 경로가 올바르지 않습니다.")
-                t.extractall(dest)
+                        raise JavaError(bad)
+                tf.extractall(dest)
 
 
 def install_java(required: int, task: Optional[Task] = None) -> JavaInfo:
     task = task or Task()
     major = install_target(required)
     os_name, arch = _platform()
-    task.log(f"Java {major} 설치 파일을 찾는 중... ({os_name}/{arch})")
+    task.log(t("Looking for Java {v} ({os}/{arch})...", v=major, os=os_name, arch=arch))
     pkg = _find_package(major, os_name, arch)
     paths.ensure_dirs()
     archive = paths.RUNTIME_DIR / pkg["name"]
@@ -186,35 +188,32 @@ def install_java(required: int, task: Optional[Task] = None) -> JavaInfo:
     target = _bundled_dir(major)
     tmp = target.with_name(target.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
-    task.log("압축 푸는 중...")
+    task.log(t("Extracting..."))
     _safe_extract(archive, tmp)
     archive.unlink(missing_ok=True)
     shutil.rmtree(target, ignore_errors=True)
     tmp.rename(target)
     exe = _find_exe(target)
     if not exe:
-        raise JavaError("설치된 Java 실행 파일을 찾지 못했습니다.")
+        raise JavaError(t("Installed Java executable not found."))
     if not IS_WINDOWS:
         exe.chmod(exe.stat().st_mode | 0o111)
-    task.log(f"Java {major} 설치 완료: {exe}")
+    task.log(t("Java {v} installed: {path}", v=major, path=exe))
     return JavaInfo(str(exe), major, True)
 
 
 def ensure_java(required: int, auto_install: bool, task: Optional[Task] = None) -> JavaInfo:
-    """알맞은 Java를 찾고, 없으면 (자동 설치가 켜져 있을 때) 설치한다."""
+    """Find a suitable Java, installing one if allowed and needed."""
     task = task or Task()
     target = install_target(required)
     java = find_java(required, strict=True)
     if java:
-        task.log(f"Java {java.major} 사용: {java.path}")
+        task.log(t("Using Java {v}: {path}", v=java.major, path=java.path))
         return java
     if auto_install:
         return install_java(required, task)
     java = find_java(required, strict=False)
     if java:
-        task.log(f"주의: 권장 Java는 {target}인데 Java {java.major}을(를) 사용합니다: {java.path}")
+        task.log(t("Note: Java {want} is recommended, using Java {have}: {path}", want=target, have=java.major, path=java.path))
         return java
-    raise JavaError(
-        f"Java {target} 이상이 필요하지만 설치된 Java를 찾지 못했습니다.\n"
-        "'Java 자동 설치'를 켜거나 Java를 직접 설치해 주세요."
-    )
+    raise JavaError(t("Java {v} or newer is required but none was found.\nTurn on 'Install Java automatically' or install Java yourself.", v=target))

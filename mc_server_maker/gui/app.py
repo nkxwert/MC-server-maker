@@ -1,4 +1,4 @@
-"""메인 창."""
+"""Main window."""
 
 import sys
 from typing import List, Optional
@@ -7,6 +7,10 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -24,6 +28,8 @@ from PySide6.QtWidgets import (
 from mc_server_maker import APP_NAME, APP_VERSION
 from mc_server_maker.core import network, paths
 from mc_server_maker.core import server as srv
+from mc_server_maker.core.plugins import udp_ports
+from mc_server_maker.core.settings import AppSettings
 from mc_server_maker.gui import theme
 from mc_server_maker.gui.create_dialog import CreateServerDialog
 from mc_server_maker.gui.runner import RUNNING, STARTING, STOPPED, STOPPING, ServerRunner
@@ -38,13 +44,16 @@ from mc_server_maker.gui.tabs import (
 )
 from mc_server_maker.gui.theme import set_kind
 from mc_server_maker.gui.workers import TaskDialog, run_async, wait_all
+from mc_server_maker.i18n import LANGUAGES, set_language, t
 
-STATE_TEXT = {
-    STOPPED: ("꺼짐", theme.MUTED),
-    STARTING: ("켜는 중...", theme.WARN),
-    RUNNING: ("실행 중", theme.ACCENT),
-    STOPPING: ("끄는 중...", theme.WARN),
-}
+
+def state_text(state: str):
+    return {
+        STOPPED: (t("Stopped"), theme.C["muted"]),
+        STARTING: (t("Starting..."), theme.C["warn"]),
+        RUNNING: (t("Running"), theme.C["accent"]),
+        STOPPING: (t("Stopping..."), theme.C["warn"]),
+    }[state]
 
 
 def server_icon(meta: srv.ServerMeta, size: int) -> QPixmap:
@@ -54,7 +63,7 @@ def server_icon(meta: srv.ServerMeta, size: int) -> QPixmap:
 
 
 class ServerItem(QWidget):
-    """사이드바의 서버 한 줄."""
+    """One server in the sidebar."""
 
     def __init__(self, meta: srv.ServerMeta, state: str):
         super().__init__()
@@ -69,26 +78,54 @@ class ServerItem(QWidget):
         col.setSpacing(1)
         name = QLabel(meta.name)
         name.setObjectName("ItemName")
-        sub = QLabel(f"{meta.software_name.split(' (')[0]} {meta.mc_version}")
+        sub = QLabel(f"{meta.software_name} {meta.mc_version}")
         sub.setObjectName("ItemSub")
         col.addWidget(name)
         col.addWidget(sub)
         row.addLayout(col, 1)
-        text, color = STATE_TEXT[state]
+        text, color = state_text(state)
         dot = QLabel("●")
         dot.setToolTip(text)
         dot.setStyleSheet(f"color: {color}; font-size: 11pt;")
         row.addWidget(dot)
 
 
+class PreferencesDialog(QDialog):
+    def __init__(self, parent, settings: AppSettings):
+        super().__init__(parent)
+        self.setWindowTitle(t("App settings"))
+        self.setMinimumWidth(360)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.theme = QComboBox()
+        self.theme.addItem(t("Dark"), "dark")
+        self.theme.addItem(t("Light"), "light")
+        self.theme.setCurrentIndex(max(0, self.theme.findData(settings.theme)))
+        form.addRow(t("Theme"), self.theme)
+        self.language = QComboBox()
+        for code, label in LANGUAGES.items():
+            self.language.addItem(label, code)
+        self.language.setCurrentIndex(max(0, self.language.findData(settings.language)))
+        form.addRow(t("Language"), self.language)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox()
+        set_kind(buttons.addButton(t("Save"), QDialogButtonBox.AcceptRole), "primary")
+        buttons.addButton(t("Cancel"), QDialogButtonBox.RejectRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, runner: ServerRunner, settings: AppSettings, select_folder=None):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.resize(1180, 760)
         self.setMinimumSize(900, 600)
         paths.ensure_dirs()
-        self.runner = ServerRunner(self)
+        self.runner = runner
+        self.settings = settings
+        self._replaced = False
         self.runner.state_changed.connect(self._on_state_changed)
         self.servers: List[srv.ServerMeta] = []
         self.meta: Optional[srv.ServerMeta] = None
@@ -99,10 +136,10 @@ class MainWindow(QMainWindow):
         root_layout.setSpacing(0)
         self.setCentralWidget(root)
 
-        # ---- 왼쪽: 사이드바
+        # ---- sidebar
         side = QFrame()
         side.setObjectName("Sidebar")
-        side.setFixedWidth(270)
+        side.setFixedWidth(260)
         sv = QVBoxLayout(side)
         sv.setContentsMargins(14, 18, 14, 14)
         sv.setSpacing(10)
@@ -112,22 +149,22 @@ class MainWindow(QMainWindow):
         brand.addWidget(logo)
         titles = QVBoxLayout()
         titles.setSpacing(0)
-        t = QLabel("MC Server Maker")
-        t.setObjectName("AppTitle")
-        st = QLabel(f"마인크래프트 서버 관리 · v{APP_VERSION}")
-        st.setObjectName("AppSubtitle")
-        titles.addWidget(t)
-        titles.addWidget(st)
+        title = QLabel("MC Server Maker")
+        title.setObjectName("AppTitle")
+        subtitle = QLabel(f"v{APP_VERSION}")
+        subtitle.setObjectName("AppSubtitle")
+        titles.addWidget(title)
+        titles.addWidget(subtitle)
         brand.addLayout(titles, 1)
         sv.addLayout(brand)
         sv.addSpacing(6)
 
-        new_btn = set_kind(QPushButton("＋  새 서버 만들기"), "primary")
+        new_btn = set_kind(QPushButton("＋  " + t("New server")), "primary")
         new_btn.setMinimumHeight(42)
         new_btn.clicked.connect(self.create_server)
         sv.addWidget(new_btn)
         sv.addSpacing(4)
-        label = QLabel("내 서버")
+        label = QLabel(t("SERVERS"))
         label.setObjectName("SectionLabel")
         sv.addWidget(label)
         self.list = QListWidget()
@@ -135,16 +172,17 @@ class MainWindow(QMainWindow):
         self.list.currentRowChanged.connect(self._select)
         sv.addWidget(self.list, 1)
         row = QHBoxLayout()
-        folder_btn = set_kind(QPushButton("📁 서버 폴더"), "ghost")
+        folder_btn = set_kind(QPushButton("📁 " + t("Folder")), "ghost")
+        folder_btn.setToolTip(str(paths.SERVERS_DIR))
         folder_btn.clicked.connect(lambda: open_path(paths.SERVERS_DIR))
-        refresh_btn = set_kind(QPushButton("↻ 새로고침"), "ghost")
-        refresh_btn.clicked.connect(lambda: self.reload())
+        prefs_btn = set_kind(QPushButton("⚙ " + t("Settings")), "ghost")
+        prefs_btn.clicked.connect(self.open_preferences)
         row.addWidget(folder_btn)
-        row.addWidget(refresh_btn)
+        row.addWidget(prefs_btn)
         sv.addLayout(row)
         root_layout.addWidget(side)
 
-        # ---- 오른쪽
+        # ---- main area
         self.stack = QStackedWidget()
         self.stack.addWidget(self._empty_page())
 
@@ -156,9 +194,9 @@ class MainWindow(QMainWindow):
         header.setObjectName("Header")
         hl = QHBoxLayout(header)
         hl.setContentsMargins(20, 16, 20, 16)
-        hl.setSpacing(14)
+        hl.setSpacing(12)
         self.h_icon = QLabel()
-        self.h_icon.setFixedSize(56, 56)
+        self.h_icon.setFixedSize(52, 52)
         hl.addWidget(self.h_icon)
         info = QVBoxLayout()
         info.setSpacing(6)
@@ -178,17 +216,18 @@ class MainWindow(QMainWindow):
         chips.addStretch()
         info.addLayout(chips)
         hl.addLayout(info, 1)
-        self.btn_start = set_kind(QPushButton("▶  서버 켜기"), "primary")
-        self.btn_start.setMinimumSize(130, 42)
+        self.btn_start = set_kind(QPushButton("▶  " + t("Start")), "primary")
+        self.btn_start.setMinimumSize(120, 42)
         self.btn_start.clicked.connect(self.start_server)
-        self.btn_stop = QPushButton("■  끄기")
+        self.btn_stop = QPushButton("■  " + t("Stop"))
         self.btn_stop.setMinimumHeight(42)
         self.btn_stop.clicked.connect(lambda: self.runner.stop(self.key))
-        self.btn_kill = set_kind(QPushButton("강제 종료"), "danger")
+        self.btn_kill = set_kind(QPushButton(t("Kill")), "danger")
+        self.btn_kill.setToolTip(t("Force stop without saving"))
         self.btn_kill.setMinimumHeight(42)
         self.btn_kill.clicked.connect(self._kill)
         self.btn_folder = QPushButton("📂")
-        self.btn_folder.setToolTip("서버 폴더 열기 (plugins, mods 폴더에 파일을 넣을 때)")
+        self.btn_folder.setToolTip(t("Open server folder (plugins, mods...)"))
         self.btn_folder.setMinimumSize(44, 42)
         self.btn_folder.clicked.connect(lambda: open_path(self.meta.folder))
         for b in (self.btn_start, self.btn_stop, self.btn_kill, self.btn_folder):
@@ -207,8 +246,9 @@ class MainWindow(QMainWindow):
             self.console_tab, self.settings_tab, self.world_tab,
             self.players_tab, self.network_tab, self.upgrade_tab,
         ]
-        for tab, title in zip(self.all_tabs, ["🖥 콘솔", "⚙ 설정", "🌍 맵", "👤 플레이어", "🌐 외부 접속", "⬆ 업그레이드"]):
-            self.tabs.addTab(tab, title)
+        titles = ["Console", "Settings", "World", "Players", "Network", "Update"]
+        for tab, name in zip(self.all_tabs, titles):
+            self.tabs.addTab(tab, t(name))
         tab_wrap = QWidget()
         tw = QVBoxLayout(tab_wrap)
         tw.setContentsMargins(8, 6, 8, 0)
@@ -217,25 +257,25 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(detail)
         root_layout.addWidget(self.stack, 1)
 
-        self.reload()
+        self.reload(select_folder)
 
     def _empty_page(self) -> QWidget:
         page = QWidget()
         v = QVBoxLayout(page)
         v.addStretch()
         icon = QLabel()
-        icon.setPixmap(QPixmap(str(paths.resource("icon.png"))).scaled(96, 96, Qt.KeepAspectRatio, Qt.FastTransformation))
+        icon.setPixmap(QPixmap(str(paths.resource("icon.png"))).scaled(88, 88, Qt.KeepAspectRatio, Qt.FastTransformation))
         icon.setAlignment(Qt.AlignCenter)
         v.addWidget(icon)
-        title = QLabel("첫 마인크래프트 서버를 만들어 보세요")
+        title = QLabel(t("Create your first Minecraft server"))
         title.setObjectName("Big")
         title.setAlignment(Qt.AlignCenter)
         v.addWidget(title)
-        sub = QLabel("구동기와 버전만 고르면 다운로드부터 설정까지 자동으로 해 드려요.")
+        sub = QLabel(t("Pick the software and version — downloading and setup are automatic."))
         sub.setObjectName("Muted")
         sub.setAlignment(Qt.AlignCenter)
         v.addWidget(sub)
-        btn = set_kind(QPushButton("＋  새 서버 만들기"), "primary")
+        btn = set_kind(QPushButton("＋  " + t("New server")), "primary")
         btn.setFixedSize(QSize(220, 46))
         btn.clicked.connect(self.create_server)
         row = QHBoxLayout()
@@ -254,7 +294,7 @@ class MainWindow(QMainWindow):
         return str(self.meta.folder) if self.meta else ""
 
     def reload(self, select_folder=None):
-        """디스크에서 서버 목록을 다시 읽고, 선택했던 서버를 유지한다."""
+        """Re-read servers from disk, keeping the current selection."""
         keep = str(select_folder) if select_folder else self.key
         self.servers = srv.list_servers()
         self.list.blockSignals(True)
@@ -306,13 +346,13 @@ class MainWindow(QMainWindow):
         if not m:
             return
         state = self.runner.state(self.key)
-        text, color = STATE_TEXT[state]
-        self.h_icon.setPixmap(server_icon(m, 56))
+        text, color = state_text(state)
+        self.h_icon.setPixmap(server_icon(m, 52))
         self.h_name.setText(m.name)
         self.chip_state.setText(f"● {text}")
         self.chip_state.setStyleSheet(f"color: {color};")
-        self.chip_soft.setText(f"{m.software_name.split(' (')[0]} {m.mc_version}")
-        self.chip_ram.setText(f"RAM {m.ram_mb // 1024}GB")
+        self.chip_soft.setText(f"{m.software_name} {m.mc_version}")
+        self.chip_ram.setText(f"RAM {m.ram_mb // 1024} GB")
         running = self.runner.is_running(self.key)
         self.btn_start.setEnabled(not running)
         self.btn_stop.setEnabled(running and state != STOPPING)
@@ -329,22 +369,42 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------
 
+    def open_preferences(self):
+        dlg = PreferencesDialog(self, self.settings)
+        if not dlg.exec():
+            return
+        new_theme, new_lang = dlg.theme.currentData(), dlg.language.currentData()
+        changed_lang = new_lang != self.settings.language
+        self.settings.theme, self.settings.language = new_theme, new_lang
+        self.settings.save()
+        theme.apply(QApplication.instance(), new_theme)
+        if changed_lang:
+            # rebuild the window in the new language; running servers keep running
+            set_language(new_lang)
+            win = MainWindow(self.runner, self.settings, self.key)
+            win.setGeometry(self.geometry())
+            win.show()
+            _windows.append(win)
+            self._replaced = True
+            self.close()
+        else:
+            self.reload()
+
     def create_server(self):
         dlg = CreateServerDialog(self)
         if not dlg.exec() or not dlg.options:
             return
         opts = dlg.options
-        task_dlg = TaskDialog(self, "서버 만드는 중...", lambda task: srv.create_server(opts, task))
+        task_dlg = TaskDialog(self, t("Creating server..."), lambda task: srv.create_server(opts, task))
         task_dlg.exec()
         if task_dlg.succeeded():
             meta = task_dlg.result_value
             self.reload(select_folder=meta.folder)
             QMessageBox.information(
                 self,
-                "완료",
-                f"'{meta.name}' 서버를 만들었습니다!\n\n"
-                "▶ 서버 켜기를 누르면 처음 실행할 때 맵이 만들어집니다.\n"
-                "다른 집 친구와 같이 하려면 '🌐 외부 접속' 탭을 확인하세요.",
+                t("Done"),
+                t("'{name}' is ready!\n\nPress Start — the world is generated on first start.\n"
+                  "To play with friends in other homes, see the Network tab.", name=meta.name),
             )
 
     def start_server(self):
@@ -355,35 +415,43 @@ class MainWindow(QMainWindow):
         try:
             self.runner.start(meta)
         except srv.ServerError as e:
-            QMessageBox.warning(self, "서버 켜기", str(e))
+            QMessageBox.warning(self, t("Start"), str(e))
             return
         self.tabs.setCurrentWidget(self.console_tab)
         if meta.upnp:
             port = meta.properties().get_int("server-port", 25565)
-            self.runner.system_line(key, f"공유기 포트 {port} 자동으로 여는 중 (UPnP)...")
+            udp = udp_ports(meta)
+            self.runner.system_line(key, t("Opening router port {port} (UPnP)...", port=port))
 
             def done(res):
-                msg = f"포트 {res.port} 열림 - 다른 집에서 접속할 수 있습니다."
+                msg = t("Port {port} open — friends in other homes can join.", port=res.port)
                 if res.cgnat:
-                    msg += " (주의: 공유기 외부 IP가 사설 IP라 접속이 안 될 수 있어요)"
+                    msg += " " + t("(Warning: the router's internet IP is private; joining may not work.)")
                 self.runner.system_line(key, msg)
 
             run_async(
-                lambda task: network.open_port(port, f"Minecraft {meta.name}"[:60]),
+                lambda task: network.open_port(port, f"Minecraft {meta.name}"[:60], udp_ports=udp),
                 done,
-                lambda m: self.runner.system_line(key, "포트 자동 열기 실패: " + m.replace("\n", " ")),
+                lambda m: self.runner.system_line(key, t("Could not open the port: {err}", err=m.replace("\n", " "))),
             )
 
     def _kill(self):
         if QMessageBox.question(
-            self, "강제 종료", "저장하지 않고 강제로 끕니다. 맵 데이터가 손상될 수 있어요. 계속할까요?"
+            self, t("Kill"), t("Force stop without saving? The world may be damaged.")
         ) == QMessageBox.Yes:
             self.runner.kill(self.key)
 
     def closeEvent(self, event):
+        if self._replaced:
+            self.runner.state_changed.disconnect(self._on_state_changed)
+            self.setAttribute(Qt.WA_DeleteOnClose)
+            if self in _windows:
+                _windows.remove(self)
+            event.accept()
+            return
         if self.runner.any_running():
             answer = QMessageBox.question(
-                self, "종료", "켜져 있는 서버가 있습니다. 서버를 안전하게 끄고 프로그램을 종료할까요?"
+                self, t("Quit"), t("A server is running. Stop it safely and quit?")
             )
             if answer != QMessageBox.Yes:
                 event.ignore()
@@ -396,19 +464,26 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+_windows: List[MainWindow] = []  # keep windows alive
+
+
 def main():
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     if sys.platform == "win32":
-        # 작업 표시줄에 파이썬 아이콘 대신 앱 아이콘이 보이게
+        # show the app icon (not Python's) in the taskbar
         try:
             import ctypes
 
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MCServerMaker")
         except (AttributeError, OSError):
             pass
+    settings = AppSettings.load()
+    set_language(settings.language)
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    theme.apply(app)
-    win = MainWindow()
+    theme.apply(app, settings.theme)
+    runner = ServerRunner(app)
+    win = MainWindow(runner, settings)
+    _windows.append(win)
     win.show()
     sys.exit(app.exec())

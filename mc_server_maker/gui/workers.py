@@ -1,4 +1,4 @@
-"""백그라운드 작업 실행 (UI가 멈추지 않도록)."""
+"""Run work in the background so the UI never freezes."""
 
 import traceback
 from typing import Callable, Optional
@@ -14,8 +14,9 @@ from PySide6.QtWidgets import (
 )
 
 from mc_server_maker.core.tasks import Cancelled, Task
+from mc_server_maker.i18n import t
 
-_running = set()  # 실행 중인 스레드가 GC로 사라지지 않게 보관
+_running = set()  # keep running threads alive (not garbage-collected)
 
 
 class Worker(QObject):
@@ -36,7 +37,7 @@ class Worker(QObject):
             result = self.fn(self.task)
         except Cancelled as e:
             self.failed.emit(str(e))
-        except Exception as e:  # noqa: BLE001 - 어떤 오류든 사용자에게 보여준다
+        except Exception as e:  # noqa: BLE001 - show any error to the user
             traceback.print_exc()
             self.failed.emit(str(e) or e.__class__.__name__)
         else:
@@ -49,7 +50,7 @@ class Worker(QObject):
 
 
 class _Bridge(QObject):
-    """작업 스레드의 신호를 UI 스레드에서 콜백으로 전달한다."""
+    """Deliver worker-thread signals as callbacks on the UI thread."""
 
     def __init__(self, on_done, on_fail, on_log, on_progress):
         super().__init__()
@@ -88,7 +89,7 @@ def run_async(
     on_log: Optional[Callable[[str], None]] = None,
     on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> Worker:
-    """fn(task)을 다른 스레드에서 실행한다. 콜백은 UI 스레드에서 불린다."""
+    """Run fn(task) on another thread. Callbacks run on the UI thread."""
     thread = QThread()
     worker = Worker(fn)
     worker.moveToThread(thread)
@@ -115,7 +116,7 @@ def wait_all(timeout_ms: int = 3000) -> None:
 
 
 class TaskDialog(QDialog):
-    """진행 로그 + 진행 막대를 보여주며 작업을 실행하는 창."""
+    """Dialog that runs a job and shows its log and progress."""
 
     def __init__(self, parent, title: str, fn: Callable[[Task], object]):
         super().__init__(parent)
@@ -125,7 +126,7 @@ class TaskDialog(QDialog):
         self.error: Optional[str] = None
 
         layout = QVBoxLayout(self)
-        self.status = QLabel("작업 중...")
+        self.status = QLabel(t("Working..."))
         self.status.setStyleSheet("font-weight: bold;")
         layout.addWidget(self.status)
         self.log_view = QPlainTextEdit(readOnly=True)
@@ -162,19 +163,19 @@ class TaskDialog(QDialog):
 
     def _done(self, result):
         self.result_value = result
-        self._finish("✅ 완료되었습니다.")
-        self._log("완료.")
+        self._finish("✅ " + t("Done."))
+        self._log(t("Done."))
 
     def _fail(self, msg: str):
         self.error = msg
-        self._finish("❌ 실패했습니다.")
-        self._log("\n오류: " + msg)
+        self._finish("❌ " + t("Failed."))
+        self._log("\n" + t("Error: {msg}", msg=msg))
 
     def _cancel_or_close(self):
         if self._finished:
             self.accept() if self.error is None else self.reject()
         else:
-            self.status.setText("취소하는 중...")
+            self.status.setText(t("Cancelling..."))
             self.worker.cancel()
 
     def reject(self):
