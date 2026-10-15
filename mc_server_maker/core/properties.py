@@ -90,7 +90,7 @@ class Properties:
     def _load(self):
         raw = self.path.read_bytes()
         try:
-            text = raw.decode("utf-8")
+            text = raw.decode("utf-8-sig")  # -sig: a BOM must not become part of the first key
         except UnicodeDecodeError:
             text = raw.decode("latin-1")
         # join lines continued with a trailing backslash
@@ -98,7 +98,9 @@ class Properties:
         buf = ""
         for line in text.splitlines():
             stripped = line.lstrip() if buf else line
-            if re.search(r"(?<!\\)(\\\\)*\\$", stripped):
+            is_comment = not buf and stripped.lstrip().startswith(("#", "!"))
+            # a trailing backslash continues a key=value line, never a comment (Java rules)
+            if not is_comment and re.search(r"(?<!\\)(\\\\)*\\$", stripped):
                 buf += stripped[:-1]
                 continue
             logical.append(buf + stripped)

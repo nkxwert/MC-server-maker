@@ -557,4 +557,13 @@ KO = {
     "{n} updates available": "업데이트 {n}개가 있어요",
     "{n} files aren't from Modrinth, so they weren't checked.": "{n}개 파일은 Modrinth에서 받은 게 아니라서 확인하지 못했어요.",
     "Update all": "모두 업데이트",
+    # ---- bug fixes
+    "Can't measure through the tunnel": "터널로 접속하면 잴 수 없어요",
+    "The playit.gg agent couldn't start: {err}": "playit.gg 에이전트를 시작하지 못했어요: {err}",
+    "Unexpected answer from {url}": "{url}에서 예상하지 못한 응답이 왔어요",
+    "The download was cut off. Please try again: {file}": "다운로드가 중간에 끊겼어요. 다시 시도해 주세요: {file}",
+    "{file} is in use by the running server. Stop the server, then try again.": "실행 중인 서버가 {file} 파일을 쓰고 있어요. 서버를 끈 뒤 다시 시도해 주세요.",
+    "{file} can't be read ({err}). Fix or delete it, then try again.": "{file} 파일을 읽을 수 없어요 ({err}). 고치거나 지운 뒤 다시 시도해 주세요.",
+    "Couldn't change {file}. Stop the server, then try again.": "{file} 파일을 바꾸지 못했어요. 서버를 끈 뒤 다시 시도해 주세요.",
+    "The version list isn't loaded. Check your internet connection.": "버전 목록을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.",
 }

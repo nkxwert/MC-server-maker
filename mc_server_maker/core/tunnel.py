@@ -98,5 +98,12 @@ def find_claim_url(text: str) -> Optional[str]:
 
 
 def find_address(text: str) -> Optional[str]:
-    m = ADDRESS_RE.search(text)
-    return m.group(1).lower() if m else None
+    """The Java tunnel address in the agent's output (Bedrock tunnel lines are skipped)."""
+    found = []
+    for line in text.splitlines():
+        low = line.lower()
+        if "bedrock" in low or ":19132" in low or "udp" in low:
+            continue  # the Bedrock tunnel must not replace the Java address
+        found += [m.group(1).lower() for m in ADDRESS_RE.finditer(line)]
+    # "*.joinmc.link" is playit's Minecraft Java address; prefer it over plain ply.gg ones
+    return next((a for a in found if "joinmc.link" in a), found[0] if found else None)

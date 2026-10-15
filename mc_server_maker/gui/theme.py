@@ -112,9 +112,9 @@ QCheckBox::indicator, QRadioButton::indicator {{
 }}
 QCheckBox::indicator {{ border-radius: 4px; }}
 QTableView::indicator {{ width: 16px; height: 16px; border: 1px solid {muted}; border-radius: 4px; background: {bg}; }}
-QTableView::indicator:checked {{ background: {accent}; border-color: {accent}; image: url({check}); }}
+QTableView::indicator:checked {{ background: {accent}; border-color: {accent}; image: url("{check}"); }}
 QRadioButton::indicator {{ border-radius: 9px; }}
-QCheckBox::indicator:checked {{ background: {accent}; border-color: {accent}; image: url({check}); }}
+QCheckBox::indicator:checked {{ background: {accent}; border-color: {accent}; image: url("{check}"); }}
 QRadioButton::indicator:checked {{
     border-color: {accent};
     background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,

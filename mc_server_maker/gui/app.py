@@ -1,5 +1,6 @@
 """Main window."""
 
+import os
 import sys
 import time
 import traceback
@@ -55,8 +56,11 @@ from mc_server_maker.gui.tabs import (
 from mc_server_maker.gui.tunnel_manager import TunnelManager
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import with_help
-from mc_server_maker.gui.workers import TaskDialog, run_async, wait_all
+from mc_server_maker.gui.workers import TaskDialog, any_running, run_async, wait_all
 from mc_server_maker.i18n import LANGUAGES, set_language, t
+
+
+_starting = set()  # servers whose Start is waiting for the internet check
 
 
 def state_text(state: str):
@@ -402,6 +406,8 @@ class MainWindow(QMainWindow):
             self._add_item(m)
             if str(m.folder) == keep:
                 row = i
+        if self.servers:
+            self.list.setCurrentRow(row)  # while signals are blocked: _select runs once, below
         self.list.blockSignals(False)
         # no servers yet: just the welcome page in the middle, no sidebar
         if self.side.isHidden() == bool(self.servers):  # isHidden: works before the window is shown
@@ -409,7 +415,6 @@ class MainWindow(QMainWindow):
             if self.servers:
                 anim.fade_in(self.side)
         if self.servers:
-            self.list.setCurrentRow(row)
             self._select(row)
         else:
             self.meta = None
@@ -478,7 +483,7 @@ class MainWindow(QMainWindow):
         self.chip_soft.setText(f"{m.software_name} {m.mc_version}")
         self.chip_ram.setText(f"RAM {m.ram_mb // 1024} GB")
         running = self.runner.is_running(self.key)
-        self.btn_start.setEnabled(not running)
+        self.btn_start.setEnabled(not running and self.key not in _starting)
         self.btn_stop.setEnabled(running and state != STOPPING)
         self.btn_kill.setEnabled(running)
 
@@ -614,7 +619,7 @@ class MainWindow(QMainWindow):
             )
 
     def start_server(self):
-        if not self.meta or self.runner.is_running(self.key):
+        if not self.meta or self.runner.is_running(self.key) or self.key in _starting:
             return
         meta = self.meta
         srv.end_offline_session(meta)  # left over if the app closed while an offline run was going
@@ -623,9 +628,14 @@ class MainWindow(QMainWindow):
             return
         # Online mode needs Mojang's sign-in servers. Without internet nobody could join
         # ("Authentication servers are down"), so offer an offline run first.
+        key = str(meta.folder)
+        _starting.add(key)  # no second Start / Delete while we check
         self.btn_start.setEnabled(False)
 
         def checked(has_net):
+            _starting.discard(key)
+            if not meta.folder.exists():
+                return  # deleted meanwhile
             if self.meta is meta:
                 self.btn_start.setEnabled(not self.runner.is_running(self.key))
             if not has_net:
@@ -664,7 +674,7 @@ class MainWindow(QMainWindow):
         key = str(meta.folder)
         try:
             self.runner.start(meta)
-        except srv.ServerError as e:
+        except (srv.ServerError, OSError) as e:
             srv.end_offline_session(meta)
             QMessageBox.warning(self, t("Start"), str(e))
             return
@@ -734,7 +744,7 @@ class MainWindow(QMainWindow):
             self.reload(select_folder=dlg.result_value.folder)
 
     def delete_server(self, meta: srv.ServerMeta):
-        if self.runner.is_running(str(meta.folder)):
+        if self.runner.is_running(str(meta.folder)) or str(meta.folder) in _starting:
             return
         answer = QMessageBox.question(
             self, t("Delete server"),
@@ -749,6 +759,7 @@ class MainWindow(QMainWindow):
                 "Couldn't move it to the Recycle Bin. Close any program using its files and try again.\n{path}",
                 path=meta.folder))
             return
+        self.runner.forget(str(meta.folder))  # a new server with the same name starts with a clean log
         if self.meta and self.meta.folder == meta.folder:
             self.meta = None
         self.reload()
@@ -830,7 +841,10 @@ def tray_message(text: str) -> None:
 def show_window():
     win = current_window()
     if win:
-        win.showNormal()
+        if win.isMinimized():
+            win.showNormal()
+        else:
+            win.show()  # keeps a maximized window maximized
         win.raise_()
         win.activateWindow()
 
@@ -852,6 +866,46 @@ def quit_app(win: Optional[MainWindow] = None):
     if _tray.get("icon"):
         _tray["icon"].hide()
     QApplication.instance().quit()
+
+
+def _single_instance(app: QApplication) -> bool:
+    """Only one copy may run: two copies would start the same server twice on one world.
+
+    A second launch (e.g. from the desktop while the first sits in the tray) asks the
+    first copy to show its window, then exits.
+    """
+    import hashlib
+
+    from PySide6.QtCore import QLockFile
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+    paths.BASE_DIR.mkdir(parents=True, exist_ok=True)
+    name = "bartizan-" + hashlib.sha1(str(paths.BASE_DIR).encode("utf-8")).hexdigest()[:12]
+    lock = QLockFile(str(paths.BASE_DIR / ".bartizan.lock"))
+    lock.setStaleLockTime(0)  # a dead owner is still detected
+    # right after a self-update the old copy is still closing: give it time
+    wait_ms = 20000 if os.environ.pop("BARTIZAN_RESTART", "") else 300
+    if not lock.tryLock(wait_ms):
+        sock = QLocalSocket()
+        sock.connectToServer(name)
+        if sock.waitForConnected(1500):
+            sock.write(b"show")
+            sock.waitForBytesWritten(1000)
+            sock.disconnectFromServer()
+        return False
+    QLocalServer.removeServer(name)
+    server = QLocalServer(app)
+
+    def wake():
+        conn = server.nextPendingConnection()
+        if conn:
+            conn.deleteLater()
+        show_window()
+
+    server.newConnection.connect(wake)
+    server.listen(name)
+    app._instance = (lock, server)  # keep both alive for the app's lifetime
+    return True
 
 
 def _make_tray(app: QApplication):
@@ -912,6 +966,8 @@ def main():
     settings = AppSettings.load()
     set_language(settings.language)
     app = QApplication(sys.argv)
+    if not _single_instance(app):
+        return 0  # already running: that copy was asked to show its window
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)  # the tray keeps the app alive
     theme.apply(app, settings.theme)
@@ -928,4 +984,9 @@ def main():
         QTimer.singleShot(4000, lambda: current_window() and current_window().check_updates(manual=False))
     if moved:
         QMessageBox.information(win, APP_NAME, t("Your servers were moved to:\n{path}", path=paths.BASE_DIR))
-    sys.exit(app.exec())
+    code = app.exec()
+    if any_running():
+        # a network lookup is still blocked in a thread; destroying it would abort the process
+        sys.stdout.flush()
+        os._exit(code)
+    sys.exit(code)

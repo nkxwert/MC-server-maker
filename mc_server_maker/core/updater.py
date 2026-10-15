@@ -161,13 +161,19 @@ def install_and_restart(new_exe: Path) -> None:
         os.replace(old, exe)  # put the original back
         raise
     flags = 0x00000008 | 0x00000200 if os.name == "nt" else 0  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen([str(exe)], cwd=str(exe.parent), creationflags=flags, close_fds=True)
+    # a fresh start for the new EXE: otherwise PyInstaller's onefile bootloader thinks it is a child
+    # of this process and reuses our temp folder, which is deleted when we quit
+    env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1", BARTIZAN_RESTART="1")
+    subprocess.Popen([str(exe)], cwd=str(exe.parent), creationflags=flags, close_fds=True, env=env)
 
 
 def cleanup_old() -> None:
     """Remove the previous EXE left behind by an update."""
     if paths.FROZEN:
-        Path(sys.executable).with_name(Path(sys.executable).name + ".old").unlink(missing_ok=True)
+        try:
+            Path(sys.executable).with_name(Path(sys.executable).name + ".old").unlink(missing_ok=True)
+        except OSError:
+            pass  # still locked (old process closing, antivirus scan): try again next start
 
 
 def sha256_file(path: Path) -> str:

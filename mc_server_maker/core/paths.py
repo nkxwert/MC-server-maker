@@ -82,6 +82,10 @@ def migrate_legacy_data(old_base: Path = None) -> List[str]:
     old_base = Path(old_base or _APP_DIR)
     if old_base.resolve() == BASE_DIR.resolve():
         return moved
+    # only take data that is clearly ours: the EXE may sit in Downloads next to another
+    # program's settings.json / runtime folder
+    if not any((old_base / "servers").glob("*/server-maker.json")):
+        return moved
     for name in _LEGACY_ITEMS:
         src, dst = old_base / name, BASE_DIR / name
         if not src.exists():

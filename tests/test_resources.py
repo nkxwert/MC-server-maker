@@ -46,6 +46,12 @@ class MigrationTest(unittest.TestCase):
         self.assertTrue((self.new / "servers" / "SMP").is_dir())
         self.assertFalse(old_docs.exists())
 
+    def test_leaves_other_programs_files(self):
+        (self.old / "settings.json").write_text('{"someone": "else"}')
+        (self.old / "runtime").mkdir()
+        self.assertEqual(paths.migrate_legacy_data(self.old), [])
+        self.assertTrue((self.old / "settings.json").exists() and (self.old / "runtime").exists())
+
     def test_never_overwrites(self):
         (self.old / "settings.json").write_text("old")
         self.new.mkdir(parents=True)

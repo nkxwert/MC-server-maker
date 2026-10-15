@@ -4,6 +4,7 @@ UPnP (IGD) is the "automatic port forwarding" most home routers support.
 It does nothing if UPnP is turned off in the router settings.
 """
 
+import http.client
 import ipaddress
 import os
 import socket
@@ -45,6 +46,16 @@ def lan_ip() -> str:
         return "127.0.0.1"
 
 
+def local_ip_for(host: str) -> str:
+    """This PC's address on the network that leads to `host` (right even with a VPN active)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((host, 1))  # no packet is actually sent
+            return s.getsockname()[0]
+    except OSError:
+        return lan_ip()
+
+
 def is_public(ip: str) -> bool:
     try:
         return ipaddress.ip_address(ip).is_global
@@ -69,7 +80,7 @@ def public_ip() -> str:
     for url in PUBLIC_IP_URLS:
         try:
             ip = net.get_text(url).strip()
-            ipaddress.ip_address(ip)
+            ipaddress.IPv4Address(ip)  # an IPv6 answer can't be used as "ip:port"
             return ip
         except (net.NetError, ValueError) as e:
             last = e
@@ -154,7 +165,7 @@ class Gateway:
                 xml = resp.read()
         except urllib.error.HTTPError as e:
             raise UPnPError(_soap_error(e.read()) or t("Router error (HTTP {code})", code=e.code)) from e
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
             raise UPnPError(t("Could not talk to the router: {err}", err=e)) from e
         result: Dict[str, str] = {}
         try:
@@ -223,8 +234,8 @@ def gateway_from_location(location: str) -> Optional[Gateway]:
         with _LOCAL.open(location, timeout=5) as resp:
             xml = resp.read()
         root = ET.fromstring(xml)
-    except (urllib.error.URLError, OSError, ET.ParseError):
-        return None
+    except (urllib.error.URLError, OSError, ET.ParseError, http.client.HTTPException, ValueError):
+        return None  # not a (working) router; try the next device
     base = location
     for el in root.iter():
         if _local(el.tag) == "URLBase" and (el.text or "").strip():
@@ -266,7 +277,7 @@ def open_port(
 ) -> PortResult:
     """Open the Java TCP port (plus UDP ports, e.g. 19132 for Bedrock players)."""
     gw = gateway or find_gateway()
-    ip = lan_ip()
+    ip = local_ip_for(gw.host)  # not lan_ip(): with a VPN that would be the VPN adapter
     gw.add_port(port, ip, description)
     for udp in udp_ports:
         gw.add_port(udp, ip, description + " (Bedrock)", "UDP")
@@ -296,10 +307,12 @@ def allow_firewall(port: int, udp_ports: Sequence[int] = ()) -> bool:
         return False
     import ctypes
 
-    rules = [f'netsh advfirewall firewall add rule name="Minecraft Server {port}" dir=in action=allow protocol=TCP localport={port}']
-    rules += [
-        f'netsh advfirewall firewall add rule name="Minecraft Bedrock {u}" dir=in action=allow protocol=UDP localport={u}'
-        for u in udp_ports
-    ]
+    def rule(name: str, proto: str, p: int) -> str:
+        # delete first so pressing the button again doesn't pile up duplicate rules
+        return (f'netsh advfirewall firewall delete rule name="{name}" >nul 2>&1 & '
+                f'netsh advfirewall firewall add rule name="{name}" dir=in action=allow protocol={proto} localport={p}')
+
+    rules = [rule(f"Minecraft Server {port}", "TCP", port)]
+    rules += [rule(f"Minecraft Bedrock {u}", "UDP", u) for u in udp_ports]
     # ShellExecute returns > 32 on success
-    return ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd", "/c " + " && ".join(rules), None, 0) > 32
+    return ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd", "/c " + " & ".join(rules), None, 0) > 32

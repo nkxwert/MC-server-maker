@@ -1,5 +1,6 @@
 """Run server processes, console I/O and online-player tracking."""
 
+import codecs
 import re
 import time
 from collections import deque
@@ -12,8 +13,11 @@ from mc_server_maker.core import server as srv
 from mc_server_maker.i18n import t
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-JOIN_RE = re.compile(r":\s(?:\[[^\]]*\]\s)?([A-Za-z0-9_.]{1,16}) joined the game")
-LEFT_RE = re.compile(r":\s(?:\[[^\]]*\]\s)?([A-Za-z0-9_.]{1,16}) left the game")
+# Anchored to the log prefix ("[12:00:00 INFO]: Steve joined the game", Forge: "[..] [..] [..]: ...")
+# so a chat line like "<Steve> Notch joined the game" can't fake a join or a leave.
+_PREFIX = r"^(?:\[[^\]]*\]\s*)+:\s(?:\[[^\]]*\]\s)?"
+JOIN_RE = re.compile(_PREFIX + r"([A-Za-z0-9_.]{1,16}) joined the game\s*$")
+LEFT_RE = re.compile(_PREFIX + r"([A-Za-z0-9_.]{1,16}) left the game\s*$")
 DONE_RE = re.compile(r'Done \([\d.,]+s\)! For help, type')
 # "Steve[/203.0.113.5:51234] logged in with entity id ..." (IPv6: "[/[::1]:51234]")
 LOGIN_RE = re.compile(r"([A-Za-z0-9_.]{1,16})\[/\[?([0-9a-fA-F.:]+?)\]?:\d+\] logged in")
@@ -43,6 +47,7 @@ class ServerRunner(QObject):
         self.metas: Dict[str, srv.ServerMeta] = {}
         self.low_priority = True  # run servers below normal priority (low-resource mode)
         self._partial: Dict[str, str] = {}
+        self._decoders: Dict[str, codecs.IncrementalDecoder] = {}  # keeps characters split across reads
 
     # ------------------------------------------------------------------ state
 
@@ -130,11 +135,12 @@ class ServerRunner(QObject):
         self._emit_line(key, "»» " + text)
 
     def _read(self, key: str, proc: QProcess):
-        data = bytes(proc.readAllStandardOutput()).decode("utf-8", errors="replace")
-        text = self._partial.get(key, "") + ANSI_RE.sub("", data).replace("\r\n", "\n").replace("\r", "")
+        decoder = self._decoders.setdefault(key, codecs.getincrementaldecoder("utf-8")(errors="replace"))
+        data = decoder.decode(bytes(proc.readAllStandardOutput()))
+        text = self._partial.get(key, "") + data.replace("\r\n", "\n").replace("\r", "")
         *lines, self._partial[key] = text.split("\n")
         for ln in lines:
-            self._emit_line(key, ln)
+            self._emit_line(key, ANSI_RE.sub("", ln))  # on whole lines: escape codes can be split too
 
     # ---------------------------------------------------------------- control
 
@@ -158,11 +164,14 @@ class ServerRunner(QObject):
         self.players[key] = set()
         self.player_ips[key] = {}
         self._partial[key] = ""
+        self._decoders.pop(key, None)
         self.started_at[key] = time.time()
         self._counted_until[key] = self.started_at[key]
         self.system_line(key, t("Starting: {cmd}", cmd=" ".join(cmd)))
-        self._set_state(key, STARTING)
         proc.start()
+        # announce "starting" only once the process exists, so every tab sees it as running
+        if proc.state() != QProcess.NotRunning:
+            self._set_state(key, STARTING)
 
     def _started(self, key: str, proc: QProcess):
         if not self.low_priority:
@@ -177,7 +186,7 @@ class ServerRunner(QObject):
     def _finished(self, key: str, code: int):
         rest = self._partial.pop(key, "")
         if rest:
-            self._emit_line(key, rest)
+            self._emit_line(key, ANSI_RE.sub("", rest))
         self._count_uptime(key)
         self._counted_until.pop(key, None)
         self.system_line(key, t("Server stopped (exit code {code}).", code=code))
@@ -187,6 +196,7 @@ class ServerRunner(QObject):
 
     def _error(self, key: str, proc: QProcess, err):
         if err == QProcess.FailedToStart:
+            self._counted_until.pop(key, None)
             self.system_line(key, t("Could not start the server: {err}", err=proc.errorString()))
             self._set_state(key, STOPPED)
 
@@ -207,6 +217,14 @@ class ServerRunner(QObject):
 
     def clear_log(self, key: str) -> None:
         self.logs.pop(key, None)
+
+    def forget(self, key: str) -> None:
+        """Drop everything kept for a deleted server, so a new one in the same folder starts clean."""
+        if self.is_running(key):
+            return
+        for store in (self.logs, self.players, self.player_ips, self.started_at, self._counted_until,
+                      self._totals, self.metas, self._partial, self._decoders, self.status, self.procs):
+            store.pop(key, None)
 
     def stop_all(self, timeout_ms: int = 30000) -> None:
         for key in list(self.procs):

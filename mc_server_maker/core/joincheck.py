@@ -82,11 +82,13 @@ def server_list_ping(host: str, port: int = 25565, timeout: float = 3.0) -> Chec
             data = _recv_exact(sock, _read_varint(sock))
             latency = (time.monotonic() - start) * 1000
         status = json.loads(data.decode("utf-8", "replace"))
-        players = status.get("players", {})
+        status = status if isinstance(status, dict) else {}
+        players = status.get("players") if isinstance(status.get("players"), dict) else {}
+        version = status.get("version")
         return CheckResult(
             True,
             latency_ms=latency,
-            version=str(status.get("version", {}).get("name", "")),
+            version=str(version.get("name", "") if isinstance(version, dict) else version or ""),
             players=f"{players.get('online', 0)}/{players.get('max', 0)}",
         )
     except (OSError, ValueError, ConnectionError) as e:
@@ -102,9 +104,9 @@ def external_check(address: str, bedrock: bool = False) -> CheckResult:
         data = net.get_json(url)
     except net.NetError as e:
         return CheckResult(False, error=str(e))
-    if not data.get("online"):
+    if not isinstance(data, dict) or not data.get("online"):
         return CheckResult(False, error="offline")
-    players = data.get("players", {})
+    players = data.get("players") if isinstance(data.get("players"), dict) else {}
     return CheckResult(
         True,
         version=str(data.get("version", "")),

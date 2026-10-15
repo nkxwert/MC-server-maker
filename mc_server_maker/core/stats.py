@@ -85,8 +85,8 @@ def human_bytes(n: float) -> str:
     return f"{n:.1f} GB"
 
 
-# "time=12.3 ms", "time<1ms", "시간=12ms", "Zeit=12ms" ... (any language)
-_PING_RE = re.compile(r"[=<]\s*([\d.]+)\s*ms", re.IGNORECASE)
+# "time=12.3 ms", "time<1ms", "시간=12ms", "Zeit=12ms", "время=12мс" ... (any language)
+_PING_RE = re.compile(r"[=<]\s*([\d.]+)\s*(?:ms|мс)", re.IGNORECASE)
 
 
 def ping_ms(ip: str, timeout_s: int = 1) -> Optional[float]:

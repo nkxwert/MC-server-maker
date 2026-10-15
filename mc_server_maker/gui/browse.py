@@ -219,6 +219,7 @@ class ModrinthBrowser(QWidget):
             self.cards = []
             self.area.verticalScrollBar().setValue(0)
             self._just_installed.clear()
+            self._installed = {}  # never show another server's "Installed" marks meanwhile
             self._refresh_installed()
         self._req += 1
         req = self._req
@@ -254,7 +255,7 @@ class ModrinthBrowser(QWidget):
 
         @_alive
         def done(found):
-            if meta is self.meta:
+            if self.meta and str(meta.folder) == str(self.meta.folder):  # same server (even after a reload)
                 self._installed = dict(found)
                 self._installed.update(dict.fromkeys(self._just_installed, True))
                 for card in self.cards:
@@ -327,7 +328,7 @@ class UpdatesDialog(FadeInDialog):
     def __init__(self, parent, meta, updates: List[modrinth.Update], unknown: int):
         super().__init__(parent)
         self.meta, self.updates = meta, updates
-        self.setWindowTitle(t("Updates"))
+        self.setWindowTitle(f"{t('Updates')} — {meta.name}")  # which server, if the user switched meanwhile
         fit_to_screen(self, 520, 380)
         v = QVBoxLayout(self)
         title = QLabel(t("{n} updates available", n=len(updates)))

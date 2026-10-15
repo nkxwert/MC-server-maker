@@ -31,7 +31,12 @@ def _jars(meta) -> List[Path]:
     d = _plugins_dir(meta)
     if not d.exists():
         return []
-    return [p for p in d.glob("*.jar") if re.match(r"(geyser|floodgate)", p.name, re.IGNORECASE)]
+    return [p for p in d.glob("*.jar") if _is_ours(p.name)]
+
+
+def _is_ours(name: str, project: str = "geyser|floodgate") -> bool:
+    """Geyser/Floodgate's own jars only, not add-ons like GeyserSkinManager."""
+    return bool(re.fullmatch(rf"({project})[-_ ]?(spigot|paper|bukkit)\b.*\.jar", name, re.IGNORECASE))
 
 
 def bedrock_installed(meta) -> bool:
@@ -53,7 +58,7 @@ def install_bedrock(meta, task: Optional[Task] = None) -> None:
         name = dl.get("name") or f"{project}-{PLATFORM}.jar"
         # remove other versions of the same plugin first
         for old in plugins.glob("*.jar"):
-            if old.name.lower().startswith(project) and old.name != name:
+            if _is_ours(old.name, project) and old.name != name:
                 old.unlink(missing_ok=True)
         task.log(t("Installing {name} (build {build})...", name=project.capitalize(), build=info.get("build", "?")))
         net.download(f"{url}/downloads/{PLATFORM}", plugins / name, task, sha256=dl.get("sha256"))

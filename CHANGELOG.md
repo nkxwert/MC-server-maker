@@ -3,6 +3,40 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.12.3
+### en
+Bug fixes from a full review:
+- Only one copy of the app runs; opening it again brings back the running window instead of starting the same server twice.
+- Fixed a crash when quitting while a network check was still running, and after an app update restarted.
+- While a server starts, it now counts as running: Stop works, and the world can't be replaced mid-start.
+- Korean chat in the console no longer turns into "���"; chat can't fake players joining or leaving.
+- Plugin/mod updates while the server runs no longer leave two versions behind; locked files show a clear message and the on/off switch flips back.
+- Cut-off downloads are rejected instead of saved; slow or odd network answers no longer cause errors.
+- Tunnel: the Bedrock address no longer replaces the Java one; an agent that can't start shows an error instead of "Starting..." forever.
+- UPnP works with a VPN active; repeated firewall clicks no longer pile up rules.
+- Settings: changing the icon keeps unsaved edits; Save only writes what you changed.
+- Server status: numbers keep updating after saving settings; the port status and disk size don't carry over to another server.
+- Importing a backup keeps the Nether and End; cancelled backups are removed; a broken ops.json is never wiped.
+- Updating Bedrock support no longer deletes other plugins whose names start with "Geyser".
+- start.bat works with non-English folder names; server.properties with a BOM is read correctly.
+- Snapshot servers are offered updates; offline, the Update button says the list didn't load.
+### ko
+전체 점검에서 찾은 버그를 고쳤어요:
+- 앱은 하나만 실행돼요. 다시 열면 같은 서버가 두 번 켜지는 대신 실행 중인 창이 나타나요.
+- 네트워크 확인 중에 종료하거나 앱 업데이트 후 다시 시작할 때 꺼지던 문제를 고쳤어요.
+- 서버가 켜지는 중에도 실행 중으로 취급해요. 중지할 수 있고, 켜는 도중에 월드를 바꿀 수 없어요.
+- 콘솔에서 한글 채팅이 "���"로 깨지지 않아요. 채팅으로 접속/퇴장을 꾸밀 수 없어요.
+- 서버 실행 중 플러그인/모드를 업데이트해도 두 버전이 남지 않아요. 파일이 잠겨 있으면 알려주고 스위치도 원래대로 돌아가요.
+- 중간에 끊긴 다운로드는 저장하지 않아요. 느리거나 이상한 네트워크 응답에도 오류가 나지 않아요.
+- 터널: 베드락 주소가 자바 주소를 덮어쓰지 않아요. 에이전트가 시작되지 않으면 계속 "시작 중"이 아니라 오류를 보여줘요.
+- VPN을 켜도 UPnP가 작동해요. 방화벽 버튼을 여러 번 눌러도 규칙이 쌓이지 않아요.
+- 설정: 아이콘을 바꿔도 저장 안 한 입력이 남아요. 저장하면 바꾼 것만 기록해요.
+- 서버 상태: 설정 저장 후에도 수치가 계속 갱신돼요. 포트 상태와 디스크 크기가 다른 서버로 넘어가지 않아요.
+- 백업을 불러오면 네더와 엔드도 함께 와요. 취소한 백업은 지워져요. 깨진 ops.json을 덮어쓰지 않아요.
+- 베드락 업데이트 시 이름이 "Geyser"로 시작하는 다른 플러그인을 지우지 않아요.
+- 한글 폴더에서도 start.bat이 작동해요. BOM이 있는 server.properties도 제대로 읽어요.
+- 스냅샷 서버에도 업데이트가 보여요. 오프라인이면 업데이트 버튼이 목록을 못 불러왔다고 알려줘요.
+
 ## 1.12.2
 ### en
 - Before your first server, the app shows only the welcome page in the middle — no empty sidebar. The sidebar fades in once a server exists. App settings are reachable from the welcome page.

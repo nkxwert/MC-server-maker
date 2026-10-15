@@ -1,6 +1,7 @@
 """HTTP requests / file downloads."""
 
 import hashlib
+import http.client
 import json
 import ssl
 import urllib.error
@@ -44,29 +45,41 @@ def _open(url: str, body: Optional[bytes] = None, content_type: str = ""):
         raise NetError(f"HTTP {e.code}: {url}") from e
     except urllib.error.URLError as e:
         raise NetError(t("Connection failed ({reason}): {url}", reason=e.reason, url=url)) from e
+    except (OSError, http.client.HTTPException) as e:  # timeouts, dropped connections
+        raise NetError(t("Connection failed ({reason}): {url}", reason=e, url=url)) from e
+
+
+def _read(url: str, body: Optional[bytes] = None, content_type: str = "", limit: int = -1) -> bytes:
+    with _open(url, body, content_type) as resp:
+        try:
+            return resp.read(limit)
+        except (OSError, http.client.HTTPException) as e:
+            raise NetError(t("Connection failed ({reason}): {url}", reason=e, url=url)) from e
+
+
+def _json(data: bytes, url: str):
+    try:
+        return json.loads(data.decode("utf-8"))
+    except ValueError as e:  # e.g. an HTML error page instead of JSON
+        raise NetError(t("Unexpected answer from {url}", url=url)) from e
 
 
 def get_json(url: str):
-    with _open(url) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return _json(_read(url), url)
 
 
 def post_json(url: str, payload):
     """POST a JSON body and return the JSON answer."""
-    body = json.dumps(payload).encode("utf-8")
-    with _open(url, body, "application/json") as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return _json(_read(url, json.dumps(payload).encode("utf-8"), "application/json"), url)
 
 
 def get_bytes(url: str, limit: int = 2 * 1024 * 1024) -> bytes:
     """Small downloads kept in memory (icons). Stops at `limit` bytes."""
-    with _open(url) as resp:
-        return resp.read(limit)
+    return _read(url, limit=limit)
 
 
 def get_text(url: str) -> str:
-    with _open(url) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    return _read(url).decode("utf-8", errors="replace")
 
 
 def exists(url: str) -> bool:
@@ -102,7 +115,12 @@ def download(
         done = 0
         while True:
             task.check()
-            chunk = resp.read(256 * 1024)
+            try:
+                chunk = resp.read(256 * 1024)
+            except (OSError, http.client.HTTPException) as e:
+                f.close()
+                tmp.unlink(missing_ok=True)
+                raise NetError(t("Connection failed ({reason}): {url}", reason=e, url=url)) from e
             if not chunk:
                 break
             f.write(chunk)
@@ -110,6 +128,9 @@ def download(
                 h.update(chunk)
             done += len(chunk)
             task.progress(done, total)
+    if total and done != total:  # the connection closed early: never keep a cut-off file
+        tmp.unlink(missing_ok=True)
+        raise NetError(t("The download was cut off. Please try again: {file}", file=dest.name))
     for name, (h, expected) in hashers.items():
         if h.hexdigest() != expected:
             tmp.unlink(missing_ok=True)

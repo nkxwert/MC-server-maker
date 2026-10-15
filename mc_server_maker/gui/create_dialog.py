@@ -50,20 +50,28 @@ class VersionLoader:
         self.combo = combo
         self.status = status
         self._request = 0
+        self.loaded = False  # True once a list arrived (even an empty one)
 
-    def load(self, provider, include_unstable: bool, keep=None, filter_fn=None):
+    def load(self, provider, include_unstable: bool, keep=None, filter_fn=None, make_filter=None):
+        """make_filter(): optional, runs in the background (may fetch more) and returns filter_fn."""
         self._request += 1
         req = self._request
+        self.loaded = False
         self.combo.clear()
         self.combo.setEnabled(False)
         self.status.setText(t("Loading versions..."))
 
+        def fetch(task):
+            return provider.list_versions(include_unstable), (make_filter() if make_filter else filter_fn)
+
         def done(result):
             if req != self._request:
                 return
-            items = [v for v in result if not filter_fn or filter_fn(v)]
+            result, keep_fn = result
+            self.loaded = True
+            items = [v for v in result if not keep_fn or keep_fn(v)]
             for i, v in enumerate(items):
-                self.combo.addItem(v + (f"  ({t('latest')})" if i == 0 and not filter_fn else ""), v)
+                self.combo.addItem(v + (f"  ({t('latest')})" if i == 0 and not keep_fn else ""), v)
             self.combo.setEnabled(bool(items))
             if keep and keep in items:
                 self.combo.setCurrentIndex(items.index(keep))
@@ -73,7 +81,7 @@ class VersionLoader:
             if req == self._request:
                 self.status.setText("⚠ " + t("Could not load versions: {msg}", msg=msg))
 
-        run_async(lambda task: provider.list_versions(include_unstable), done, fail)
+        run_async(fetch, done, fail)
 
 
 class CreateServerDialog(FadeInDialog):

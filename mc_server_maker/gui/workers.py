@@ -50,6 +50,15 @@ class Worker(QObject):
         self.task.cancelled = True
 
 
+def _deliver(cb, *args):
+    """Run a callback; skip it quietly if its window was already closed (e.g. after a language change)."""
+    try:
+        cb(*args)
+    except RuntimeError as e:
+        if "already deleted" not in str(e):
+            raise
+
+
 class _Bridge(QObject):
     """Deliver worker-thread signals as callbacks on the UI thread."""
 
@@ -60,22 +69,22 @@ class _Bridge(QObject):
     @Slot(object)
     def done(self, result):
         if self.cb[0]:
-            self.cb[0](result)
+            _deliver(self.cb[0], result)
 
     @Slot(str)
     def failed(self, msg):
         if self.cb[1]:
-            self.cb[1](msg)
+            _deliver(self.cb[1], msg)
 
     @Slot(str)
     def log(self, msg):
         if self.cb[2]:
-            self.cb[2](msg)
+            _deliver(self.cb[2], msg)
 
     @Slot(object, object)
     def progress(self, done, total):
         if self.cb[3]:
-            self.cb[3](done, total)
+            _deliver(self.cb[3], done, total)
 
     @Slot()
     def cleanup(self):
@@ -107,6 +116,10 @@ def run_async(
     thread.finished.connect(bridge.cleanup)
     thread.start()
     return worker
+
+
+def any_running() -> bool:
+    return any(thread.isRunning() for thread, _, _ in list(_running))
 
 
 def wait_all(timeout_ms: int = 3000) -> None:

@@ -715,7 +715,43 @@ class SettingsTab(ServerTab):
             cb.setChecked(p.get_bool(key, defaults.get(key, False)))
         set_spin(self.ram, max(1, self.meta.ram_mb // 1024))
         self._update_preview()
+        self._loaded = self._form_state()  # what's on disk; Save writes only what differs
         self.on_state()
+
+    def _spins(self):
+        return {"max-players": self.max_players, "server-port": self.port, "view-distance": self.view_distance,
+                "simulation-distance": self.sim_distance, "spawn-protection": self.spawn_protection}
+
+    def _form_state(self) -> dict:
+        state = {key: spin.value() for key, spin in self._spins().items()}
+        state.update({key: cb.isChecked() for key, cb in self.checks.items()})
+        state.update(motd=self.motd.toPlainText(), gamemode=self.gamemode.currentData(),
+                     difficulty=self.difficulty.currentData(), _name=self.name.text(),
+                     _ram=self.ram.value(), _saver=self.memory_saver.isChecked())
+        return state
+
+    def _apply_form_state(self, state: dict):
+        for key, spin in self._spins().items():
+            spin.setValue(state[key])
+        for key, cb in self.checks.items():
+            cb.setChecked(state[key])
+        self.motd.setPlainText(state["motd"])
+        self.gamemode.setCurrentIndex(self.gamemode.findData(state["gamemode"]))
+        self.difficulty.setCurrentIndex(self.difficulty.findData(state["difficulty"]))
+        self.name.setText(state["_name"])
+        self.ram.setValue(state["_ram"])
+        self.memory_saver.blockSignals(True)
+        self.memory_saver.setChecked(state["_saver"])
+        self.memory_saver.blockSignals(False)
+
+    def _icon_changed(self):
+        # the window reloads to show the new icon; keep what the user typed but hasn't saved
+        state, loaded = self._form_state(), self._loaded
+        self.on_changed()
+        if self.meta:
+            self._apply_form_state(state)
+            self._loaded = loaded
+            self._update_preview()
 
     def on_state(self):
         # only update the notice so unsaved edits are kept
@@ -768,12 +804,12 @@ class SettingsTab(ServerTab):
             QMessageBox.warning(self, t("Icon"), str(e))
             return
         self._update_preview()
-        self.on_changed()
+        self._icon_changed()
 
     def _remove_icon(self):
         self.icon_path.unlink(missing_ok=True)
         self._update_preview()
-        self.on_changed()
+        self._icon_changed()
 
     def _edit_all(self):
         if PropertiesDialog(self, self.meta.properties_path).exec():
@@ -796,14 +832,18 @@ class SettingsTab(ServerTab):
         if not name:
             QMessageBox.warning(self, t("Save"), t("Enter a server name."))
             return
-        lines = self.motd.toPlainText().splitlines()
         v = self.meta.mc_version
         p = self.meta.properties()
-        p.set("motd", amp_to_section("\n".join(lines[:2])))
-        p.set("max-players", self.max_players.value())
-        p.set("gamemode", srv.gamemode_value(self.gamemode.currentData(), v))
-        p.set("difficulty", srv.difficulty_value(self.difficulty.currentData(), v))
-        p.set("server-port", self.port.value())
+        # write only what changed: untouched values (a MOTD with a literal "&", max-players over
+        # 1000, enforce-whitelist set in the full editor...) stay exactly as they are in the file
+        state = self._form_state()
+        changed = {k for k, val in state.items() if val != self._loaded.get(k)}
+        if "motd" in changed:
+            p.set("motd", amp_to_section("\n".join(state["motd"].splitlines()[:2])))
+        if "gamemode" in changed:
+            p.set("gamemode", srv.gamemode_value(state["gamemode"], v))
+        if "difficulty" in changed:
+            p.set("difficulty", srv.difficulty_value(state["difficulty"], v))
         saver = self.memory_saver.isChecked()
         if saver and not self.meta.memory_saver:
             # remember what to go back to when it's turned off
@@ -812,12 +852,11 @@ class SettingsTab(ServerTab):
         elif not saver:
             self.meta.saved_distances = {}
         self.meta.memory_saver = saver
-        p.set("view-distance", self.view_distance.value())
-        p.set("simulation-distance", self.sim_distance.value())
-        p.set("spawn-protection", self.spawn_protection.value())
-        for key, cb in self.checks.items():
-            p.set(key, cb.isChecked())
-        p.set("enforce-whitelist", self.checks["white-list"].isChecked())
+        for key in list(self._spins()) + list(self.checks):
+            if key in changed:
+                p.set(key, state[key])
+        if "white-list" in changed:
+            p.set("enforce-whitelist", state["white-list"])
         p.save()
         self.meta.name = name
         self.meta.ram_mb = self.ram.value() * 1024
@@ -1058,7 +1097,10 @@ class PlayersTab(ServerTab):
             self.runner.send(self.key, f"{command} {name}")
             QTimer.singleShot(1500, self.refresh)
         else:
-            players.remove(self.meta.folder, kind, name)
+            try:
+                players.remove(self.meta.folder, kind, name)
+            except players.PlayerError as e:
+                QMessageBox.warning(self, t("Remove"), str(e))
             self.refresh()
 
 
@@ -1221,6 +1263,10 @@ class NetworkTab(ServerTab):
         self.auto_tunnel.setChecked(self.meta.tunnel)
         self.auto_tunnel.blockSignals(False)
         self._refresh_tunnel()
+        if self.key != getattr(self, "_status_key", None):  # another server: its own port status
+            self._status_key = self.key
+            self._router_host = None
+            self.port_status.setText("")
         if not self.port_status.text():
             self.port_status.setText("⚪ " + t("Port not opened yet."))
         ports = f"TCP {self.port}" + "".join(f", UDP {u}" for u in udp)
@@ -1249,11 +1295,14 @@ class NetworkTab(ServerTab):
 
     def _open_port(self):
         port, name, udp = self.port, self.meta.name, plugins.udp_ports(self.meta)
+        key = self.key
         self.port_status.setText("⏳ " + t("Looking for the router..."))
         self.btn_open.setEnabled(False)
 
         def done(res):
             self.btn_open.setEnabled(True)
+            if key != self.key:
+                return  # the user switched servers meanwhile
             self._router_host = res.router_host
             if res.cgnat:
                 self.port_status.setText("🟡 " + t(
@@ -1265,16 +1314,17 @@ class NetworkTab(ServerTab):
 
         def fail(msg):
             self.btn_open.setEnabled(True)
-            self.port_status.setText("🔴 " + msg)
+            if key == self.key:
+                self.port_status.setText("🔴 " + msg)
 
         run_async(lambda task: network.open_port(port, f"Minecraft {name}"[:60], udp_ports=udp), done, fail)
 
     def _close_port(self):
-        port, udp = self.port, plugins.udp_ports(self.meta)
+        port, udp, key = self.port, plugins.udp_ports(self.meta), self.key
         self.port_status.setText("⏳ " + t("Closing port..."))
         run_async(lambda task: network.close_port(port, udp_ports=udp),
-                  lambda _: self.port_status.setText("⚪ " + t("Port closed.")),
-                  lambda msg: self.port_status.setText("🔴 " + msg))
+                  lambda _: key == self.key and self.port_status.setText("⚪ " + t("Port closed.")),
+                  lambda msg: key == self.key and self.port_status.setText("🔴 " + msg))
 
     # ------------------------------------------------------------ tunnel
 
@@ -1595,14 +1645,25 @@ class AddonsTab(ServerTab):
         try:
             addons.set_enabled(card.addon, on)
         except OSError as e:
-            QMessageBox.warning(self, t(self.label()), str(e))
+            # e.g. Windows keeps the jar locked while the server runs: put the switch back
+            card.switch.blockSignals(True)
+            card.switch.setChecked(not on)
+            card.switch.blockSignals(False)
+            card.switch.update()
+            QMessageBox.warning(self, t(self.label()), t("Couldn't change {file}. Stop the server, then try again.",
+                                                         file=card.addon.file_name) + f"\n{e}")
+            return
         card.setOpacity(on)
         items = addons.list_addons(self.meta)
         self.summary.setText(t("{n} installed · {on} on", n=len(items), on=sum(1 for a in items if a.enabled)))
 
     def _remove(self, card):
         if QMessageBox.question(self, t("Remove"), t("Delete {name}?", name=card.addon.file_name)) == QMessageBox.Yes:
-            addons.remove(card.addon)
+            try:
+                addons.remove(card.addon)
+            except OSError as e:
+                QMessageBox.warning(self, t("Remove"), t("Couldn't change {file}. Stop the server, then try again.",
+                                                         file=card.addon.file_name) + f"\n{e}")
             self.refresh()
 
 
@@ -1820,7 +1881,8 @@ class JoinCheckBox(QGroupBox):
         def done(res):
             self._busy = False
             self.btn.setEnabled(self.tab.running)
-            if meta is not self.tab.meta:
+            if str(meta.folder) != self.tab.key:
+                self.run()  # we switched servers meanwhile: check the one on screen instead
                 return
             self._show(res)
             self.when.setText(t("Last checked {time}", time=time.strftime("%H:%M:%S")))
@@ -1912,7 +1974,9 @@ class StatusTab(ServerTab):
         for tile in (self.cpu, self.mem, self.down, self.up, self.ping):
             tile.spark.clear()
             tile.set("-")
+        self.disk.set("-")
         self.monitor = None
+        self._monitor_pid = None  # or _sample would never make a new monitor after a reload
         self._n = 0
         self.on_state()
 
@@ -1924,6 +1988,8 @@ class StatusTab(ServerTab):
         self.mem.spark.fixed_max = self.meta.ram_mb * 1024 * 1024
         self.join.reset()
         self._update_timer()
+        if self.isVisible() and self.runner.state(self.key) == "running":
+            self.join.run()  # just finished starting: check now, not a minute later
         self._disk()
 
     # sample only while this tab is on screen and the server runs (low-resource)
@@ -1975,9 +2041,14 @@ class StatusTab(ServerTab):
             self._disk()
 
     def _ping(self):
-        ips = self.runner.ips(self.key)
-        if not ips:
+        all_ips = self.runner.ips(self.key)
+        if not all_ips:
             self.ping.set("-", t("No players online"))
+            return
+        # players coming through the playit tunnel show up as 127.0.0.1: pinging that says nothing
+        ips = {n: ip for n, ip in all_ips.items() if not ip.startswith("127.") and ip != "::1"}
+        if not ips:
+            self.ping.set("-", t("Can't measure through the tunnel"))
             return
         if self._ping_busy:
             return
@@ -2012,9 +2083,11 @@ class StatusTab(ServerTab):
 
         def done(res):
             self._disk_busy = False
-            if meta is self.meta:
-                total, world = res
-                self.disk.set(stats.human_bytes(total), t("World {size}", size=stats.human_bytes(world)))
+            if str(meta.folder) != self.key:
+                self._disk()  # switched servers meanwhile: measure the one on screen
+                return
+            total, world = res
+            self.disk.set(stats.human_bytes(total), t("World {size}", size=stats.human_bytes(world)))
 
         def fail(_msg):
             self._disk_busy = False
@@ -2098,24 +2171,40 @@ class UpgradeSection(ServerTab):
         downgrade = self.allow_downgrade.isChecked()
         unstable = self.unstable.isChecked()
 
-        def newer(v: str) -> bool:
-            if v == current:
-                return False
-            if downgrade:
-                return True
-            # Vanilla/Fabric snapshots (e.g. 25w14a) can't be compared by number; use list order (newest first)
+        def make_filter():  # runs in the background: may fetch the full list
+            order = None
             if m.software in ("vanilla", "fabric"):
-                order = provider.list_versions(unstable)  # already cached
-                if current in order:
-                    return order.index(v) < order.index(current)
-            return versions.version_key(v) > versions.version_key(current)
+                # Snapshots (e.g. 25w14a) can't be compared by number: use list order (newest first).
+                # A snapshot server isn't in the releases-only list, so look it up in the full one.
+                order = provider.list_versions(unstable)
+                if current not in order:
+                    try:
+                        order = provider.list_versions(True)
+                    except Exception:  # noqa: BLE001 - fall back to comparing numbers
+                        order = []
+                if current not in order:
+                    order = None
 
-        self.loader.load(provider, unstable, filter_fn=newer)
+            def newer(v: str) -> bool:
+                if v == current:
+                    return False
+                if downgrade:
+                    return True
+                if order is not None and v in order:
+                    return order.index(v) < order.index(current)
+                return versions.version_key(v) > versions.version_key(current)
+
+            return newer
+
+        self.loader.load(provider, unstable, make_filter=make_filter)
 
     def _upgrade(self):
         new = self.version.currentData()
         if not new:
-            QMessageBox.information(self, t("Update"), t("You're on the latest version."))
+            if self.loader.loaded:
+                QMessageBox.information(self, t("Update"), t("You're on the latest version."))
+            else:  # still loading, or the list couldn't be fetched (offline)
+                QMessageBox.information(self, t("Update"), t("The version list isn't loaded. Check your internet connection."))
             return
         m = self.meta
         warn = ""

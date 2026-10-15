@@ -243,7 +243,8 @@ def write_start_scripts(meta: ServerMeta) -> None:
     win_args = " ".join(launch_args(meta, windows=True))
     unix_args = " ".join(launch_args(meta, windows=False))
     (meta.folder / "start.bat").write_text(
-        f'@echo off\r\ncd /d "%~dp0"\r\n"{java}" {win_args}\r\npause\r\n', encoding="utf-8"
+        # chcp 65001: cmd reads .bat files in the OEM code page, which garbles e.g. a Korean Java path
+        f'@echo off\r\nchcp 65001 >nul\r\ncd /d "%~dp0"\r\n"{java}" {win_args}\r\npause\r\n', encoding="utf-8"
     )
     sh = meta.folder / "start.sh"
     sh.write_text(f'#!/usr/bin/env sh\ncd "$(dirname "$0")"\nexec "{java}" {unix_args}\n', encoding="utf-8")
@@ -424,13 +425,19 @@ def backup_server(meta: ServerMeta, label: str = "", worlds_only: bool = False, 
         else:
             files.extend(p for p in root.rglob("*") if p.is_file())
     task.log(t("Backing up... ({n} files)", n=len(files)))
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
-        for i, f in enumerate(files):
-            task.check()
-            if f.name == "session.lock":
-                continue
-            z.write(f, f.relative_to(meta.folder).as_posix())
-            task.progress(i + 1, len(files))
+    part = dest.with_name(dest.name + ".part")  # renamed only when complete
+    try:
+        with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as z:
+            for i, f in enumerate(files):
+                task.check()
+                if f.name == "session.lock":
+                    continue
+                z.write(f, f.relative_to(meta.folder).as_posix())
+                task.progress(i + 1, len(files))
+        part.replace(dest)
+    except BaseException:
+        part.unlink(missing_ok=True)  # cancelled / unreadable file / disk full
+        raise
     task.log(t("Backup saved: {path}", path=dest))
     return dest
 
@@ -453,9 +460,11 @@ def find_world_root(src: Path) -> Path:
     if src.is_dir():
         if (src / "level.dat").exists():
             return src
-        for sub in sorted(src.iterdir()):
-            if sub.is_dir() and (sub / "level.dat").exists():
-                return sub
+        subs = [s for s in sorted(src.iterdir()) if s.is_dir() and (s / "level.dat").exists()]
+        # a backup holds world, world_nether and world_the_end: the overworld is the main one
+        main = [s for s in subs if not s.name.endswith(("_nether", "_the_end"))]
+        if main or subs:
+            return (main or subs)[0]
         raise ServerError(t("No level.dat found in that folder. Choose a world folder."))
     if zipfile.is_zipfile(src):
         with zipfile.ZipFile(src) as z:
@@ -471,7 +480,7 @@ def import_world(server_dir: Path, src: Path, level_name: str = "world") -> None
     if dest.exists():
         shutil.rmtree(dest)
     if root.is_dir():
-        shutil.copytree(root, dest, ignore=shutil.ignore_patterns("session.lock"))
+        _copy_world(root, Path(server_dir), level_name)
         return
     with tempfile.TemporaryDirectory(dir=server_dir) as tmp:
         tmp_path = Path(tmp).resolve()
@@ -480,7 +489,20 @@ def import_world(server_dir: Path, src: Path, level_name: str = "world") -> None
                 if not (tmp_path / name).resolve().is_relative_to(tmp_path):
                     raise ServerError(t("The archive contains an invalid path."))
             z.extractall(tmp_path)
-        shutil.copytree(find_world_root(tmp_path), dest, ignore=shutil.ignore_patterns("session.lock"))
+        _copy_world(find_world_root(tmp_path), Path(server_dir), level_name)
+
+
+def _copy_world(root: Path, server_dir: Path, level_name: str) -> None:
+    """Copy a world folder, plus "<name>_nether" / "<name>_the_end" next to it (Paper/Spigot layout)."""
+    ignore = shutil.ignore_patterns("session.lock")
+    shutil.copytree(root, server_dir / level_name, ignore=ignore)
+    for suffix in ("_nether", "_the_end"):
+        extra = root.with_name(root.name + suffix)
+        if extra.is_dir() and extra != root:
+            target = server_dir / (level_name + suffix)
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(extra, target, ignore=ignore)
 
 
 def _remove_worlds(meta: ServerMeta) -> None:

@@ -30,6 +30,7 @@ class TunnelManager(QObject):
         self._variant = 0
         self._opened_claim = False
         self._buf = ""
+        self._line = ""
 
     # ----------------------------------------------------------------- control
 
@@ -91,8 +92,10 @@ class TunnelManager(QObject):
         proc.setProcessChannelMode(QProcess.MergedChannels)
         proc.readyReadStandardOutput.connect(lambda: self._read(proc))
         proc.finished.connect(lambda code, _s: self._finished(proc, code))
+        proc.errorOccurred.connect(lambda err: self._error(proc, err))
         self.proc = proc
         self._buf = ""
+        self._line = ""
         self._set(STARTING)
         proc.start()
         # still alive after a few seconds -> this command line works
@@ -102,10 +105,24 @@ class TunnelManager(QObject):
         if proc is self.proc and proc.state() != QProcess.NotRunning and self.state == STARTING:
             self._set(RUNNING if not self.claim_url or tunnel.is_claimed() else WAITING_CLAIM)
 
+    def _error(self, proc: QProcess, err):
+        # FailedToStart never emits finished(), so without this the tunnel would say "Starting..." forever
+        if proc is self.proc and err == QProcess.FailedToStart:
+            self.proc = None
+            try:  # a broken (e.g. cut-off) agent download: fetch it again next time
+                tunnel.agent_path().unlink(missing_ok=True)
+            except OSError:
+                pass
+            self._fail(t("The playit.gg agent couldn't start: {err}", err=proc.errorString()))
+
     def _read(self, proc: QProcess):
         text = ANSI_RE.sub("", bytes(proc.readAllStandardOutput()).decode("utf-8", "replace"))
         self._buf = (self._buf + text)[-4000:]
-        for line in text.splitlines():
+        # only look at whole lines, so an address split across two reads isn't saved half
+        lines = (self._line + text).replace("\r", "\n").split("\n")
+        self._line = lines.pop()[-1000:]
+        text = "\n".join(lines)
+        for line in lines:
             if line.strip():
                 self._append(line.rstrip())
         url = tunnel.find_claim_url(text)

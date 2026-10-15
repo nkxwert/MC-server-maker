@@ -36,13 +36,20 @@ def lookup_uuid(name: str, online_mode: bool) -> tuple:
     return data["name"], str(uuid.UUID(data["id"]))
 
 
-def _read(path: Path) -> List[dict]:
+def _read(path: Path, strict: bool = False) -> List[dict]:
+    """The list in ops.json / whitelist.json. strict: raise on a broken file instead of
+    treating it as empty, so adding/removing never overwrites entries we couldn't read."""
     if not path.exists():
         return []
     try:
-        data = json.loads(path.read_text(encoding="utf-8") or "[]")
-        return data if isinstance(data, list) else []
-    except ValueError:
+        data = json.loads(path.read_text(encoding="utf-8-sig").strip() or "[]")  # -sig: tolerate a BOM
+        if not isinstance(data, list):
+            raise ValueError("not a list")
+        return [e for e in data if isinstance(e, dict)]
+    except (ValueError, OSError) as e:
+        if strict:
+            raise PlayerError(t("{file} can't be read ({err}). Fix or delete it, then try again.",
+                                file=path.name, err=e)) from e
         return []
 
 
@@ -57,7 +64,7 @@ def list_names(server_dir: Path, kind: str) -> List[str]:
 def add(server_dir: Path, kind: str, name: str, online_mode: bool) -> str:
     """kind: 'ops' or 'whitelist'."""
     path = Path(server_dir) / f"{kind}.json"
-    data = _read(path)
+    data = _read(path, strict=True)
     real_name, pid = lookup_uuid(name, online_mode)
     if any(e.get("uuid") == pid for e in data):
         return real_name
@@ -71,5 +78,5 @@ def add(server_dir: Path, kind: str, name: str, online_mode: bool) -> str:
 
 def remove(server_dir: Path, kind: str, name: str) -> None:
     path = Path(server_dir) / f"{kind}.json"
-    data = [e for e in _read(path) if e.get("name", "").lower() != name.lower()]
+    data = [e for e in _read(path, strict=True) if str(e.get("name", "")).lower() != name.lower()]
     _write(path, data)

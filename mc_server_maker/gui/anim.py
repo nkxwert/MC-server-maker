@@ -4,7 +4,7 @@ Kept short (about 0.2 s) so the app feels smooth, never slow. Turned off in
 low-resource mode, where every animation just jumps to its end.
 """
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation
 from PySide6.QtWidgets import QDialog, QGraphicsOpacityEffect, QWidget
 
 FAST = 160
@@ -43,7 +43,7 @@ def fade_in(widget: QWidget, ms: int = NORMAL) -> None:
 
     anim.finished.connect(done)
     widget._fade_anim = anim
-    anim.start()
+    anim.start(QAbstractAnimation.DeleteWhenStopped)  # don't pile up one object per fade
 
 
 def fade_window_in(window: QWidget, ms: int = FAST) -> None:
@@ -56,7 +56,7 @@ def fade_window_in(window: QWidget, ms: int = FAST) -> None:
     anim.setEndValue(1.0)
     anim.setEasingCurve(QEasingCurve.OutCubic)
     window._window_anim = anim
-    anim.start()
+    anim.start(QAbstractAnimation.DeleteWhenStopped)
 
 
 class FadeInDialog(QDialog):

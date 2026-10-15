@@ -173,9 +173,27 @@ def _write_version(meta, version: dict, task: Task, replace: Optional[Path] = No
     keep_off = bool(replace) and replace.name.endswith(addons.DISABLED_SUFFIX)
     dest = folder / name
     hashes = f.get("hashes") or {}
-    net.download(f["url"], dest, task, sha512=hashes.get("sha512"), sha1=hashes.get("sha1"))
-    if replace and replace.exists() and replace.resolve() != dest.resolve():
-        replace.unlink()
+    in_use = t("{file} is in use by the running server. Stop the server, then try again.",
+               file=(replace or dest).name)
+    # A running server keeps its jars open on Windows. Move the old jar aside first: if that
+    # fails nothing has changed yet (no duplicate old + new jar left behind).
+    parked = None
+    if replace and replace.exists():
+        parked = replace.with_name(replace.name + ".bartizan-old")
+        try:
+            replace.rename(parked)
+        except OSError as e:
+            raise ModrinthError(in_use) from e
+    try:
+        net.download(f["url"], dest, task, sha512=hashes.get("sha512"), sha1=hashes.get("sha1"))
+    except BaseException as e:
+        if parked:
+            parked.rename(replace)  # put the old version back
+        if isinstance(e, OSError) and not isinstance(e, net.NetError):
+            raise ModrinthError(in_use) from e
+        raise
+    if parked:
+        parked.unlink(missing_ok=True)
     (folder / (name + addons.DISABLED_SUFFIX)).unlink(missing_ok=True)
     if keep_off:  # an update keeps a turned-off plugin off
         off = dest.with_name(dest.name + addons.DISABLED_SUFFIX)
