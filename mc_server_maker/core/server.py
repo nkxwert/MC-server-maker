@@ -18,6 +18,7 @@ from mc_server_maker.core.tasks import Task
 from mc_server_maker.i18n import t
 
 META_FILE = "server-maker.json"
+UPTIME_FILE = "bartizan-uptime.json"  # total running time; kept apart so meta saves can't overwrite it
 BACKUP_DIR = "backups"
 # Excluded from backups (large and re-downloadable)
 BACKUP_EXCLUDE = {BACKUP_DIR, "libraries", "cache", "logs", ".fabric", "versions", "crash-reports"}
@@ -550,7 +551,7 @@ def set_memory_saver(meta: ServerMeta, on: bool) -> None:
 
 # --------------------------------------------------------- copy / rename
 
-DUPLICATE_SKIP = {BACKUP_DIR, "logs", "crash-reports", "cache", "session.lock"}
+DUPLICATE_SKIP = {BACKUP_DIR, "logs", "crash-reports", "cache", "session.lock", UPTIME_FILE}
 
 
 def duplicate_server(meta: ServerMeta, new_name: str, task: Optional[Task] = None) -> ServerMeta:
@@ -596,3 +597,22 @@ def end_offline_session(meta: ServerMeta) -> bool:
     meta.offline_session = False
     meta.save()
     return True
+
+
+def total_uptime(folder: Path) -> float:
+    """Seconds this server has run in total (all runs so far)."""
+    try:
+        data = json.loads((Path(folder) / UPTIME_FILE).read_text(encoding="utf-8"))
+        return max(0.0, float(data.get("total_seconds", 0)))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0.0
+
+
+def add_uptime(folder: Path, seconds: float) -> float:
+    """Add a run's seconds to the total and return the new total."""
+    total = total_uptime(folder) + max(0.0, seconds)
+    try:
+        (Path(folder) / UPTIME_FILE).write_text(json.dumps({"total_seconds": round(total)}), encoding="utf-8")
+    except OSError:
+        pass  # e.g. the folder was just moved to the Recycle Bin
+    return total

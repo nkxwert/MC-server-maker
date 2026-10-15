@@ -206,6 +206,21 @@ def format_uptime(secs: float) -> str:
     return (f"{d}d " if d else "") + f"{h:02d}:{m:02d}:{s:02d}"
 
 
+def format_total(secs: float) -> str:
+    """Long running times in words: '3d 4h', '5h 12m', '7m 30s', '13s'."""
+    secs = int(secs)
+    d, rem = divmod(secs, 86400)
+    h, rem = divmod(rem, 3600)
+    m, s = divmod(rem, 60)
+    if d:
+        return t("{d}d {h}h", d=d, h=h)
+    if h:
+        return t("{h}h {m}m", h=h, m=m)
+    if m:
+        return t("{m}m {s}s", m=m, s=s)
+    return t("{s}s", s=s)
+
+
 class OnlinePlayersDialog(QDialog):
     """Online players with Kick / Ban (updates live)."""
 
@@ -312,6 +327,13 @@ class ConsoleTab(ServerTab):
         self.uptime.setObjectName("Big")
         v.addWidget(self.uptime)
         side.addWidget(box)
+        box = QGroupBox(t("Total uptime"))
+        v = QVBoxLayout(box)
+        self.total_uptime = QLabel("-")
+        self.total_uptime.setObjectName("ItemName")
+        self.total_uptime.setToolTip(t("All the time this server has been running, across every start."))
+        v.addWidget(self.total_uptime)
+        side.addWidget(box)
         side.addStretch()
         side_w = QWidget()
         side_w.setLayout(side)
@@ -403,6 +425,8 @@ class ConsoleTab(ServerTab):
     def _tick(self):
         up = self.runner.uptime(self.key) if self.meta else 0
         self.uptime.setText(format_uptime(up) if up else "-")
+        total = self.runner.total_uptime(self.key) if self.meta else 0
+        self.total_uptime.setText(format_total(total) if total >= 1 else "-")
 
     def _show_players(self):
         if self.meta:

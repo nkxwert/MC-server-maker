@@ -517,4 +517,10 @@ KO = {
         "보통 25565예요. 서버 여러 개를 동시에 켤 때만 바꾸세요.",
     "Within this many blocks of the world spawn, only OPs can break or place blocks. 0 = off, everyone can build. It only works once the server has at least one OP.":
         "월드 스폰 지점에서 이 거리(블록) 안에서는 OP만 블록을 부수거나 놓을 수 있어요. 0이면 꺼지고 누구나 건축할 수 있어요. OP가 한 명 이상 있어야 작동해요.",
+    "Total uptime": "총 가동 시간",
+    "All the time this server has been running, across every start.": "이 서버를 지금까지 켜 둔 시간을 모두 더한 값이에요.",
+    "{d}d {h}h": "{d}일 {h}시간",
+    "{h}h {m}m": "{h}시간 {m}분",
+    "{m}m {s}s": "{m}분 {s}초",
+    "{s}s": "{s}초",
 }

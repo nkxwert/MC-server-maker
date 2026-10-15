@@ -208,6 +208,19 @@ class OfflineSessionTest(unittest.TestCase):
         self.assertFalse(self.meta.properties().get_bool("online-mode", True))
 
 
+class UptimeTest(unittest.TestCase):
+    def test_total_accumulates(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        self.assertEqual(srv.total_uptime(d), 0)
+        srv.add_uptime(d, 90)
+        self.assertEqual(srv.add_uptime(d, 30.4), 120.4)
+        self.assertEqual(srv.total_uptime(d), 120)
+        (d / srv.UPTIME_FILE).write_text("garbage")
+        self.assertEqual(srv.total_uptime(d), 0)
+        self.assertIn(srv.UPTIME_FILE, srv.DUPLICATE_SKIP)
+
+
 class JoinCheckTest(unittest.TestCase):
     def test_server_list_ping(self):
         import json

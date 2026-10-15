@@ -3,9 +3,10 @@
 import re
 import time
 from collections import deque
+from pathlib import Path
 from typing import Deque, Dict, Optional, Set
 
-from PySide6.QtCore import QObject, QProcess, Signal
+from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
 from mc_server_maker.core import server as srv
 from mc_server_maker.i18n import t
@@ -34,6 +35,11 @@ class ServerRunner(QObject):
         self.status: Dict[str, str] = {}
         self.player_ips: Dict[str, Dict[str, str]] = {}
         self.started_at: Dict[str, float] = {}
+        self._counted_until: Dict[str, float] = {}  # running time up to here is already in the total
+        self._totals: Dict[str, float] = {}  # cached total uptime per server
+        self._uptime_saver = QTimer(self)  # save the total now and then, so a crash loses little
+        self._uptime_saver.timeout.connect(self._save_uptimes)
+        self._uptime_saver.start(60_000)
         self.metas: Dict[str, srv.ServerMeta] = {}
         self.low_priority = True  # run servers below normal priority (low-resource mode)
         self._partial: Dict[str, str] = {}
@@ -65,6 +71,26 @@ class ServerRunner(QObject):
         if not self.is_running(key) or key not in self.started_at:
             return 0.0
         return time.time() - self.started_at[key]
+
+    def total_uptime(self, key: str) -> float:
+        """All-time running seconds, including the current run."""
+        if key not in self._totals:
+            self._totals[key] = srv.total_uptime(Path(key))
+        extra = time.time() - self._counted_until[key] if self.is_running(key) and key in self._counted_until else 0
+        return self._totals[key] + extra
+
+    def _count_uptime(self, key: str) -> None:
+        since = self._counted_until.get(key)
+        if since is None:
+            return
+        now = time.time()
+        self._totals[key] = srv.add_uptime(Path(key), now - since)
+        self._counted_until[key] = now
+
+    def _save_uptimes(self) -> None:
+        for key in list(self._counted_until):
+            if self.is_running(key):
+                self._count_uptime(key)
 
     def pid(self, key: str) -> Optional[int]:
         return int(self.procs[key].processId()) if self.is_running(key) else None
@@ -133,6 +159,7 @@ class ServerRunner(QObject):
         self.player_ips[key] = {}
         self._partial[key] = ""
         self.started_at[key] = time.time()
+        self._counted_until[key] = self.started_at[key]
         self.system_line(key, t("Starting: {cmd}", cmd=" ".join(cmd)))
         self._set_state(key, STARTING)
         proc.start()
@@ -151,6 +178,8 @@ class ServerRunner(QObject):
         rest = self._partial.pop(key, "")
         if rest:
             self._emit_line(key, rest)
+        self._count_uptime(key)
+        self._counted_until.pop(key, None)
         self.system_line(key, t("Server stopped (exit code {code}).", code=code))
         self.players[key] = set()
         self.players_changed.emit(key)

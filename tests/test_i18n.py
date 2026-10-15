@@ -72,5 +72,21 @@ class I18nTest(unittest.TestCase):
         self.assertEqual(i18n.t("Start"), "Start")
 
 
+class DurationTest(unittest.TestCase):
+    def test_format_total(self):
+        from mc_server_maker.gui.tabs import format_total
+
+        i18n.set_language("en")
+        self.assertEqual(format_total(13), "13s")
+        self.assertEqual(format_total(450), "7m 30s")
+        self.assertEqual(format_total(5 * 3600 + 12 * 60 + 9), "5h 12m")
+        self.assertEqual(format_total(3 * 86400 + 4 * 3600), "3d 4h")
+        i18n.set_language("ko")
+        try:
+            self.assertEqual(format_total(5 * 3600 + 12 * 60), "5시간 12분")
+        finally:
+            i18n.set_language("en")
+
+
 if __name__ == "__main__":
     unittest.main()

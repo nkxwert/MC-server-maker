@@ -3,6 +3,12 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.10.0
+### en
+- **Total uptime**: the console now shows how long the server has run in total, across every start, under the current uptime.
+### ko
+- **총 가동 시간**: 콘솔의 가동 시간 아래에 지금까지 서버를 켜 둔 시간을 모두 더한 총 가동 시간이 나와요.
+
 ## 1.9.1
 ### en
 - The server preview shows Minecraft's default server icon instead of "No icon" when you haven't picked one, just like in the game's server list.
