@@ -2,6 +2,7 @@
 
 import os
 import re
+import time
 from collections import deque
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -27,7 +28,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -51,14 +51,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mc_server_maker.core import addons, network, players, plugins, property_catalog, stats, versions
+from mc_server_maker.core import addons, joincheck, net, network, players, plugins, property_catalog, stats, versions
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import get_provider
 from mc_server_maker.gui import theme
 from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
 from mc_server_maker.gui.runner import ServerRunner
-from mc_server_maker.gui.theme import set_kind
+from mc_server_maker.gui.theme import form_layout, set_kind
 from mc_server_maker.gui.widgets import MotdPreview, amp_to_section, color_help, convert_icon, section_to_amp
 from mc_server_maker.gui.workers import TaskDialog, run_async
 from mc_server_maker.i18n import t
@@ -513,7 +513,7 @@ class SettingsTab(ServerTab):
         layout.addWidget(self.notice)
 
         box = QGroupBox(t("Name · description · icon"))
-        form = QFormLayout(box)
+        form = form_layout(box)
         self.name = QLineEdit()
         form.addRow(t("Name"), self.name)
         self.motd = QPlainTextEdit()
@@ -535,7 +535,7 @@ class SettingsTab(ServerTab):
         layout.addWidget(box)
 
         box = QGroupBox(t("Game"))
-        form = QFormLayout(box)
+        form = form_layout(box)
         self.max_players = QSpinBox(minimum=1, maximum=1000)
         form.addRow(t("Max players"), self.max_players)
         self.gamemode = QComboBox()
@@ -550,6 +550,8 @@ class SettingsTab(ServerTab):
         form.addRow(t("Port"), self.port)
         self.view_distance = QSpinBox(minimum=2, maximum=32)
         form.addRow(t("View distance"), self.view_distance)
+        self.sim_distance = QSpinBox(minimum=2, maximum=32)
+        form.addRow(t("Simulation distance"), self.sim_distance)
         self.checks = {}
         for key, label in (
             ("online-mode", "Online mode (off = allow non-premium accounts)"),
@@ -564,9 +566,20 @@ class SettingsTab(ServerTab):
             form.addRow("", cb)
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64)
         form.addRow(t("Memory (RAM)"), self.ram)
+        form.addRow("", hint(t("1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")))
         all_props = set_kind(QPushButton(t("Edit all server.properties...")), "ghost")
         all_props.clicked.connect(self._edit_all)
         form.addRow("", all_props)
+        layout.addWidget(box)
+
+        box = QGroupBox(t("Memory saver"))
+        v = QVBoxLayout(box)
+        self.memory_saver = QCheckBox(t("Use less memory"))
+        self.memory_saver.toggled.connect(self._memory_saver_toggled)
+        v.addWidget(self.memory_saver)
+        v.addWidget(hint(t(
+            "Usually saves a third to half of the memory. Sets view distance 6 and simulation distance 4, "
+            "unloads spawn chunks and returns unused memory sooner. Far-away farms only run while someone is nearby.")))
         layout.addWidget(box)
 
         self.bedrock_box = QGroupBox(t("Bedrock players (phone / console / Windows)"))
@@ -613,6 +626,11 @@ class SettingsTab(ServerTab):
         self.difficulty.setCurrentIndex(self.difficulty.findData(diff))
         self.port.setValue(p.get_int("server-port", 25565))
         self.view_distance.setValue(p.get_int("view-distance", 10))
+        self.sim_distance.setValue(p.get_int("simulation-distance", 10))
+        self.memory_saver.blockSignals(True)
+        self.memory_saver.setChecked(self.meta.memory_saver)
+        self.memory_saver.blockSignals(False)
+        self._distances_before = (self.view_distance.value(), self.sim_distance.value())
         defaults = {"online-mode": True, "pvp": True}
         for key, cb in self.checks.items():
             cb.setChecked(p.get_bool(key, defaults.get(key, False)))
@@ -642,6 +660,16 @@ class SettingsTab(ServerTab):
         self.btn_bedrock.setEnabled(not self.running)
         self.btn_bedrock_remove.setVisible(installed)
         self.btn_bedrock_remove.setEnabled(not self.running)
+
+    def _memory_saver_toggled(self, on: bool):
+        if on:
+            self._distances_before = (self.view_distance.value(), self.sim_distance.value())
+            self.view_distance.setValue(srv.MEMORY_SAVER_DISTANCES["view-distance"])
+            self.sim_distance.setValue(srv.MEMORY_SAVER_DISTANCES["simulation-distance"])
+        else:
+            saved = self.meta.saved_distances if self.meta and self.meta.saved_distances else {}
+            self.view_distance.setValue(int(saved.get("view-distance", self._distances_before[0])))
+            self.sim_distance.setValue(int(saved.get("simulation-distance", self._distances_before[1])))
 
     def _update_preview(self):
         if not self.meta:
@@ -697,7 +725,16 @@ class SettingsTab(ServerTab):
         p.set("gamemode", srv.gamemode_value(self.gamemode.currentData(), v))
         p.set("difficulty", srv.difficulty_value(self.difficulty.currentData(), v))
         p.set("server-port", self.port.value())
+        saver = self.memory_saver.isChecked()
+        if saver and not self.meta.memory_saver:
+            # remember what to go back to when it's turned off
+            self.meta.saved_distances = {"view-distance": str(self._distances_before[0]),
+                                         "simulation-distance": str(self._distances_before[1])}
+        elif not saver:
+            self.meta.saved_distances = {}
+        self.meta.memory_saver = saver
         p.set("view-distance", self.view_distance.value())
+        p.set("simulation-distance", self.sim_distance.value())
         for key, cb in self.checks.items():
             p.set(key, cb.isChecked())
         p.set("enforce-whitelist", self.checks["white-list"].isChecked())
@@ -723,7 +760,7 @@ class WorldTab(ServerTab):
         layout.addWidget(self.running_notice)
 
         box = QGroupBox(t("Current world"))
-        form = QFormLayout(box)
+        form = form_layout(box)
         self.info_seed = QLabel()
         self.info_seed.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.info_type = QLabel()
@@ -999,9 +1036,8 @@ class NetworkTab(ServerTab):
         box = QGroupBox(t("Tunnel (no port forwarding) — playit.gg"))
         v = QVBoxLayout(box)
         v.addWidget(hint(t(
-            "Easiest way for friends in other homes to join: a free playit.gg tunnel. Works even where ports "
-            "can't be opened, no player or bandwidth caps for normal servers. Adds a little latency depending "
-            "on the distance to the nearest playit relay.")))
+            "Free and the easiest option: friends join without opening any ports. "
+            "Adds a little latency (distance to the nearest playit server).")))
         self.tunnel_status = QLabel()
         self.tunnel_status.setWordWrap(True)
         self.tunnel_status.setObjectName("ItemName")
@@ -1542,7 +1578,171 @@ def _rate(v: float) -> str:
     return stats.human_bytes(v) + "/s"
 
 
+class CheckRow(QWidget):
+    """One line of the join check: ● title — detail."""
+
+    def __init__(self, title: str):
+        super().__init__()
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 3, 0, 3)
+        row.setSpacing(10)
+        self.icon = QLabel("○")
+        self.icon.setFixedWidth(18)
+        row.addWidget(self.icon)
+        self.title = QLabel(title)
+        self.title.setObjectName("ItemName")
+        self.title.setFixedWidth(150)
+        row.addWidget(self.title)
+        self.detail = QLabel("-")
+        self.detail.setWordWrap(True)
+        row.addWidget(self.detail, 1)
+
+    def set(self, state: str, detail: str):
+        """state: ok / fail / wait / off"""
+        icon, color = {"ok": ("●", theme.C["accent"]), "fail": ("●", theme.C["danger"]),
+                       "wait": ("◌", theme.C["warn"]), "off": ("○", theme.C["muted"])}[state]
+        self.icon.setText(icon)
+        self.icon.setStyleSheet(f"color: {color}; font-size: 12pt;")
+        self.detail.setText(detail)
+        self.detail.setStyleSheet(f"color: {theme.C['text'] if state in ('ok', 'fail') else theme.C['muted']};")
+
+
+def _ok_detail(r) -> str:
+    bits = [r.version, t("{players} players", players=r.players) if r.players else ""]
+    if r.latency_ms is not None:
+        bits.append(f"{r.latency_ms:.0f} ms")
+    return " · ".join(b for b in bits if b) or t("Reachable")
+
+
+class JoinCheckBox(QGroupBox):
+    INTERVAL_MS = 60_000
+
+    def __init__(self, tab: "StatusTab"):
+        super().__init__(t("Can players join?"))
+        self.tab = tab
+        v = QVBoxLayout(self)
+        self.rows = {
+            "local": CheckRow(t("This PC")),
+            "lan": CheckRow(t("Same Wi-Fi")),
+            "internet": CheckRow(t("Internet")),
+            "tunnel": CheckRow(t("Tunnel")),
+            "bedrock": CheckRow(t("Bedrock")),
+        }
+        for r in self.rows.values():
+            v.addWidget(r)
+        row = QHBoxLayout()
+        self.when = hint("")
+        row.addWidget(self.when, 1)
+        self.btn = QPushButton(t("Check now"))
+        self.btn.clicked.connect(self.run)
+        row.addWidget(self.btn)
+        v.addLayout(row)
+        v.addWidget(hint(t("Internet checks are done from outside by mcsrvstat.us and can lag a few minutes behind.")))
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.run)
+        self._busy = False
+
+    def reset(self):
+        meta = self.tab.meta
+        tunnel_addr = self.tab.tunnel.address if self.tab.tunnel else ""
+        self.rows["tunnel"].setVisible(bool(tunnel_addr))
+        self.rows["bedrock"].setVisible(bool(meta and plugins.udp_ports(meta)))
+        for r in self.rows.values():
+            r.set("off", t("Server is off") if not self.tab.running else "-")
+        self.when.setText("")
+        self.btn.setEnabled(self.tab.running)
+
+    def update_timer(self):
+        if self.tab.isVisible() and self.tab.running:
+            if not self.timer.isActive():
+                self.timer.start(self.INTERVAL_MS)
+                self.run()
+        else:
+            self.timer.stop()
+
+    def run(self):
+        meta = self.tab.meta
+        if self._busy or not meta or not self.tab.running:
+            return
+        if self.tab.runner.state(self.tab.key) != "running":
+            for r in self.rows.values():
+                r.set("wait", t("Server is still starting..."))
+            return
+        self._busy = True
+        self.btn.setEnabled(False)
+        for r in self.rows.values():
+            r.set("wait", t("Checking..."))
+        port = meta.properties().get_int("server-port", 25565)
+        udp = plugins.udp_ports(meta)
+        tunnel_addr = self.tab.tunnel.address if self.tab.tunnel else ""
+
+        def work(task):
+            res = {"local": joincheck.server_list_ping("127.0.0.1", port)}
+            lan = network.lan_ip()
+            res["lan"] = joincheck.server_list_ping(lan, port) if lan != "127.0.0.1" else None
+            try:
+                public = network.public_ip()
+            except net.NetError:
+                public = ""
+            res["internet"] = joincheck.external_check(f"{public}:{port}") if public else None
+            if tunnel_addr:
+                res["tunnel"] = joincheck.external_check(tunnel_addr)
+            if udp and public:
+                res["bedrock"] = joincheck.external_check(f"{public}:{udp[0]}", bedrock=True)
+            return res
+
+        def done(res):
+            self._busy = False
+            self.btn.setEnabled(self.tab.running)
+            if meta is not self.tab.meta:
+                return
+            self._show(res)
+            self.when.setText(t("Last checked {time}", time=time.strftime("%H:%M:%S")))
+
+        def fail(msg):
+            self._busy = False
+            self.btn.setEnabled(self.tab.running)
+            self.when.setText("⚠ " + msg)
+
+        run_async(work, done, fail)
+
+    def _show(self, res):
+        local, lan, inet = res.get("local"), res.get("lan"), res.get("internet")
+        if local and local.ok:
+            self.rows["local"].set("ok", _ok_detail(local))
+        else:
+            self.rows["local"].set("fail", t("The server isn't answering."))
+        if lan is None:
+            self.rows["lan"].set("off", t("Not connected to a network"))
+        elif lan.ok:
+            self.rows["lan"].set("ok", _ok_detail(lan))
+        else:
+            self.rows["lan"].set("fail", t("Blocked on the network. Allow it in Windows Firewall (Network tab)."))
+        if inet is None:
+            self.rows["internet"].set("off", t("Couldn't check (no internet?)"))
+        elif inet.ok:
+            self.rows["internet"].set("ok", _ok_detail(inet))
+        else:
+            self.rows["internet"].set("fail", t("Not reachable from the internet. Open the port or start the tunnel (Network tab)."))
+        if "tunnel" in res:
+            tr = res["tunnel"]
+            if tr.ok:
+                self.rows["tunnel"].set("ok", _ok_detail(tr))
+            else:
+                self.rows["tunnel"].set("fail", t("The tunnel isn't reaching the server. Check the playit tunnel's local port."))
+        if "bedrock" in res:
+            br = res["bedrock"]
+            if br.ok:
+                self.rows["bedrock"].set("ok", _ok_detail(br))
+            else:
+                udp = plugins.udp_ports(self.tab.meta) if self.tab.meta else []
+                self.rows["bedrock"].set("fail", t("Bedrock port not reachable. Open UDP {port} or add a Bedrock tunnel.",
+                                                   port=udp[0] if udp else plugins.DEFAULT_BEDROCK_PORT))
+
+
 class StatusTab(ServerTab):
+    tunnel = None  # TunnelManager, set by the main window
+
     INTERVAL_MS = 2000
     PING_EVERY = 5  # samples (10 s)
     DISK_EVERY = 30  # samples (60 s)
@@ -1553,6 +1753,8 @@ class StatusTab(ServerTab):
         layout = QVBoxLayout(body)
         self.notice = hint("")
         layout.addWidget(self.notice)
+        self.join = JoinCheckBox(self)
+        layout.addWidget(self.join)
         grid = QGridLayout()
         grid.setSpacing(12)
         self.cpu = StatTile(t("CPU"), Sparkline(lambda v: f"{v:.0f}%", fixed_max=100))
@@ -1591,6 +1793,7 @@ class StatusTab(ServerTab):
         self.notice.setText("" if self.running else t("The server is off. Live numbers appear while it runs."))
         self.notice.setVisible(not self.running)
         self.mem.spark.fixed_max = self.meta.ram_mb * 1024 * 1024
+        self.join.reset()
         self._update_timer()
         self._disk()
 
@@ -1603,8 +1806,10 @@ class StatusTab(ServerTab):
     def hideEvent(self, event):
         super().hideEvent(event)
         self.timer.stop()
+        self.join.timer.stop()
 
     def _update_timer(self):
+        self.join.update_timer()
         if self.isVisible() and self.running:
             if not self.timer.isActive():
                 self.timer.start(self.INTERVAL_MS)
@@ -1701,7 +1906,7 @@ class UpgradeTab(ServerTab):
         layout.addWidget(self.running_notice)
 
         box = QGroupBox(t("Current"))
-        form = QFormLayout(box)
+        form = form_layout(box)
         self.cur_version = QLabel()
         self.cur_java = QLabel()
         self.cur_java.setWordWrap(True)
@@ -1710,7 +1915,7 @@ class UpgradeTab(ServerTab):
         layout.addWidget(box)
 
         box = QGroupBox(t("Update version"))
-        form = QFormLayout(box)
+        form = form_layout(box)
         self.version = QComboBox()
         form.addRow(t("New version"), self.version)
         self.version_status = hint("")

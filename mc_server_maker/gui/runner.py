@@ -34,6 +34,7 @@ class ServerRunner(QObject):
         self.status: Dict[str, str] = {}
         self.player_ips: Dict[str, Dict[str, str]] = {}
         self.started_at: Dict[str, float] = {}
+        self.metas: Dict[str, srv.ServerMeta] = {}
         self.low_priority = True  # run servers below normal priority (low-resource mode)
         self._partial: Dict[str, str] = {}
 
@@ -80,6 +81,11 @@ class ServerRunner(QObject):
         self.line.emit(key, text)
         if self.state(key) == STARTING and DONE_RE.search(text):
             self._set_state(key, RUNNING)
+            meta = self.metas.get(key)
+            cmd = srv.spawn_chunk_command(meta) if meta and meta.memory_saver else None
+            if cmd:
+                self.system_line(key, t("Memory saver: unloading spawn chunks"))
+                self.send(key, cmd)
         m = LOGIN_RE.search(text)
         if m:
             self.player_ips.setdefault(key, {})[m.group(1)] = m.group(2)
@@ -122,6 +128,7 @@ class ServerRunner(QObject):
         proc.errorOccurred.connect(lambda err: self._error(key, proc, err))
         proc.started.connect(lambda: self._started(key, proc))
         self.procs[key] = proc
+        self.metas[key] = meta
         self.players[key] = set()
         self.player_ips[key] = {}
         self._partial[key] = ""

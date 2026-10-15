@@ -119,3 +119,94 @@ class CatalogTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MemorySaverTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.meta = srv.ServerMeta(name="m", software="paper", mc_version="1.21.4", ram_mb=2048, java_major=21,
+                                   launch={"type": "jar", "jar": "server.jar"}, folder=self.dir)
+        props = self.meta.properties()
+        props.set("view-distance", 12)
+        props.save()
+        self.meta.save()
+
+    def test_toggle_restores_distances(self):
+        srv.set_memory_saver(self.meta, True)
+        p = self.meta.properties()
+        self.assertEqual((p.get("view-distance"), p.get("simulation-distance")), ("6", "4"))
+        self.assertIn("-XX:MaxHeapFreeRatio=30", srv.launch_args(self.meta))
+        self.assertTrue(srv.ServerMeta.load(self.dir).memory_saver)
+        srv.set_memory_saver(self.meta, False)
+        p = self.meta.properties()
+        self.assertEqual((p.get("view-distance"), p.get("simulation-distance")), ("12", "10"))
+        self.assertNotIn("-XX:MaxHeapFreeRatio=30", srv.launch_args(self.meta))
+
+    def test_spawn_chunk_command_versions(self):
+        for v, expected in (("1.20.4", None), ("1.20.5", "gamerule spawnChunkRadius 0"),
+                            ("1.21.4", "gamerule spawnChunkRadius 0"), ("1.21.9", None), ("26.1", None)):
+            self.meta.mc_version = v
+            self.assertEqual(srv.spawn_chunk_command(self.meta), expected, v)
+
+    def test_duplicate(self):
+        (self.dir / "world").mkdir()
+        (self.dir / "world" / "level.dat").write_text("w")
+        (self.dir / "backups").mkdir()
+        (self.dir / "backups" / "old.zip").write_text("big")
+        with mock.patch.object(paths, "SERVERS_DIR", self.dir.parent / (self.dir.name + "-servers")):
+            copy = srv.duplicate_server(self.meta, "m copy")
+            self.addCleanup(shutil.rmtree, copy.folder.parent, True)
+        self.assertEqual(copy.name, "m copy")
+        self.assertTrue((copy.folder / "world" / "level.dat").exists())
+        self.assertFalse((copy.folder / "backups").exists())
+        self.assertEqual(srv.ServerMeta.load(copy.folder).name, "m copy")
+        self.assertEqual(srv.ServerMeta.load(self.dir).name, "m")
+
+
+class JoinCheckTest(unittest.TestCase):
+    def test_server_list_ping(self):
+        import json
+        import socket
+        import threading
+
+        from mc_server_maker.core import joincheck
+
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sock.listen()
+        port = sock.getsockname()[1]
+
+        def serve():
+            c, _ = sock.accept()
+            with c:
+                for _ in range(2):  # handshake + status request
+                    joincheck._recv_exact(c, joincheck._read_varint(c))
+                body = json.dumps({"version": {"name": "1.21.4"}, "players": {"online": 3, "max": 20}}).encode()
+                payload = joincheck._varint(0) + joincheck._varint(len(body)) + body
+                c.sendall(joincheck._varint(len(payload)) + payload)
+
+        threading.Thread(target=serve, daemon=True).start()
+        r = joincheck.server_list_ping("127.0.0.1", port)
+        sock.close()
+        self.assertTrue(r.ok, r.error)
+        self.assertEqual((r.version, r.players), ("1.21.4", "3/20"))
+        self.assertFalse(joincheck.server_list_ping("127.0.0.1", 1, timeout=1).ok)
+
+    def test_external_check(self):
+        from mc_server_maker.core import joincheck, net
+
+        calls = []
+
+        def fake(url):
+            calls.append(url)
+            return {"online": True, "version": "Paper 1.21.4", "players": {"online": 1, "max": 20}} \
+                if "1.2.3.4" in url else {"online": False}
+
+        with mock.patch.object(net, "get_json", fake):
+            self.assertTrue(joincheck.external_check("1.2.3.4:25565").ok)
+            self.assertFalse(joincheck.external_check("5.6.7.8:25565").ok)
+            self.assertTrue(joincheck.external_check("1.2.3.4:19132", bedrock=True).ok)
+            self.assertFalse(joincheck.external_check("bad host/../x").ok)
+        self.assertIn("/bedrock/3/1.2.3.4:19132", calls[-1])
+        self.assertEqual(len(calls), 3)  # invalid address never hits the network

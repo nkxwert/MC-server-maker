@@ -3,7 +3,7 @@
 import sys
 from typing import List, Optional
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QFile, QSize, Qt
 from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -11,12 +11,12 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QInputDialog,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QSystemTrayIcon,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -49,7 +50,7 @@ from mc_server_maker.gui.tabs import (
     open_path,
 )
 from mc_server_maker.gui.tunnel_manager import TunnelManager
-from mc_server_maker.gui.theme import set_kind
+from mc_server_maker.gui.theme import form_layout, set_kind
 from mc_server_maker.gui.workers import TaskDialog, run_async, wait_all
 from mc_server_maker.i18n import LANGUAGES, set_language, t
 
@@ -70,10 +71,11 @@ def server_icon(meta: srv.ServerMeta, size: int) -> QPixmap:
 
 
 class ServerItem(QWidget):
-    """One server in the sidebar."""
+    """One server in the sidebar, with a ⋯ menu."""
 
-    def __init__(self, meta: srv.ServerMeta, state: str):
+    def __init__(self, meta: srv.ServerMeta, state: str, on_menu):
         super().__init__()
+        self.meta = meta
         row = QHBoxLayout(self)
         row.setContentsMargins(10, 8, 10, 8)
         row.setSpacing(10)
@@ -95,6 +97,13 @@ class ServerItem(QWidget):
         dot.setToolTip(text)
         dot.setStyleSheet(f"color: {color}; font-size: 11pt;")
         row.addWidget(dot)
+        more = QToolButton()
+        more.setText("⋯")
+        more.setObjectName("MoreButton")
+        more.setToolTip(t("Rename, duplicate, delete..."))
+        more.setCursor(Qt.PointingHandCursor)
+        more.clicked.connect(lambda: on_menu(meta, more.mapToGlobal(more.rect().bottomLeft())))
+        row.addWidget(more)
 
 
 class PreferencesDialog(QDialog):
@@ -103,7 +112,7 @@ class PreferencesDialog(QDialog):
         self.setWindowTitle(t("App settings"))
         self.setMinimumWidth(360)
         layout = QVBoxLayout(self)
-        form = QFormLayout()
+        form = form_layout()
         self.theme = QComboBox()
         self.theme.addItem(t("Dark"), "dark")
         self.theme.addItem(t("Light"), "light")
@@ -186,6 +195,8 @@ class MainWindow(QMainWindow):
         self.list = QListWidget()
         self.list.setObjectName("ServerList")
         self.list.currentRowChanged.connect(self._select)
+        self.list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._list_context_menu)
         sv.addWidget(self.list, 1)
         row = QHBoxLayout()
         folder_btn = set_kind(QPushButton("📁 " + t("Folder")), "ghost")
@@ -268,6 +279,7 @@ class MainWindow(QMainWindow):
         for tab, name in zip(self.all_tabs, titles):
             self.tabs.addTab(tab, t(name))
         self.network_tab.set_tunnel(self.tunnel)
+        self.status_tab.tunnel = self.tunnel
         tab_wrap = QWidget()
         tw = QVBoxLayout(tab_wrap)
         tw.setContentsMargins(8, 6, 8, 0)
@@ -334,7 +346,7 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(0)
 
     def _add_item(self, m: srv.ServerMeta, row: Optional[int] = None):
-        widget = ServerItem(m, self.runner.state(str(m.folder)))
+        widget = ServerItem(m, self.runner.state(str(m.folder)), self.server_menu)
         if row is None:
             item = QListWidgetItem()
             self.list.addItem(item)
@@ -467,6 +479,66 @@ class MainWindow(QMainWindow):
                 done,
                 lambda m: self.runner.system_line(key, t("Could not open the port: {err}", err=m.replace("\n", " "))),
             )
+
+    # ------------------------------------------------------- server list menu
+
+    def _list_context_menu(self, pos):
+        item = self.list.itemAt(pos)
+        if item:
+            widget = self.list.itemWidget(item)
+            self.server_menu(widget.meta, self.list.viewport().mapToGlobal(pos))
+
+    def server_menu(self, meta: srv.ServerMeta, global_pos):
+        running = self.runner.is_running(str(meta.folder))
+        menu = QMenu(self)
+        menu.addAction(t("Rename..."), lambda: self.rename_server(meta))
+        dup = menu.addAction(t("Duplicate"), lambda: self.duplicate_server(meta))
+        menu.addAction(t("Open folder"), lambda: open_path(meta.folder))
+        menu.addSeparator()
+        delete = menu.addAction(t("Move to Recycle Bin..."), lambda: self.delete_server(meta))
+        if running:
+            dup.setEnabled(False)
+            delete.setEnabled(False)
+            delete.setText(t("Stop the server to delete it"))
+        menu.exec(global_pos)
+
+    def rename_server(self, meta: srv.ServerMeta):
+        name, ok = QInputDialog.getText(self, t("Rename"), t("Server name:"), text=meta.name)
+        name = name.strip()
+        if ok and name and name != meta.name:
+            meta.name = name
+            meta.save()
+            self.reload()
+
+    def duplicate_server(self, meta: srv.ServerMeta):
+        name, ok = QInputDialog.getText(self, t("Duplicate"), t("Name of the copy:"), text=t("{name} (copy)", name=meta.name))
+        name = name.strip()
+        if not ok or not name:
+            return
+        dlg = TaskDialog(self, t("Duplicate"), lambda task: srv.duplicate_server(meta, name, task))
+        dlg.exec()
+        if dlg.succeeded():
+            self.reload(select_folder=dlg.result_value.folder)
+
+    def delete_server(self, meta: srv.ServerMeta):
+        if self.runner.is_running(str(meta.folder)):
+            return
+        answer = QMessageBox.question(
+            self, t("Delete server"),
+            t("Move '{name}' to the Recycle Bin?\n\nIts world, settings and backups go with it. "
+              "You can restore it from the Recycle Bin.", name=meta.name))
+        if answer != QMessageBox.Yes:
+            return
+        result = QFile.moveToTrash(str(meta.folder))
+        ok = result[0] if isinstance(result, tuple) else bool(result)  # bool in PySide6, tuple in some builds
+        if not ok or meta.folder.exists():
+            QMessageBox.warning(self, t("Delete server"), t(
+                "Couldn't move it to the Recycle Bin. Close any program using its files and try again.\n{path}",
+                path=meta.folder))
+            return
+        if self.meta and self.meta.folder == meta.folder:
+            self.meta = None
+        self.reload()
 
     # drag .jar files anywhere on the window -> Plugins / Mods tab
     def dragEnterEvent(self, event):

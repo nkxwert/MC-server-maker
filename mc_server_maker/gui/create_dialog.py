@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -27,7 +26,7 @@ from PySide6.QtWidgets import (
 from mc_server_maker.core import plugins
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.providers import PROVIDERS
-from mc_server_maker.gui.theme import set_kind
+from mc_server_maker.gui.theme import form_layout, set_kind
 from mc_server_maker.gui.widgets import amp_to_section, color_help
 from mc_server_maker.gui.workers import run_async
 from mc_server_maker.i18n import t
@@ -96,7 +95,7 @@ class CreateServerDialog(QDialog):
 
         # --- 1. software / version
         box = QGroupBox(t("1. Software and version"))
-        form = QFormLayout(box)
+        form = form_layout(box)
         self.name = QLineEdit(t("My Server"))
         form.addRow(t("Name"), self.name)
         cards = QGridLayout()
@@ -123,7 +122,7 @@ class CreateServerDialog(QDialog):
 
         # --- 2. runtime
         box = QGroupBox(t("2. Runtime"))
-        form = QFormLayout(box)
+        form = form_layout(box)
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64, value=2)
         form.addRow(t("Memory (RAM)"), self.ram)
         self.auto_java = QCheckBox(t("Install the right Java automatically"))
@@ -180,7 +179,7 @@ class CreateServerDialog(QDialog):
 
         # --- 4. basics
         box = QGroupBox(t("4. Basics (can be changed later)"))
-        form = QFormLayout(box)
+        form = form_layout(box)
         self.motd = QLineEdit(t("&aWelcome to my Minecraft server!"))
         form.addRow(t("Description (MOTD)"), self.motd)
         form.addRow("", hint_label(color_help()))

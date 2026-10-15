@@ -50,6 +50,8 @@ class ServerMeta:
     created: str = ""
     upnp: bool = False  # open router ports automatically on start
     tunnel: bool = False  # start the playit.gg tunnel together with the server
+    memory_saver: bool = False  # shorter view/simulation distance, no spawn chunks, eager heap shrinking
+    saved_distances: dict = field(default_factory=dict)  # distances before memory saver, to restore
     folder: Path = field(default=None, compare=False)
 
     def save(self) -> None:
@@ -202,12 +204,15 @@ def set_low_resource(enabled: bool) -> None:
 def launch_args(meta: ServerMeta, windows: Optional[bool] = None) -> List[str]:
     """Launch arguments without the java executable."""
     windows = javamod.IS_WINDOWS if windows is None else windows
-    low = LOW_RESOURCE["enabled"]
+    low = LOW_RESOURCE["enabled"] or meta.memory_saver
     xms = min(meta.ram_mb, 256 if low else 1024)
     args = [f"-Xms{xms}M", f"-Xmx{meta.ram_mb}M"]
     if low and meta.java_major >= 17:
         # G1 returns unused heap to the OS when the server is idle (flag exists since Java 12)
         args += ["-XX:+UseG1GC", "-XX:G1PeriodicGCInterval=30000"]
+    if meta.memory_saver:
+        # keep less free heap around, so more memory goes back to the OS
+        args += ["-XX:MinHeapFreeRatio=10", "-XX:MaxHeapFreeRatio=30"]
     args += ["-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8"]
     launch = meta.launch or {"type": "jar", "jar": "server.jar"}
     if launch["type"] == "args":
@@ -495,3 +500,62 @@ def regenerate_world(meta: ServerMeta, seed: str, level_type: str, task: Optiona
     props.set("level-type", level_type_value(level_type, meta.mc_version))
     props.save()
     task.log(t("Old world removed. A new world is generated on next start."))
+
+
+# ------------------------------------------------------------ memory saver
+
+MEMORY_SAVER_DISTANCES = {"view-distance": 6, "simulation-distance": 4}
+
+
+def spawn_chunk_command(meta: ServerMeta) -> Optional[str]:
+    """Console command that stops spawn chunks from staying loaded (1.20.5 - 1.21.8 only).
+
+    The gamerule was added in 1.20.5; 1.21.9 removed spawn chunks altogether.
+    """
+    v = versions.version_key(meta.mc_version)[0]
+    if versions.version_key("1.20.5")[0] <= v < versions.version_key("1.21.9")[0]:
+        return "gamerule spawnChunkRadius 0"
+    return None
+
+
+def set_memory_saver(meta: ServerMeta, on: bool) -> None:
+    """Turn memory saver on/off, remembering and restoring the previous distances."""
+    if on == meta.memory_saver:
+        return
+    props = meta.properties()
+    if on:
+        meta.saved_distances = {k: props.get(k, "10") for k in MEMORY_SAVER_DISTANCES}
+        for k, v in MEMORY_SAVER_DISTANCES.items():
+            props.set(k, v)
+    else:
+        for k in MEMORY_SAVER_DISTANCES:
+            props.set(k, meta.saved_distances.get(k, "10"))
+        meta.saved_distances = {}
+    props.save()
+    meta.memory_saver = on
+    meta.save()
+    write_start_scripts(meta)
+
+
+# --------------------------------------------------------- copy / rename
+
+DUPLICATE_SKIP = {BACKUP_DIR, "logs", "crash-reports", "cache", "session.lock"}
+
+
+def duplicate_server(meta: ServerMeta, new_name: str, task: Optional[Task] = None) -> ServerMeta:
+    """Copy a whole server (world, settings, plugins/mods) under a new name."""
+    task = task or Task()
+    dest = folder_name_for(new_name)
+    task.log(t("Copying to {path}...", path=dest))
+    try:
+        shutil.copytree(meta.folder, dest, ignore=lambda _d, names: [n for n in names if n in DUPLICATE_SKIP])
+        copy = ServerMeta.load(dest)
+        copy.name = new_name
+        copy.created = time.strftime("%Y-%m-%d %H:%M")
+        copy.save()
+        write_start_scripts(copy)
+    except BaseException:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    task.log(t("Done."))
+    return copy

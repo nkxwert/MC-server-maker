@@ -30,12 +30,14 @@ Pushing a tag such as `v1.2.0` also publishes it under **Releases**.
 |---|---|
 | Console | Colored log, command input (↑↓ history), save world, online count (**More…** → kick / ban), uptime |
 | Plugins / Mods | Shown only for software that supports them. **Drag .jar files onto the window** to add; each one is a card with name, version, author and an **on/off switch** (off = renamed to `.jar.disabled`); warns when a jar is for a different loader |
-| Server status | CPU %, memory used / allowed, download / upload, average player ping, disk size — with live graphs |
-| Settings | Name, MOTD with color preview, icon (any image → 64×64), game settings, RAM, **edit every server.properties key**, **Bedrock join on/off** |
+| Server status | **Can players join?** (this PC / Wi-Fi / internet / tunnel / Bedrock, with the reason when not), CPU %, memory used / allowed, download / upload, average player ping, disk size — with live graphs |
+| Settings | **Memory saver** toggle, name, MOTD with color preview, icon (any image → 64×64), game settings, RAM, **edit every server.properties key**, **Bedrock join on/off** |
 | World | Seed info, new world (random/seed), import world, backups (automatic before replacing) |
 | Players | OPs and whitelist |
 | Network | Addresses (this PC / Wi-Fi / Internet / Bedrock), **playit.gg tunnel** (no port forwarding), **one-click port opening (UPnP)**, Windows Firewall rule, manual port-forwarding guide |
 | Update | Update to a newer version with a full backup first; Geyser is updated too |
+
+**Server list**: the ⋯ button (or right-click) on a server renames, duplicates, opens the folder, or moves it to the **Recycle Bin**.
 
 **App settings (⚙)**: Dark / Light theme, English / 한국어, **Low-resource mode** (on by default).
 
@@ -43,6 +45,11 @@ Pushing a tag such as `v1.2.0` also publishes it under **Releases**.
 only when needed and give unused memory back (Java 17+), run at below-normal priority, and the app batches
 console drawing and stops live updates while hidden. Closing the window can keep servers running from the tray.
 Vanilla/Paper 1.21.2+ also pause the world when nobody is online (`pause-when-empty-seconds`).
+
+**Why ~1 GB of memory?** That's the Minecraft server (Java), not this app (~100–150 MB): it keeps the
+loaded world in memory, typically 0.8–1.5 GB even when idle. The per-server **Memory saver** (Settings tab)
+usually cuts it by a third to a half: view distance 6, simulation distance 4, spawn chunks unloaded
+(1.20.5–1.21.8) and unused heap returned to the OS sooner.
 
 ### Playing with friends in other homes
 **Easiest — tunnel (no router setup):** Network tab → **Start tunnel**. The first time, the app downloads the
@@ -76,6 +83,7 @@ pip install pyinstaller && python build_exe.py   # build into dist/
 | `mc_server_maker/core/network.py` | Public IP, UPnP, firewall |
 | `mc_server_maker/core/addons.py` | Plugins / mods: read jar metadata, on/off, compatibility |
 | `mc_server_maker/core/tunnel.py` | playit.gg agent download and output parsing |
+| `mc_server_maker/core/joincheck.py` | Server List Ping and internet reachability check |
 | `mc_server_maker/core/stats.py` | CPU / memory / network / disk / ping sampling |
 | `mc_server_maker/core/property_catalog.py` | Every server.properties key with defaults and descriptions |
 | `mc_server_maker/core/properties.py` | `server.properties` read/write (keeps comments and order) |

@@ -1,22 +1,23 @@
 """App look: dark and light themes."""
 
 from PySide6 import QtSvg  # noqa: F401 - bundles the SVG plugin used for check marks
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFormLayout
 
 from mc_server_maker.core import paths
 
 DARK = {
     "bg": "#15171c", "surface": "#1d2027", "surface2": "#252932", "surface3": "#2e333d",
-    "hover": "#383e4a", "border": "#343a46", "text": "#e8eaed", "muted": "#8e96a3",
-    "disabled": "#5d6470", "accent": "#4cc764", "accent_hover": "#5fd877", "accent_text": "#0b1a10",
+    "hover": "#383e4a", "border": "#343a46", "text": "#eceef1", "muted": "#a3abb8",
+    "disabled": "#737b88", "accent": "#4cc764", "accent_hover": "#5fd877", "accent_text": "#0b1a10",
     "accent_soft": "#1f3b27", "danger": "#f0605a", "danger_soft": "#3a1f1f", "warn": "#e3b341",
     "info": "#58a6ff", "scroll": "#3b414d", "console_bg": "#0d0f12", "console_text": "#b9c0cb",
 }
 LIGHT = {
     "bg": "#f4f5f7", "surface": "#ffffff", "surface2": "#f0f2f5", "surface3": "#e6e9ee",
-    "hover": "#dde1e7", "border": "#d6dae1", "text": "#1d2127", "muted": "#68707d",
-    "disabled": "#a3a9b3", "accent": "#2e9e48", "accent_hover": "#27893e", "accent_text": "#ffffff",
+    "hover": "#dde1e7", "border": "#d6dae1", "text": "#16191e", "muted": "#596170",
+    "disabled": "#8a909b", "accent": "#2e9e48", "accent_hover": "#27893e", "accent_text": "#ffffff",
     "accent_soft": "#e3f4e7", "danger": "#d1453b", "danger_soft": "#fbe9e7", "warn": "#a86b00",
     "info": "#1f6feb", "scroll": "#c3c8d0", "console_bg": "#0d0f12", "console_text": "#b9c0cb",
 }
@@ -29,37 +30,39 @@ MONO = '"Consolas", "D2Coding", "Menlo", "DejaVu Sans Mono", monospace'
 
 QSS = """
 * {{ outline: 0; }}
-QWidget {{ color: {text}; font-size: 10pt; }}
+QWidget {{ color: {text}; font-size: 10.5pt; }}
 QMainWindow, QDialog {{ background: {bg}; }}
 QToolTip {{ background: {surface3}; color: {text}; border: 1px solid {border}; padding: 4px 6px; }}
 
 #Sidebar {{ background: {surface}; border-right: 1px solid {border}; }}
-#AppTitle {{ font-size: 14pt; font-weight: 700; }}
+#AppTitle {{ font-size: 14.5pt; font-weight: 700; }}
 #AppSubtitle {{ color: {muted}; font-size: 9pt; }}
-#SectionLabel {{ color: {muted}; font-size: 8.5pt; font-weight: 700; }}
+#SectionLabel {{ color: {muted}; font-size: 9pt; font-weight: 700; }}
 #ServerList {{ background: transparent; border: none; padding: 0; }}
 #ServerList::item {{ border-radius: 8px; margin: 2px 0; padding: 0; }}
 #ServerList::item:hover {{ background: {surface2}; }}
 #ServerList::item:selected {{ background: {surface3}; }}
 #ItemName {{ font-weight: 600; }}
-#ItemSub {{ color: {muted}; font-size: 9pt; }}
+#ItemSub {{ color: {muted}; font-size: 9.5pt; }}
 
+#MoreButton {{ background: transparent; border: none; color: {muted}; font-size: 13pt; padding: 0 4px; border-radius: 4px; }}
+#MoreButton:hover {{ background: {hover}; color: {text}; }}
 #Card {{ background: {surface}; border: 1px solid {border}; border-radius: 8px; }}
 #Header {{ background: {surface}; border-bottom: 1px solid {border}; }}
 #ServerName {{ font-size: 16pt; font-weight: 700; }}
 #Chip {{ background: {surface3}; border-radius: 10px; padding: 2px 10px; font-size: 9pt; }}
 #Muted {{ color: {muted}; }}
-#Hint {{ color: {muted}; font-size: 9pt; }}
+#Hint {{ color: {muted}; font-size: 9.5pt; }}
 #Warn {{ color: {warn}; font-weight: 600; }}
-#Big {{ font-size: 14pt; font-weight: 700; }}
+#Big {{ font-size: 15pt; font-weight: 700; }}
 
 QGroupBox {{
     background: {surface}; border: 1px solid {border}; border-radius: 10px;
-    margin-top: 26px; padding: 12px 12px 10px 12px;
+    margin-top: 30px; padding: 14px 14px 12px 14px;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
-    left: 4px; top: 4px; padding: 0; color: {muted}; font-weight: 700;
+    left: 2px; top: 4px; padding: 0; color: {text}; font-weight: 700; font-size: 11pt;
 }}
 
 QPushButton {{
@@ -110,7 +113,7 @@ QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{ background: {
 QTabWidget::pane {{ border: none; background: {bg}; }}
 QTabWidget::tab-bar {{ left: 8px; }}
 QTabBar::tab {{
-    background: transparent; color: {muted}; padding: 9px 16px; margin-right: 2px;
+    background: transparent; color: {muted}; padding: 10px 16px; margin-right: 2px;
     border: none; border-bottom: 2px solid transparent; font-weight: 600;
 }}
 QTabBar::tab:hover {{ color: {text}; }}
@@ -136,7 +139,7 @@ QProgressBar::chunk {{ background: {accent}; border-radius: 4px; }}
 
 #Console {{
     background: {console_bg}; color: {console_text}; border: 1px solid {border}; border-radius: 8px;
-    padding: 6px; font-family: {mono}; font-size: 9.5pt;
+    padding: 8px; font-family: {mono}; font-size: 10pt;
 }}
 #ConsoleInput {{ font-family: {mono}; padding: 8px 10px; }}
 """
@@ -153,7 +156,7 @@ def apply(app: QApplication, mode: str = "dark") -> None:
     app.setStyle("Fusion")
     font = QFont()
     font.setFamilies(["Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Noto Sans CJK KR", "sans-serif"])
-    font.setPointSize(10)
+    font.setPointSizeF(10.5)
     app.setFont(font)
     pal = QPalette()
     for role, key in (
@@ -183,3 +186,13 @@ def set_kind(button, kind: str):
     button.style().unpolish(button)
     button.style().polish(button)
     return button
+
+
+def form_layout(parent=None) -> QFormLayout:
+    """Form with comfortable spacing and labels aligned for easy scanning."""
+    form = QFormLayout(parent)
+    form.setVerticalSpacing(10)
+    form.setHorizontalSpacing(18)
+    form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+    return form
