@@ -38,8 +38,8 @@ from mc_server_maker.core import server as srv
 from mc_server_maker.core.plugins import udp_ports
 from mc_server_maker.core.settings import AppSettings
 from mc_server_maker.gui import anim, theme
+from mc_server_maker.gui.anim import FadeInDialog
 from mc_server_maker.gui.create_dialog import CreateServerDialog
-from mc_server_maker.gui.home import HomeTab
 from mc_server_maker.gui.runner import RUNNING, STARTING, STOPPED, STOPPING, ServerRunner
 from mc_server_maker.gui.tabs import (
     AddonsTab,
@@ -57,16 +57,6 @@ from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import with_help
 from mc_server_maker.gui.workers import TaskDialog, run_async, wait_all
 from mc_server_maker.i18n import LANGUAGES, set_language, t
-from mc_server_maker.gui.anim import FadeInDialog
-
-
-TAB_TITLES = ["Home", "Players", "Plugins", "World", "Settings", "Invite friends", "Console", "Server status"]
-TAB_ICONS = {"Home": "🏠", "Players": "👥", "Plugins": "🧩", "Mods": "🧩", "World": "🌍", "Settings": "⚙",
-             "Invite friends": "🌐", "Console": "💻", "Server status": "📊"}
-
-
-def tab_title(name: str) -> str:
-    return f"{TAB_ICONS.get(name, '')} {t(name)}".strip()
 
 
 def state_text(state: str):
@@ -292,7 +282,9 @@ class MainWindow(QMainWindow):
         self.chip_state.setObjectName("Chip")
         self.chip_soft = QLabel()
         self.chip_soft.setObjectName("Chip")
-        for c in (self.chip_state, self.chip_soft):
+        self.chip_ram = QLabel()
+        self.chip_ram.setObjectName("Chip")
+        for c in (self.chip_state, self.chip_soft, self.chip_ram):
             chips.addWidget(c)
         chips.addStretch()
         info.addLayout(chips)
@@ -303,25 +295,26 @@ class MainWindow(QMainWindow):
         info_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         info_w.setMinimumWidth(140)
         hl.addWidget(info_w, 1)
-        # one button that starts or stops; rarely needed things live in the ⋯ menu
-        self.btn_power = set_kind(QPushButton(), "primary")
-        self.btn_power.setMinimumSize(120, 42)
-        self.btn_power.clicked.connect(self._power)
-        hl.addWidget(self.btn_power)
-        self.btn_more = set_kind(QPushButton("⋯"), "ghost")
-        self.btn_more.setObjectName("MoreButton")
-        self.btn_more.setToolTip(t("More"))
-        self.btn_more.setFixedSize(42, 42)
-        self.btn_more.clicked.connect(self._header_menu)
-        hl.addWidget(self.btn_more)
+        self.btn_start = set_kind(QPushButton("▶  " + t("Start")), "primary")
+        self.btn_start.setMinimumSize(96, 42)
+        self.btn_start.clicked.connect(self.start_server)
+        self.btn_stop = QPushButton("■  " + t("Stop"))
+        self.btn_stop.setMinimumHeight(42)
+        self.btn_stop.clicked.connect(lambda: self.runner.stop(self.key))
+        self.btn_kill = set_kind(QPushButton(t("Kill")), "danger")
+        self.btn_kill.setToolTip(t("Force stop without saving"))
+        self.btn_kill.setMinimumHeight(42)
+        self.btn_kill.clicked.connect(self._kill)
+        self.btn_folder = QPushButton("📂")
+        self.btn_folder.setToolTip(t("Open server folder (plugins, mods...)"))
+        self.btn_folder.setMinimumSize(44, 42)
+        self.btn_folder.clicked.connect(lambda: open_path(self.meta.folder))
+        for b in (self.btn_start, self.btn_stop, self.btn_kill, self.btn_folder):
+            hl.addWidget(b)
         dv.addWidget(header)
 
         self.tabs = QTabWidget()
         self.tabs.tabBar().setDrawBase(False)
-        self.tabs.setUsesScrollButtons(True)
-        self.home_tab = HomeTab(self.runner, self.reload, self.start_server,
-                                lambda: self.runner.stop(self.key),
-                                lambda: self.tabs.setCurrentWidget(self.network_tab))
         self.console_tab = ConsoleTab(self.runner, self.reload)
         self.status_tab = StatusTab(self.runner, self.reload)
         self.addons_tab = AddonsTab(self.runner, self.reload)
@@ -329,15 +322,14 @@ class MainWindow(QMainWindow):
         self.world_tab = WorldTab(self.runner, self.reload)
         self.players_tab = PlayersTab(self.runner, self.reload)
         self.network_tab = NetworkTab(self.runner, self.reload)
-        # everyday things first; the technical ones (console, status) at the end
         self.all_tabs = [
-            self.home_tab, self.players_tab, self.addons_tab, self.world_tab, self.settings_tab,
-            self.network_tab, self.console_tab, self.status_tab,
+            self.console_tab, self.status_tab, self.addons_tab, self.settings_tab, self.world_tab,
+            self.players_tab, self.network_tab,
         ]
-        for tab, name in zip(self.all_tabs, TAB_TITLES):
-            self.tabs.addTab(tab, tab_title(name))
+        titles = ["Console", "Server status", "Plugins", "Settings", "World", "Players", "Network"]
+        for tab, name in zip(self.all_tabs, titles):
+            self.tabs.addTab(tab, t(name))
         self.tabs.currentChanged.connect(lambda _i: anim.fade_in(self.tabs.currentWidget(), anim.FAST))
-        self.home_tab.set_tunnel(self.tunnel)
         self.network_tab.set_tunnel(self.tunnel)
         self.status_tab.tunnel = self.tunnel
         tab_wrap = QWidget()
@@ -366,20 +358,6 @@ class MainWindow(QMainWindow):
         sub.setObjectName("Muted")
         sub.setAlignment(Qt.AlignCenter)
         v.addWidget(sub)
-        v.addSpacing(12)
-        steps = QHBoxLayout()
-        steps.setSpacing(10)
-        steps.addStretch()
-        for i, text in enumerate((t("Make a server"), t("Press Start"), t("Invite friends")), 1):
-            step = QLabel(f"<b>{i}</b>&nbsp;&nbsp;{text}")
-            step.setObjectName("Chip")
-            steps.addWidget(step)
-            if i < 3:
-                arrow = QLabel("→")
-                arrow.setObjectName("Muted")
-                steps.addWidget(arrow)
-        steps.addStretch()
-        v.addLayout(steps)
         btn = set_kind(QPushButton("＋  " + t("New server")), "primary")
         btn.setFixedSize(QSize(220, 46))
         btn.clicked.connect(self.create_server)
@@ -447,7 +425,7 @@ class MainWindow(QMainWindow):
         changed = self.meta is None or self.meta.folder != self.servers[row].folder or self.stack.currentIndex() != 1
         self.meta = self.servers[row]
         self.stack.setCurrentIndex(1)
-        if changed:
+        if changed:  # switching servers fades the new one in
             anim.fade_in(self.stack.currentWidget(), anim.FAST)
         # Plugins / Mods tab only for software that supports them
         label = addons.kind_label(self.meta)
@@ -456,7 +434,7 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentIndex(0)
         self.tabs.setTabVisible(idx, bool(label))
         if label:
-            self.tabs.setTabText(idx, tab_title(label))
+            self.tabs.setTabText(idx, t(label))
         self._update_header()
         failed = []
         for tab in self.all_tabs:
@@ -482,10 +460,11 @@ class MainWindow(QMainWindow):
         self.chip_state.setText(f"● {text}")
         self.chip_state.setStyleSheet(f"color: {color};")
         self.chip_soft.setText(f"{m.software_name} {m.mc_version}")
+        self.chip_ram.setText(f"RAM {m.ram_mb // 1024} GB")
         running = self.runner.is_running(self.key)
-        self.btn_power.setText(("■  " + t("Stop")) if running else ("▶  " + t("Start")))
-        set_kind(self.btn_power, "ghost" if running else "primary")
-        self.btn_power.setEnabled(state in (STOPPED, RUNNING))
+        self.btn_start.setEnabled(not running)
+        self.btn_stop.setEnabled(running and state != STOPPING)
+        self.btn_kill.setEnabled(running)
 
     def _on_state_changed(self, key: str, state: str):
         if state == STOPPED:
@@ -613,7 +592,7 @@ class MainWindow(QMainWindow):
                 self,
                 t("Done"),
                 t("'{name}' is ready!\n\nPress Start — the world is generated on first start.\n"
-                  "To play with friends in other homes, see the Invite friends tab.", name=meta.name),
+                  "To play with friends in other homes, see the Network tab.", name=meta.name),
             )
 
     def start_server(self):
@@ -626,11 +605,11 @@ class MainWindow(QMainWindow):
             return
         # Online mode needs Mojang's sign-in servers. Without internet nobody could join
         # ("Authentication servers are down"), so offer an offline run first.
-        self.btn_power.setEnabled(False)
+        self.btn_start.setEnabled(False)
 
         def checked(has_net):
             if self.meta is meta:
-                self._update_header()
+                self.btn_start.setEnabled(not self.runner.is_running(self.key))
             if not has_net:
                 choice = self._ask_offline(meta)
                 if choice is None:
@@ -671,6 +650,8 @@ class MainWindow(QMainWindow):
             srv.end_offline_session(meta)
             QMessageBox.warning(self, t("Start"), str(e))
             return
+        if self.meta is meta:
+            self.tabs.setCurrentWidget(self.console_tab)
         if meta.offline_session:
             self.runner.system_line(key, t(
                 "Offline mode for this run: players join without signing in. Online mode turns back on when the server stops."))
@@ -765,19 +746,6 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
             self.tabs.setCurrentWidget(self.addons_tab)
             self.addons_tab.add_files(files)
-
-    def _power(self):
-        if self.runner.is_running(self.key):
-            self.runner.stop(self.key)
-        else:
-            self.start_server()
-
-    def _header_menu(self):
-        menu = QMenu(self)
-        menu.addAction("📂  " + t("Open server folder"), lambda: open_path(self.meta.folder))
-        kill = menu.addAction("⚠  " + t("Force stop (without saving)"), self._kill)
-        kill.setEnabled(self.runner.is_running(self.key))
-        menu.exec(self.btn_more.mapToGlobal(self.btn_more.rect().bottomLeft()))
 
     def _kill(self):
         if QMessageBox.question(

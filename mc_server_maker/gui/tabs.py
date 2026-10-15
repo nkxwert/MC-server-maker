@@ -56,7 +56,8 @@ from mc_server_maker.core import addons, joincheck, net, network, players, plugi
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import get_provider
-from mc_server_maker.gui import anim, browse, theme
+from mc_server_maker.gui import browse, theme
+from mc_server_maker.gui.anim import FadeInDialog
 from mc_server_maker.gui.browse import ModrinthBrowser
 from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
 from mc_server_maker.gui.runner import ServerRunner
@@ -72,7 +73,6 @@ from mc_server_maker.gui.widgets import (
 )
 from mc_server_maker.gui.workers import TaskDialog, run_async
 from mc_server_maker.i18n import t
-from mc_server_maker.gui.anim import FadeInDialog
 
 
 def open_path(path: Path) -> None:
@@ -600,7 +600,6 @@ class SettingsTab(ServerTab):
         form.addRow(t("Preview"), self.preview)
         layout.addWidget(box)
 
-        # ---- basics: what most people change
         box = QGroupBox(t("Game"))
         form = form_layout(box)
         self.max_players = QSpinBox(minimum=1, maximum=1000)
@@ -613,28 +612,6 @@ class SettingsTab(ServerTab):
         for k, label in srv.DIFFICULTIES:
             self.difficulty.addItem(t(label), k)
         form.addRow(t("Difficulty"), self.difficulty)
-        self.checks = {}
-
-        def check(form, key, label, help_text=""):
-            cb = QCheckBox(t(label))
-            self.checks[key] = cb
-            form.addRow("", with_help(cb, help_text) if help_text else cb)
-
-        check(form, "pvp", "PvP")
-        check(form, "white-list", "Whitelist only", t("Only players on the whitelist (Players tab) can join."))
-        check(form, "hardcore", "Hardcore", t("One life: players become spectators when they die."))
-        self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64)
-        form.addRow(with_help(t("Memory (RAM)"), t(
-            "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")), self.ram)
-        layout.addWidget(box)
-
-        # ---- advanced: folded away so beginners aren't overwhelmed
-        self.advanced = QWidget()
-        adv = QVBoxLayout(self.advanced)
-        adv.setContentsMargins(0, 0, 0, 0)
-        adv.setSpacing(10)
-        box = QGroupBox(t("Advanced"))
-        form = form_layout(box)
         self.port = QSpinBox(minimum=1, maximum=65535)
         form.addRow(with_help(t("Port"), t(
             "Usually 25565. Change it only to run several servers at the same time.")), self.port)
@@ -652,26 +629,36 @@ class SettingsTab(ServerTab):
             "Within this many blocks of the world spawn, only OPs can break or place blocks. "
             "0 = off, everyone can build. It only works once the server has at least one OP.")),
             self.spawn_protection)
-        check(form, "online-mode", "Online mode", t(
-            "Players must sign in with a real Minecraft account. "
-            "Turn it off to let non-premium accounts join (anyone can then use any name)."))
-        check(form, "allow-flight", "Allow flight", t(
-            "Stops the server from kicking players for flying. Turn it on if mods or plugins let players fly."))
-        check(form, "enable-command-block", "Command blocks")
-        self.memory_saver = QCheckBox(t("Use less memory"))
-        self.memory_saver.toggled.connect(self._memory_saver_toggled)
-        form.addRow("", with_help(self.memory_saver, t(
-            "Usually saves a third to half of the memory. Sets view distance 6 and simulation distance 4, "
-            "unloads spawn chunks and returns unused memory sooner. Far-away farms only run while someone is nearby.")))
+        self.checks = {}
+        for key, label, help_text in (
+            ("online-mode", "Online mode", "Players must sign in with a real Minecraft account. "
+             "Turn it off to let non-premium accounts join (anyone can then use any name)."),
+            ("pvp", "PvP", ""),
+            ("hardcore", "Hardcore", "One life: players become spectators when they die."),
+            ("white-list", "Whitelist only", "Only players on the whitelist (Players tab) can join."),
+            ("allow-flight", "Allow flight", "Stops the server from kicking players for flying. "
+             "Turn it on if mods or plugins let players fly."),
+            ("enable-command-block", "Command blocks", ""),
+        ):
+            cb = QCheckBox(t(label))
+            self.checks[key] = cb
+            form.addRow("", with_help(cb, t(help_text)) if help_text else cb)
+        self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64)
+        form.addRow(with_help(t("Memory (RAM)"), t(
+            "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")), self.ram)
         all_props = set_kind(QPushButton(t("Edit all server.properties...")), "ghost")
         all_props.clicked.connect(self._edit_all)
         form.addRow("", all_props)
-        adv.addWidget(box)
-        self.advanced.setVisible(False)
-        self.adv_toggle = set_kind(QPushButton(), "ghost")
-        self.adv_toggle.setCheckable(True)
-        self.adv_toggle.toggled.connect(self._toggle_advanced)
-        self._toggle_advanced(False, animate=False)
+        layout.addWidget(box)
+
+        box = QGroupBox(t("Memory saver"))
+        v = QVBoxLayout(box)
+        self.memory_saver = QCheckBox(t("Use less memory"))
+        self.memory_saver.toggled.connect(self._memory_saver_toggled)
+        v.addWidget(with_help(self.memory_saver, t(
+            "Usually saves a third to half of the memory. Sets view distance 6 and simulation distance 4, "
+            "unloads spawn chunks and returns unused memory sooner. Far-away farms only run while someone is nearby.")))
+        layout.addWidget(box)
 
         self.bedrock_box = QGroupBox(t("Bedrock players (phone / console / Windows)"))
         v = QVBoxLayout(self.bedrock_box)
@@ -690,9 +677,6 @@ class SettingsTab(ServerTab):
         v.addLayout(row)
         layout.addWidget(self.bedrock_box)
 
-        layout.addWidget(self.adv_toggle, 0, Qt.AlignLeft)
-        layout.addWidget(self.advanced)
-
         save = set_kind(QPushButton(t("Save")), "primary")
         save.setMinimumHeight(38)
         save.clicked.connect(self.save)
@@ -702,13 +686,6 @@ class SettingsTab(ServerTab):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(_scroll(body))
-
-    def _toggle_advanced(self, on: bool, animate: bool = True):
-        self.adv_toggle.setText(("▾  " if on else "▸  ") + t("Advanced settings"))
-        if animate:
-            anim.set_expanded(self.advanced, on)
-        else:
-            self.advanced.setVisible(on)
 
     @property
     def icon_path(self) -> Path:
@@ -1866,13 +1843,13 @@ class JoinCheckBox(QGroupBox):
         elif lan.ok:
             self.rows["lan"].set("ok", _ok_detail(lan))
         else:
-            self.rows["lan"].set("fail", t("Blocked on the network. Allow it in Windows Firewall (Invite friends tab)."))
+            self.rows["lan"].set("fail", t("Blocked on the network. Allow it in Windows Firewall (Network tab)."))
         if inet is None:
             self.rows["internet"].set("off", t("Couldn't check (no internet?)"))
         elif inet.ok:
             self.rows["internet"].set("ok", _ok_detail(inet))
         else:
-            self.rows["internet"].set("fail", t("Not reachable from the internet. Open the port or start the tunnel (Invite friends tab)."))
+            self.rows["internet"].set("fail", t("Not reachable from the internet. Open the port or start the tunnel (Network tab)."))
         if "tunnel" in res:
             tr = res["tunnel"]
             if tr.ok:

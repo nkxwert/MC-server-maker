@@ -3,6 +3,14 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.12.1
+### en
+- Back to the previous layout (tabs, header buttons and Settings as in 1.11). The Home tab is removed.
+- Kept the smooth transitions: tabs, server switches and dialogs fade in. Low-resource mode turns them off.
+### ko
+- 이전 디자인으로 되돌렸어요 (탭, 위쪽 버튼, 설정 탭이 1.11과 같아요). 홈 탭은 없앴어요.
+- 자연스러운 전환 효과는 그대로 있어요: 탭, 서버 전환, 창이 부드럽게 나타나요. 저사양 모드에서는 꺼져요.
+
 ## 1.12.0
 ### en
 - **Simpler design for beginners**: a new **Home** tab shows whether the server is on, one big Start/Stop button, the addresses to join with (with Copy buttons) and first-time steps.
