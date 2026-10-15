@@ -5,7 +5,6 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
     QLabel,
     QPlainTextEdit,
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
 from mc_server_maker.core.tasks import Cancelled, Task
 from mc_server_maker.gui.theme import fit_to_screen
 from mc_server_maker.i18n import t
+from mc_server_maker.gui.anim import FadeInDialog
 
 _running = set()  # keep running threads alive (not garbage-collected)
 
@@ -116,7 +116,7 @@ def wait_all(timeout_ms: int = 3000) -> None:
         thread.wait(timeout_ms)
 
 
-class TaskDialog(QDialog):
+class TaskDialog(FadeInDialog):
     """Dialog that runs a job and shows its log and progress."""
 
     def __init__(self, parent, title: str, fn: Callable[[Task], object]):

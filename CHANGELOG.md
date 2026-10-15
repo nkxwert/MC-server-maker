@@ -3,6 +3,20 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.12.0
+### en
+- **Simpler design for beginners**: a new **Home** tab shows whether the server is on, one big Start/Stop button, the addresses to join with (with Copy buttons) and first-time steps.
+- Tabs are reordered with icons (everyday ones first), and *Network* is now **Invite friends**.
+- One Start/Stop button in the header; *Open server folder* and *Force stop* moved into the ⋯ menu.
+- Settings shows the basics first; port, distances, online mode and the like are under **Advanced settings**.
+- Smooth transitions: pages, servers and dialogs fade in, and Advanced settings slides open. Low-resource mode turns them off.
+### ko
+- **초보자도 쉬운 디자인**: 새 **홈** 탭에서 서버가 켜져 있는지, 큰 켜기/끄기 버튼, 접속 주소(복사 버튼 포함), 처음 하는 방법을 한눈에 볼 수 있어요.
+- 탭 순서를 자주 쓰는 것부터 정리하고 아이콘을 붙였어요. *네트워크*는 **친구 초대**로 이름을 바꿨어요.
+- 위쪽에는 켜기/끄기 버튼 하나만 두고, *서버 폴더 열기*와 *강제 종료*는 ⋯ 메뉴로 옮겼어요.
+- 설정 탭은 기본 설정만 먼저 보여주고, 포트·거리·정품 인증 같은 건 **고급 설정**에 모았어요.
+- 자연스러운 전환 효과: 화면, 서버, 창이 부드럽게 나타나고 고급 설정은 미끄러지듯 열려요. 저사양 모드에서는 꺼져요.
+
 ## 1.11.0
 ### en
 - **Find more plugins and mods**: Plugins/Mods tab → *Find more* searches Modrinth and installs with one click. Only versions made for your server's software and Minecraft version are shown, and required add-ons (like Fabric API) come along automatically.

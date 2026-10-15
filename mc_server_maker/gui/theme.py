@@ -64,6 +64,8 @@ QToolTip {{ background: {surface3}; color: {text}; border: 1px solid {border}; p
 #HelpPopup QLabel {{ background: transparent; }}
 #Warn {{ color: {warn}; font-weight: 600; }}
 #Big {{ font-size: 15pt; font-weight: 700; }}
+#CardTitle {{ font-size: 11.5pt; font-weight: 700; }}
+QPushButton#PowerButton {{ font-size: 12pt; border-radius: 10px; padding: 10px 22px; }}
 
 QGroupBox {{
     background: {surface}; border: 1px solid {border}; border-radius: 10px;

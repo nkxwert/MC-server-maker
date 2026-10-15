@@ -6,7 +6,6 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
     QDialogButtonBox,
     QFrame,
     QHBoxLayout,
@@ -26,6 +25,7 @@ from mc_server_maker.gui.theme import fit_to_screen, set_kind
 from mc_server_maker.gui.widgets import HelpButton
 from mc_server_maker.gui.workers import TaskDialog, run_async
 from mc_server_maker.i18n import t
+from mc_server_maker.gui.anim import FadeInDialog
 
 ICON = 48
 
@@ -321,7 +321,7 @@ class ModrinthBrowser(QWidget):
         self._refresh_installed()  # dependencies may now be installed too
 
 
-class UpdatesDialog(QDialog):
+class UpdatesDialog(FadeInDialog):
     """Lists available updates; 'Update all' installs them."""
 
     def __init__(self, parent, meta, updates: List[modrinth.Update], unknown: int):

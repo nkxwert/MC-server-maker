@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QDialog,
     QDialogButtonBox,
     QFileDialog,
     QGridLayout,
@@ -30,6 +29,7 @@ from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import amp_to_section, color_help, with_help
 from mc_server_maker.gui.workers import run_async
 from mc_server_maker.i18n import t
+from mc_server_maker.gui.anim import FadeInDialog
 
 
 def hint_label(text: str) -> QLabel:
@@ -76,7 +76,7 @@ class VersionLoader:
         run_async(lambda task: provider.list_versions(include_unstable), done, fail)
 
 
-class CreateServerDialog(QDialog):
+class CreateServerDialog(FadeInDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(t("New server"))
