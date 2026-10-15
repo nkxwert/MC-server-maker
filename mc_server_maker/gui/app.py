@@ -207,6 +207,7 @@ class MainWindow(QMainWindow):
 
         # ---- sidebar
         side = QFrame()
+        self.side = side
         side.setObjectName("Sidebar")
         side.setFixedWidth(212)
         sv = QVBoxLayout(side)
@@ -367,6 +368,16 @@ class MainWindow(QMainWindow):
         row.addStretch()
         v.addSpacing(10)
         v.addLayout(row)
+        # the sidebar is hidden until the first server exists, so app settings live here too
+        self.empty_prefs = set_kind(QPushButton("⚙ " + t("Settings")), "ghost")
+        self.empty_prefs.clicked.connect(self.open_preferences)
+        row = QHBoxLayout()
+        row.addStretch()
+        row.addWidget(self.empty_prefs)
+        row.addStretch()
+        v.addSpacing(4)
+        v.addLayout(row)
+        self._show_update_dot()
         v.addStretch()
         return page
 
@@ -392,6 +403,11 @@ class MainWindow(QMainWindow):
             if str(m.folder) == keep:
                 row = i
         self.list.blockSignals(False)
+        # no servers yet: just the welcome page in the middle, no sidebar
+        if self.side.isHidden() == bool(self.servers):  # isHidden: works before the window is shown
+            self.side.setVisible(bool(self.servers))
+            if self.servers:
+                anim.fade_in(self.side)
         if self.servers:
             self.list.setCurrentRow(row)
             self._select(row)
@@ -512,8 +528,10 @@ class MainWindow(QMainWindow):
 
     def _show_update_dot(self):
         info = _update.get("info")
-        self.prefs_btn.setText("⚙ " + t("Settings") + ("  ●" if info else ""))
-        self.prefs_btn.setToolTip(t("Update available: v{v}", v=info.version) if info else "")
+        for btn in (self.prefs_btn, getattr(self, "empty_prefs", None)):
+            if btn:
+                btn.setText("⚙ " + t("Settings") + ("  ●" if info else ""))
+                btn.setToolTip(t("Update available: v{v}", v=info.version) if info else "")
 
     def check_updates(self, manual: bool = False):
         def done(info):

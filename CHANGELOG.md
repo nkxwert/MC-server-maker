@@ -3,6 +3,12 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.12.2
+### en
+- Before your first server, the app shows only the welcome page in the middle — no empty sidebar. The sidebar fades in once a server exists. App settings are reachable from the welcome page.
+### ko
+- 첫 서버를 만들기 전에는 왼쪽 창 없이 가운데 시작 화면만 보여줘요. 서버를 만들면 왼쪽 창이 부드럽게 나타나요. 앱 설정은 시작 화면에서도 열 수 있어요.
+
 ## 1.12.1
 ### en
 - Back to the previous layout (tabs, header buttons and Settings as in 1.11). The Home tab is removed.
