@@ -3,6 +3,12 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.12.6
+### en
+- The (?) next to Description is gone. The colour codes still show when you hover over the description box.
+### ko
+- 설명 옆의 (?)를 없앴어요. 색 코드 안내는 설명 칸에 마우스를 올리면 보여요.
+
 ## 1.12.5
 ### en
 - Hidden addresses in the Network tab are now blurred instead of replaced with •••. Click 👁 to show them.

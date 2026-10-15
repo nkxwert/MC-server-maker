@@ -585,9 +585,10 @@ class SettingsTab(ServerTab):
         self.motd = QPlainTextEdit()
         self.motd.setFixedHeight(56)
         self.motd.textChanged.connect(self._update_preview)
-        form.addRow(with_help(t("Description"), t(
-            "Shown under the server name in the multiplayer list (MOTD). Up to 2 lines.") + "\n\n" + color_help()),
-            self.motd)
+        form.addRow(t("Description"), self.motd)
+        # no (?) here: the colour codes show when hovering over the box
+        self.motd.setToolTip(t("Shown under the server name in the multiplayer list (MOTD). Up to 2 lines.")
+                             + "\n\n" + color_help())
         icon_row = QHBoxLayout()
         pick = QPushButton(t("Choose image..."))
         pick.clicked.connect(self._pick_icon)
