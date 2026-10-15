@@ -8,7 +8,8 @@ English by default; switch to 한국어 in **⚙ Settings**. (한국어는 왼�
 GitHub **Actions → Build EXE → latest run → Artifacts → `MC-Server-Maker-windows`** contains `MC-Server-Maker.exe`.
 Pushing a tag such as `v1.2.0` also publishes it under **Releases**.
 
-- Put the EXE in its **own folder**; `servers/`, `runtime/` and `settings.json` are created next to it.
+- All data lives in **Documents/MC-Server-Maker-Files**: `servers/<each server>/` (its files and settings), `runtime/` (Java), `settings.json`.
+  Data that older versions left next to the EXE (e.g. on the Desktop) is moved there automatically.
 - If Windows SmartScreen warns, click **More info → Run anyway** (the EXE isn't code-signed).
 
 ## Run from source
@@ -27,14 +28,20 @@ Pushing a tag such as `v1.2.0` also publishes it under **Releases**.
 **Manage**
 | Tab | |
 |---|---|
-| Console | Colored log, command input (↑↓ history), save world, online players + kick |
+| Console | Colored log, command input (↑↓ history), save world, online count (**More…** → kick / ban), uptime |
+| Status | CPU %, memory used / allowed, download / upload, average player ping, disk size — with live graphs |
 | Settings | Name, MOTD with color preview, icon (any image → 64×64), game settings, RAM, **edit every server.properties key**, **Bedrock join on/off** |
 | World | Seed info, new world (random/seed), import world, backups (automatic before replacing) |
 | Players | OPs and whitelist |
 | Network | Addresses (this PC / Wi-Fi / Internet / Bedrock), **one-click port opening (UPnP)**, Windows Firewall rule, manual port-forwarding guide |
 | Update | Update to a newer version with a full backup first; Geyser is updated too |
 
-**App settings (⚙)**: Dark / Light theme, English / 한국어.
+**App settings (⚙)**: Dark / Light theme, English / 한국어, **Low-resource mode** (on by default).
+
+**Low-resource mode** keeps the PC responsive while servers run: servers start with a small heap that grows
+only when needed and give unused memory back (Java 17+), run at below-normal priority, and the app batches
+console drawing and stops live updates while hidden. Closing the window can keep servers running from the tray.
+Vanilla/Paper 1.21.2+ also pause the world when nobody is online (`pause-when-empty-seconds`).
 
 ### Playing with friends in other homes
 1. **Network** tab → **Open port automatically (UPnP)**.
@@ -60,6 +67,8 @@ pip install pyinstaller && python build_exe.py   # build into dist/
 | `mc_server_maker/core/server.py` | Create, update, worlds, backups, launch command |
 | `mc_server_maker/core/plugins.py` | Bedrock support (Geyser + Floodgate) |
 | `mc_server_maker/core/network.py` | Public IP, UPnP, firewall |
+| `mc_server_maker/core/stats.py` | CPU / memory / network / disk / ping sampling |
+| `mc_server_maker/core/property_catalog.py` | Every server.properties key with defaults and descriptions |
 | `mc_server_maker/core/properties.py` | `server.properties` read/write (keeps comments and order) |
 | `mc_server_maker/i18n.py`, `i18n_ko.py` | Translations (English source → Korean) |
 | `mc_server_maker/gui/` | PySide6 UI |

@@ -7,6 +7,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -17,9 +18,11 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QStackedWidget,
+    QSystemTrayIcon,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -38,6 +41,7 @@ from mc_server_maker.gui.tabs import (
     NetworkTab,
     PlayersTab,
     SettingsTab,
+    StatusTab,
     UpgradeTab,
     WorldTab,
     open_path,
@@ -107,6 +111,13 @@ class PreferencesDialog(QDialog):
             self.language.addItem(label, code)
         self.language.setCurrentIndex(max(0, self.language.findData(settings.language)))
         form.addRow(t("Language"), self.language)
+        self.low_resource = QCheckBox(t("Low-resource mode"))
+        self.low_resource.setChecked(settings.low_resource)
+        self.low_resource.setToolTip(t(
+            "Runs servers at lower priority with a smaller memory footprint, "
+            "and pauses the app's live updates while its window is hidden."))
+        form.addRow("", self.low_resource)
+        form.addRow("", QLabel(t("Data folder: {path}", path=paths.BASE_DIR)))
         layout.addLayout(form)
         buttons = QDialogButtonBox()
         set_kind(buttons.addButton(t("Save"), QDialogButtonBox.AcceptRole), "primary")
@@ -237,16 +248,17 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.tabBar().setDrawBase(False)
         self.console_tab = ConsoleTab(self.runner, self.reload)
+        self.status_tab = StatusTab(self.runner, self.reload)
         self.settings_tab = SettingsTab(self.runner, self.reload)
         self.world_tab = WorldTab(self.runner, self.reload)
         self.players_tab = PlayersTab(self.runner, self.reload)
         self.network_tab = NetworkTab(self.runner, self.reload)
         self.upgrade_tab = UpgradeTab(self.runner, self.reload)
         self.all_tabs = [
-            self.console_tab, self.settings_tab, self.world_tab,
+            self.console_tab, self.status_tab, self.settings_tab, self.world_tab,
             self.players_tab, self.network_tab, self.upgrade_tab,
         ]
-        titles = ["Console", "Settings", "World", "Players", "Network", "Update"]
+        titles = ["Console", "Server status", "Settings", "World", "Players", "Network", "Update"]
         for tab, name in zip(self.all_tabs, titles):
             self.tabs.addTab(tab, t(name))
         tab_wrap = QWidget()
@@ -376,11 +388,14 @@ class MainWindow(QMainWindow):
         new_theme, new_lang = dlg.theme.currentData(), dlg.language.currentData()
         changed_lang = new_lang != self.settings.language
         self.settings.theme, self.settings.language = new_theme, new_lang
+        self.settings.low_resource = dlg.low_resource.isChecked()
         self.settings.save()
+        apply_low_resource(self.runner, self.settings.low_resource)
         theme.apply(QApplication.instance(), new_theme)
         if changed_lang:
             # rebuild the window in the new language; running servers keep running
             set_language(new_lang)
+            retranslate_tray()
             win = MainWindow(self.runner, self.settings, self.key)
             win.setGeometry(self.geometry())
             win.show()
@@ -442,29 +457,107 @@ class MainWindow(QMainWindow):
             self.runner.kill(self.key)
 
     def closeEvent(self, event):
-        if self._replaced:
-            self.runner.state_changed.disconnect(self._on_state_changed)
-            self.setAttribute(Qt.WA_DeleteOnClose)
-            if self in _windows:
-                _windows.remove(self)
+        if self._replaced or _quitting["now"]:
+            if self._replaced:
+                self._detach()
             event.accept()
             return
         if self.runner.any_running():
-            answer = QMessageBox.question(
-                self, t("Quit"), t("A server is running. Stop it safely and quit?")
-            )
-            if answer != QMessageBox.Yes:
+            box = QMessageBox(self)
+            box.setWindowTitle(t("Quit"))
+            box.setText(t("A server is running."))
+            keep = box.addButton(t("Keep running in background"), QMessageBox.AcceptRole)
+            stop = box.addButton(t("Stop server and quit"), QMessageBox.DestructiveRole)
+            box.addButton(t("Cancel"), QMessageBox.RejectRole)
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                keep.setVisible(False)
+            box.exec()
+            if box.clickedButton() is keep:
+                event.ignore()
+                self.hide()
+                tray_message(t("MC Server Maker is still running. Open it from the tray icon."))
+                return
+            if box.clickedButton() is not stop:
                 event.ignore()
                 return
-            self.setEnabled(False)
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            self.runner.stop_all()
-            QApplication.restoreOverrideCursor()
-        wait_all()
+        quit_app(self)
         event.accept()
+
+    def _detach(self):
+        self.runner.state_changed.disconnect(self._on_state_changed)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        if self in _windows:
+            _windows.remove(self)
 
 
 _windows: List[MainWindow] = []  # keep windows alive
+_tray: dict = {}
+_quitting = {"now": False}
+
+
+def current_window() -> Optional[MainWindow]:
+    return _windows[-1] if _windows else None
+
+
+def apply_low_resource(runner: ServerRunner, enabled: bool) -> None:
+    srv.set_low_resource(enabled)
+    runner.low_priority = enabled
+
+
+def tray_message(text: str) -> None:
+    tray = _tray.get("icon")
+    if tray:
+        tray.showMessage(APP_NAME, text, theme.app_icon(), 4000)
+
+
+def show_window():
+    win = current_window()
+    if win:
+        win.showNormal()
+        win.raise_()
+        win.activateWindow()
+
+
+def quit_app(win: Optional[MainWindow] = None):
+    """Stop servers safely and exit."""
+    win = win or current_window()
+    runner = win.runner if win else None
+    if runner and runner.any_running():
+        if win:
+            win.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        runner.stop_all()
+        QApplication.restoreOverrideCursor()
+    wait_all()
+    _quitting["now"] = True
+    if _tray.get("icon"):
+        _tray["icon"].hide()
+    QApplication.instance().quit()
+
+
+def _make_tray(app: QApplication):
+    if not QSystemTrayIcon.isSystemTrayAvailable():
+        return
+    tray = QSystemTrayIcon(theme.app_icon(), app)
+    tray.setToolTip(APP_NAME)
+    menu = QMenu()
+    tray.setContextMenu(menu)
+    _tray["menu"] = menu
+    retranslate_tray()
+    tray.activated.connect(lambda reason: show_window() if reason in (
+        QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
+    tray.show()
+    _tray["icon"] = tray
+
+
+def retranslate_tray():
+    menu = _tray.get("menu")
+    if not menu:
+        return
+    menu.clear()
+    menu.addAction(t("Open"), show_window)
+    menu.addSeparator()
+    menu.addAction(t("Stop servers and quit"), lambda: quit_app())
 
 
 def main():
@@ -477,13 +570,23 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MCServerMaker")
         except (AttributeError, OSError):
             pass
+    try:
+        moved = paths.migrate_legacy_data()
+    except OSError as e:
+        moved = []
+        print("data migration failed:", e)
     settings = AppSettings.load()
     set_language(settings.language)
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    app.setQuitOnLastWindowClosed(False)  # the tray keeps the app alive
     theme.apply(app, settings.theme)
     runner = ServerRunner(app)
+    apply_low_resource(runner, settings.low_resource)
+    _make_tray(app)
     win = MainWindow(runner, settings)
     _windows.append(win)
     win.show()
+    if moved:
+        QMessageBox.information(win, APP_NAME, t("Your servers were moved to:\n{path}", path=paths.BASE_DIR))
     sys.exit(app.exec())

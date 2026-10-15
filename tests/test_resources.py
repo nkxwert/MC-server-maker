@@ -1,0 +1,121 @@
+"""Data folder migration, low-resource launch args, stats helpers, property catalog."""
+
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from mc_server_maker.core import paths, property_catalog, stats
+from mc_server_maker.core import server as srv
+
+
+class MigrationTest(unittest.TestCase):
+    def setUp(self):
+        self.old = Path(tempfile.mkdtemp())
+        self.new = Path(tempfile.mkdtemp()) / "MC-Server-Maker-Files"
+        self.addCleanup(shutil.rmtree, self.old, True)
+        self.addCleanup(shutil.rmtree, self.new.parent, True)
+        patches = [
+            mock.patch.object(paths, "BASE_DIR", self.new),
+            mock.patch.dict(os.environ, {"MCSM_HOME": ""}),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_moves_desktop_data(self):
+        (self.old / "servers" / "My Server").mkdir(parents=True)
+        (self.old / "servers" / "My Server" / "server-maker.json").write_text("{}")
+        (self.old / "settings.json").write_text("{}")
+        (self.old / "runtime").mkdir()  # empty leftover
+        moved = paths.migrate_legacy_data(self.old)
+        self.assertEqual(sorted(moved), ["servers", "settings.json"])
+        self.assertTrue((self.new / "servers" / "My Server" / "server-maker.json").exists())
+        self.assertFalse((self.old / "servers").exists())
+        self.assertFalse((self.old / "runtime").exists())
+
+    def test_never_overwrites(self):
+        (self.old / "settings.json").write_text("old")
+        self.new.mkdir(parents=True)
+        (self.new / "settings.json").write_text("new")
+        self.assertEqual(paths.migrate_legacy_data(self.old), [])
+        self.assertEqual((self.new / "settings.json").read_text(), "new")
+        self.assertTrue((self.old / "settings.json").exists())
+
+    def test_documents_dir_exists_or_home(self):
+        d = paths.documents_dir()
+        self.assertTrue(str(d).startswith(str(Path.home())) or d.exists())
+
+
+class LaunchArgsTest(unittest.TestCase):
+    def meta(self, java):
+        return srv.ServerMeta(name="x", software="paper", mc_version="1.21.4", ram_mb=4096, java_major=java,
+                              launch={"type": "jar", "jar": "server.jar"}, folder=Path("."))
+
+    def tearDown(self):
+        srv.set_low_resource(True)
+
+    def test_low_resource(self):
+        srv.set_low_resource(True)
+        args = srv.launch_args(self.meta(21))
+        self.assertIn("-Xms256M", args)
+        self.assertIn("-Xmx4096M", args)
+        self.assertIn("-XX:G1PeriodicGCInterval=30000", args)
+        # the flag doesn't exist on old Java and would stop the JVM from starting
+        self.assertNotIn("-XX:G1PeriodicGCInterval=30000", srv.launch_args(self.meta(8)))
+
+    def test_normal(self):
+        srv.set_low_resource(False)
+        args = srv.launch_args(self.meta(21))
+        self.assertIn("-Xms1024M", args)
+        self.assertFalse(any(a.startswith("-XX:") for a in args))
+
+
+class StatsTest(unittest.TestCase):
+    def test_ping_parsing(self):
+        outputs = [
+            ("64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=12.4 ms", 12.4),
+            ("Reply from 1.1.1.1: bytes=32 time=8ms TTL=57", 8.0),
+            ("Reply from 192.168.0.2: bytes=32 time<1ms TTL=128", 1.0),
+            ("1.1.1.1의 응답: 바이트=32 시간=15ms TTL=57", 15.0),
+        ]
+        for text, expected in outputs:
+            done = subprocess.CompletedProcess([], 0, stdout=text, stderr="")
+            with mock.patch.object(subprocess, "run", return_value=done):
+                self.assertEqual(stats.ping_ms("1.1.1.1"), expected, text)
+        failed = subprocess.CompletedProcess([], 1, stdout="Request timed out.", stderr="")
+        with mock.patch.object(subprocess, "run", return_value=failed):
+            self.assertIsNone(stats.ping_ms("1.1.1.1"))
+        self.assertIsNone(stats.ping_ms("1.1.1.1; rm -rf /"))
+
+    def test_sample_own_process(self):
+        mon = stats.ProcessMonitor(os.getpid())
+        smp = mon.sample()
+        self.assertGreater(smp.memory_bytes, 0)
+        self.assertGreaterEqual(smp.cpu_percent, 0)
+
+    def test_sizes(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a").write_bytes(b"x" * 1000)
+            (Path(d) / "sub").mkdir()
+            (Path(d) / "sub" / "b").write_bytes(b"x" * 24)
+            self.assertEqual(stats.folder_size(Path(d)), 1024)
+        self.assertEqual(stats.human_bytes(1024), "1 KB")
+        self.assertEqual(stats.human_bytes(3 * 1024**3), "3.0 GB")
+
+
+class CatalogTest(unittest.TestCase):
+    def test_catalog(self):
+        self.assertIn("server-port", property_catalog.BY_KEY)
+        self.assertTrue(property_catalog.BY_KEY["pvp"].is_bool)
+        self.assertFalse(property_catalog.BY_KEY["max-players"].is_bool)
+        self.assertEqual(len(property_catalog.BY_KEY), len(property_catalog.CATALOG))
+        for p in property_catalog.CATALOG:
+            self.assertTrue(p.en and p.ko, p.key)
+
+
+if __name__ == "__main__":
+    unittest.main()

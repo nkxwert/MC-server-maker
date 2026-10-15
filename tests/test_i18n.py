@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1] / "mc_server_maker"
 INDIRECT = [
     "Survival", "Creative", "Adventure", "Spectator", "Peaceful", "Easy", "Normal", "Hard",
     "Default", "Flat", "Large biomes", "Amplified",
-    "Console", "Settings", "World", "Players", "Network", "Update",
+    "Console", "Server status", "Settings", "World", "Players", "Network", "Update",
     "Operators (OP)", "Whitelist",
     "Online mode (off = allow non-premium accounts)", "PvP", "Hardcore", "Whitelist only",
     "Allow flight (recommended with mods/plugins)", "Command blocks",

@@ -190,11 +190,24 @@ def resolve_java(meta: ServerMeta) -> str:
     return found.path
 
 
+# Low-resource mode (app setting): start small and hand unused memory back to the OS.
+LOW_RESOURCE = {"enabled": True}
+
+
+def set_low_resource(enabled: bool) -> None:
+    LOW_RESOURCE["enabled"] = bool(enabled)
+
+
 def launch_args(meta: ServerMeta, windows: Optional[bool] = None) -> List[str]:
     """Launch arguments without the java executable."""
     windows = javamod.IS_WINDOWS if windows is None else windows
-    xms = min(meta.ram_mb, 1024)
-    args = [f"-Xms{xms}M", f"-Xmx{meta.ram_mb}M", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8"]
+    low = LOW_RESOURCE["enabled"]
+    xms = min(meta.ram_mb, 256 if low else 1024)
+    args = [f"-Xms{xms}M", f"-Xmx{meta.ram_mb}M"]
+    if low and meta.java_major >= 17:
+        # G1 returns unused heap to the OS when the server is idle (flag exists since Java 12)
+        args += ["-XX:+UseG1GC", "-XX:G1PeriodicGCInterval=30000"]
+    args += ["-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8"]
     launch = meta.launch or {"type": "jar", "jar": "server.jar"}
     if launch["type"] == "args":
         args.append("@" + (launch["win"] if windows else launch["unix"]))

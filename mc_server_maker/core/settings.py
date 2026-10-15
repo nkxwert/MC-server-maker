@@ -10,6 +10,7 @@ from mc_server_maker.core import paths
 class AppSettings:
     theme: str = "dark"  # dark | light
     language: str = "en"  # en | ko
+    low_resource: bool = True  # lower server priority, smaller memory footprint, quiet UI
 
     @property
     def path(self):
@@ -23,6 +24,8 @@ class AppSettings:
             for k in ("theme", "language"):
                 if isinstance(data.get(k), str):
                     setattr(s, k, data[k])
+            if isinstance(data.get("low_resource"), bool):
+                s.low_resource = data["low_resource"]
         except (OSError, ValueError):
             pass
         return s

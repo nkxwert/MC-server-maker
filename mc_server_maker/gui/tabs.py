@@ -1,12 +1,23 @@
-"""Server tabs: Console / Settings / World / Players / Network / Update."""
+"""Server tabs: Console / Status / Settings / World / Players / Network / Update."""
 
 import os
 import re
+from collections import deque
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QTextCharFormat, QTextCursor
+from PySide6.QtCore import QPointF, Qt, QTimer, QUrl
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QFont,
+    QGuiApplication,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -16,6 +27,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -31,11 +43,12 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
-from mc_server_maker.core import network, players, plugins, versions
+from mc_server_maker.core import network, players, plugins, property_catalog, stats, versions
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import get_provider
@@ -161,6 +174,71 @@ class HistoryLineEdit(QLineEdit):
             super().keyPressEvent(event)
 
 
+def format_uptime(secs: float) -> str:
+    secs = int(secs)
+    d, rem = divmod(secs, 86400)
+    h, rem = divmod(rem, 3600)
+    m, s = divmod(rem, 60)
+    return (f"{d}d " if d else "") + f"{h:02d}:{m:02d}:{s:02d}"
+
+
+class OnlinePlayersDialog(QDialog):
+    """Online players with Kick / Ban (updates live)."""
+
+    def __init__(self, parent, runner: ServerRunner, key: str):
+        super().__init__(parent)
+        self.runner, self.key = runner, key
+        self.setWindowTitle(t("Online players"))
+        self.resize(360, 420)
+        layout = QVBoxLayout(self)
+        self.count = QLabel()
+        self.count.setObjectName("Big")
+        layout.addWidget(self.count)
+        self.list = QListWidget()
+        layout.addWidget(self.list, 1)
+        self.reason = QLineEdit(placeholderText=t("Reason (optional)"))
+        layout.addWidget(self.reason)
+        row = QHBoxLayout()
+        self.btn_kick = QPushButton(t("Kick"))
+        self.btn_kick.clicked.connect(lambda: self._act("kick"))
+        self.btn_ban = set_kind(QPushButton(t("Ban")), "danger")
+        self.btn_ban.clicked.connect(lambda: self._act("ban"))
+        row.addWidget(self.btn_kick)
+        row.addWidget(self.btn_ban)
+        row.addStretch()
+        close = set_kind(QPushButton(t("Close")), "ghost")
+        close.clicked.connect(self.accept)
+        row.addWidget(close)
+        layout.addLayout(row)
+        runner.players_changed.connect(self._refresh)
+        self._refresh(key)
+
+    def _refresh(self, key: str):
+        if key != self.key:
+            return
+        names = self.runner.online_players(key)
+        current = self.list.currentItem().text() if self.list.currentItem() else None
+        self.list.clear()
+        self.list.addItems(names)
+        if current in names:
+            self.list.setCurrentRow(names.index(current))
+        self.count.setText(t("{n} online", n=len(names)))
+        has = bool(names) and self.runner.is_running(key)
+        self.btn_kick.setEnabled(has)
+        self.btn_ban.setEnabled(has)
+
+    def _act(self, cmd: str):
+        item = self.list.currentItem()
+        if not item:
+            QMessageBox.information(self, t("Online players"), t("Select a player first."))
+            return
+        name = item.text()
+        if cmd == "ban" and QMessageBox.question(self, t("Ban"), t("Ban {name} from this server?", name=name)) != QMessageBox.Yes:
+            return
+        reason = self.reason.text().strip()
+        self.runner.send(self.key, f"{cmd} {name}" + (f" {reason}" if reason else ""))
+
+
 class ConsoleTab(ServerTab):
     def __init__(self, runner, on_changed):
         super().__init__(runner, on_changed)
@@ -193,19 +271,39 @@ class ConsoleTab(ServerTab):
         left.addLayout(row)
         outer.addLayout(left, 1)
 
+        side = QVBoxLayout()
+        side.setSpacing(0)
         box = QGroupBox(t("Online"))
-        box.setFixedWidth(190)
         v = QVBoxLayout(box)
         self.player_count = QLabel("0")
         self.player_count.setObjectName("Big")
         v.addWidget(self.player_count)
-        self.player_list = QListWidget()
-        v.addWidget(self.player_list, 1)
-        self.btn_kick = set_kind(QPushButton(t("Kick")), "danger")
-        self.btn_kick.clicked.connect(self._kick)
-        v.addWidget(self.btn_kick)
-        outer.addWidget(box)
+        self.more_btn = set_kind(QPushButton(t("More...")), "ghost")
+        self.more_btn.clicked.connect(self._show_players)
+        v.addWidget(self.more_btn)
+        side.addWidget(box)
+        box = QGroupBox(t("Uptime"))
+        v = QVBoxLayout(box)
+        self.uptime = QLabel("-")
+        self.uptime.setObjectName("Big")
+        v.addWidget(self.uptime)
+        side.addWidget(box)
+        side.addStretch()
+        side_w = QWidget()
+        side_w.setLayout(side)
+        side.setContentsMargins(0, 0, 0, 0)
+        side_w.setFixedWidth(170)
+        outer.addWidget(side_w)
 
+        # Lines are drawn in batches (a few times per second) instead of one by one,
+        # and not at all while the console is hidden: keeps the app light.
+        self._pending = []
+        self._dirty = False
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.timeout.connect(self._flush)
+        self._uptime_timer = QTimer(self)
+        self._uptime_timer.timeout.connect(self._tick)
         runner.line.connect(self._on_line)
         runner.players_changed.connect(self._on_players)
 
@@ -214,11 +312,13 @@ class ConsoleTab(ServerTab):
         return [self.input, self.send_btn, self.save_btn]
 
     def refresh(self):
+        self._pending.clear()
+        self._dirty = False
         self.view.clear()
         self.view.setPlaceholderText(t("The server is off. Press Start to see its log here."))
         if self.meta:
             cursor = QTextCursor(self.view.document())
-            for ln in self.runner.log_lines(self.key):
+            for ln in self.runner.log_lines(self.key)[-self.view.maximumBlockCount():]:
                 self._insert(cursor, ln)
         self.view.moveCursor(QTextCursor.End)
         self.on_state()
@@ -228,6 +328,18 @@ class ConsoleTab(ServerTab):
         for w in self.controls:
             w.setEnabled(self.running)
         self._on_players(self.key)
+        self._tick()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._dirty:
+            self.refresh()  # catch up on what arrived while hidden
+        self._uptime_timer.start(1000)
+        self._tick()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._uptime_timer.stop()
 
     def _insert(self, cursor: QTextCursor, line: str):
         cursor.movePosition(QTextCursor.End)
@@ -238,30 +350,45 @@ class ConsoleTab(ServerTab):
     def _on_line(self, key: str, line: str):
         if key != self.key:
             return
+        if not self.isVisible():
+            self._dirty = True
+            return
+        self._pending.append(line)
+        if not self._flush_timer.isActive():
+            self._flush_timer.start(150)
+
+    def _flush(self):
+        if not self._pending:
+            return
         bar = self.view.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 4
-        self._insert(QTextCursor(self.view.document()), line)
+        cursor = QTextCursor(self.view.document())
+        cursor.beginEditBlock()
+        for ln in self._pending:
+            self._insert(cursor, ln)
+        cursor.endEditBlock()
+        self._pending.clear()
         if at_bottom:
             bar.setValue(bar.maximum())
 
     def _on_players(self, key: str):
         if key != self.key:
             return
-        names = self.runner.online_players(key)
-        self.player_list.clear()
-        self.player_list.addItems(names)
-        self.player_count.setText(str(len(names)))
-        self.btn_kick.setEnabled(bool(names) and self.running)
+        self.player_count.setText(str(len(self.runner.online_players(key))))
 
-    def _kick(self):
-        item = self.player_list.currentItem()
-        if not item:
-            QMessageBox.information(self, t("Kick"), t("Select a player first."))
-            return
-        self.runner.send(self.key, f"kick {item.text()}")
+    def _tick(self):
+        up = self.runner.uptime(self.key) if self.meta else 0
+        self.uptime.setText(format_uptime(up) if up else "-")
+
+    def _show_players(self):
+        if self.meta:
+            dlg = OnlinePlayersDialog(self, self.runner, self.key)
+            dlg.exec()
+            dlg.deleteLater()
 
     def _clear(self):
         self.runner.clear_log(self.key)
+        self._pending.clear()
         self.view.clear()
 
     def _send(self):
@@ -275,26 +402,33 @@ class ConsoleTab(ServerTab):
 
 
 class PropertiesDialog(QDialog):
-    """Edit every key in server.properties."""
+    """Every server.properties setting: all known keys plus anything already in the file."""
 
     def __init__(self, parent, path: Path):
         super().__init__(parent)
         self.setWindowTitle(t("All server.properties"))
-        self.resize(620, 640)
+        self.resize(860, 680)
         self.props = Properties(path)
         layout = QVBoxLayout(self)
-        layout.addWidget(hint(t("Every setting in server.properties. Changes apply on next start.")))
+        layout.addWidget(hint(t("All settings. Gray values are defaults that aren't in the file yet. Changes apply on next start.")))
         self.filter = QLineEdit(placeholderText=t("Search..."))
         self.filter.textChanged.connect(self._filter)
         layout.addWidget(self.filter)
-        self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels([t("Key"), t("Value")])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels([t("Key"), t("Value"), t("Description")])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.setColumnWidth(1, 200)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        for key in sorted(self.props.values):
-            self._add_row(key, self.props.values[key])
+        self.table.setWordWrap(False)
+        keys = sorted(set(property_catalog.BY_KEY) | set(self.props.values))
+        self._original = {}
+        self._bool_keys = set()
+        for key in keys:
+            self._add_row(key)
         layout.addWidget(self.table, 1)
         row = QHBoxLayout()
         add = QPushButton(t("Add setting"))
@@ -309,31 +443,58 @@ class PropertiesDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _add_row(self, key: str, value: str):
+    def _add_row(self, key: str):
+        info = property_catalog.BY_KEY.get(key)
+        in_file = key in self.props.values
+        value = self.props.values[key] if in_file else (info.default if info else "")
+        self._original[key] = (value, in_file)
         r = self.table.rowCount()
         self.table.insertRow(r)
         k = QTableWidgetItem(key)
         k.setFlags(k.flags() & ~Qt.ItemIsEditable)
         self.table.setItem(r, 0, k)
-        self.table.setItem(r, 1, QTableWidgetItem(value))
+        if info and info.is_bool and value in ("true", "false"):
+            self._bool_keys.add(key)
+            v = QTableWidgetItem(value)
+            v.setFlags((v.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
+            v.setCheckState(Qt.Checked if value == "true" else Qt.Unchecked)
+        else:
+            v = QTableWidgetItem(value)
+        if not in_file:
+            v.setForeground(QColor(theme.C["muted"]))
+        self.table.setItem(r, 1, v)
+        d = QTableWidgetItem(info.description() if info else "")
+        d.setFlags(d.flags() & ~Qt.ItemIsEditable)
+        d.setForeground(QColor(theme.C["muted"]))
+        d.setToolTip(d.text())
+        self.table.setItem(r, 2, d)
+
+    def _value(self, r: int) -> str:
+        item = self.table.item(r, 1)
+        if self.table.item(r, 0).text() in self._bool_keys:
+            return "true" if item.checkState() == Qt.Checked else "false"
+        return item.text()
 
     def _add_new(self):
         key, ok = QInputDialog.getText(self, t("Add setting"), t("Key (e.g. simulation-distance):"))
         key = key.strip()
-        if ok and key and key not in self.props.values:
-            self._add_row(key, "")
+        if ok and key and key not in self._original:
+            self._add_row(key)
             self.table.scrollToBottom()
 
     def _filter(self, text: str):
         text = text.lower()
         for r in range(self.table.rowCount()):
-            self.table.setRowHidden(r, text not in self.table.item(r, 0).text().lower())
+            hay = self.table.item(r, 0).text().lower() + " " + self.table.item(r, 2).text().lower()
+            self.table.setRowHidden(r, text not in hay)
 
     def _save(self):
         for r in range(self.table.rowCount()):
             key = self.table.item(r, 0).text()
-            value = self.table.item(r, 1).text() if self.table.item(r, 1) else ""
-            if self.props.values.get(key) != value:
+            value = self._value(r)
+            original, _in_file = self._original.get(key, ("", False))
+            # only write what changed; untouched defaults stay out of the file
+            if value != original:
                 self.props.set(key, value)
         self.props.save()
         self.accept()
@@ -956,6 +1117,248 @@ class NetworkTab(ServerTab):
     def _firewall(self):
         if not network.allow_firewall(self.port, plugins.udp_ports(self.meta)):
             QMessageBox.warning(self, t("Firewall"), t("Could not add the firewall rule."))
+
+
+# ==================================================================== status
+
+
+class Sparkline(QWidget):
+    """Tiny single-series line chart (newest on the right). Hover shows the value."""
+
+    def __init__(self, fmt: Callable[[float], str], fixed_max: Optional[float] = None, points: int = 90):
+        super().__init__()
+        self.values: deque = deque(maxlen=points)
+        self.fmt = fmt
+        self.fixed_max = fixed_max
+        self.points = points
+        self.setMinimumHeight(46)
+        self.setMouseTracking(True)
+
+    def add(self, v: float):
+        self.values.append(v)
+        self.update()
+
+    def clear(self):
+        self.values.clear()
+        self.update()
+
+    def _scale_max(self) -> float:
+        if self.fixed_max:
+            return self.fixed_max
+        return max(max(self.values, default=0) * 1.15, 1e-9)
+
+    def _xy(self, i: int, v: float, w: float, h: float):
+        step = w / max(self.points - 1, 1)
+        x = w - (len(self.values) - 1 - i) * step
+        y = h - 2 - (min(v, self._scale_max()) / self._scale_max()) * (h - 6)
+        return x, y
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        # recessive baseline
+        p.setPen(QPen(QColor(theme.C["border"]), 1))
+        p.drawLine(0, h - 1, w, h - 1)
+        if len(self.values) < 2:
+            return
+        pts = [QPointF(*self._xy(i, v, w, h)) for i, v in enumerate(self.values)]
+        area = QPainterPath(QPointF(pts[0].x(), h - 1))
+        for pt in pts:
+            area.lineTo(pt)
+        area.lineTo(QPointF(pts[-1].x(), h - 1))
+        fill = QColor(theme.C["accent"])
+        fill.setAlpha(40)
+        p.fillPath(area, fill)
+        line = QPainterPath(pts[0])
+        for pt in pts[1:]:
+            line.lineTo(pt)
+        pen = QPen(QColor(theme.C["accent"]), 2)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.drawPath(line)
+
+    def mouseMoveEvent(self, event):
+        if not self.values:
+            return
+        step = self.width() / max(self.points - 1, 1)
+        back = round((self.width() - event.position().x()) / step)
+        i = len(self.values) - 1 - back
+        if 0 <= i < len(self.values):
+            secs = back * StatusTab.INTERVAL_MS // 1000
+            when = t("now") if back == 0 else t("{s}s ago", s=secs)
+            QToolTip.showText(event.globalPosition().toPoint(), f"{self.fmt(self.values[i])} · {when}", self)
+
+
+class StatTile(QGroupBox):
+    def __init__(self, title: str, spark: Optional[Sparkline] = None):
+        super().__init__(title)
+        v = QVBoxLayout(self)
+        self.value = QLabel("-")
+        self.value.setObjectName("Big")
+        self.sub = hint("")
+        v.addWidget(self.value)
+        v.addWidget(self.sub)
+        self.spark = spark
+        if spark:
+            v.addWidget(spark)
+        else:
+            v.addStretch()
+
+    def set(self, value: str, sub: str = ""):
+        self.value.setText(value)
+        self.sub.setText(sub)
+
+
+def _rate(v: float) -> str:
+    return stats.human_bytes(v) + "/s"
+
+
+class StatusTab(ServerTab):
+    INTERVAL_MS = 2000
+    PING_EVERY = 5  # samples (10 s)
+    DISK_EVERY = 30  # samples (60 s)
+
+    def __init__(self, runner, on_changed):
+        super().__init__(runner, on_changed)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        self.notice = hint("")
+        layout.addWidget(self.notice)
+        grid = QGridLayout()
+        grid.setSpacing(12)
+        self.cpu = StatTile(t("CPU"), Sparkline(lambda v: f"{v:.0f}%", fixed_max=100))
+        self.mem = StatTile(t("Memory"), Sparkline(stats.human_bytes))
+        self.down = StatTile(t("Download"), Sparkline(_rate))
+        self.up = StatTile(t("Upload"), Sparkline(_rate))
+        self.ping = StatTile(t("Average ping"), Sparkline(lambda v: f"{v:.0f} ms"))
+        self.disk = StatTile(t("Disk"))
+        for i, tile in enumerate((self.cpu, self.mem, self.down, self.up, self.ping, self.disk)):
+            grid.addWidget(tile, i // 3, i % 3)
+        layout.addLayout(grid)
+        layout.addWidget(hint(t("Download/upload are for the whole PC. Ping is measured from this PC to each player (some networks block it).")))
+        layout.addStretch()
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(_scroll(body))
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._sample)
+        self.monitor = None
+        self._monitor_pid = None
+        self._n = 0
+        self._ping_busy = self._disk_busy = False
+
+    def refresh(self):
+        for tile in (self.cpu, self.mem, self.down, self.up, self.ping):
+            tile.spark.clear()
+            tile.set("-")
+        self.monitor = None
+        self._n = 0
+        self.on_state()
+
+    def on_state(self):
+        if not self.meta:
+            return
+        self.notice.setText("" if self.running else t("The server is off. Live numbers appear while it runs."))
+        self.notice.setVisible(not self.running)
+        self.mem.spark.fixed_max = self.meta.ram_mb * 1024 * 1024
+        self._update_timer()
+        self._disk()
+
+    # sample only while this tab is on screen and the server runs (low-resource)
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._update_timer()
+        self._sample()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.timer.stop()
+
+    def _update_timer(self):
+        if self.isVisible() and self.running:
+            if not self.timer.isActive():
+                self.timer.start(self.INTERVAL_MS)
+        else:
+            self.timer.stop()
+
+    def _sample(self):
+        if not self.meta or not self.running:
+            return
+        pid = self.runner.pid(self.key)
+        if pid and pid != self._monitor_pid:
+            try:
+                self.monitor = stats.ProcessMonitor(pid)
+                self._monitor_pid = pid
+            except Exception:  # noqa: BLE001 - process just exited
+                self.monitor = None
+        if not self.monitor:
+            return
+        smp = self.monitor.sample()
+        if not smp:
+            return
+        self.cpu.spark.add(smp.cpu_percent)
+        self.cpu.set(f"{smp.cpu_percent:.0f}%", t("of this PC"))
+        self.mem.spark.add(smp.memory_bytes)
+        self.mem.set(stats.human_bytes(smp.memory_bytes), t("of {max} allowed", max=stats.human_bytes(self.meta.ram_mb * 1024 * 1024)))
+        self.down.spark.add(smp.net_recv_per_s)
+        self.down.set(_rate(smp.net_recv_per_s))
+        self.up.spark.add(smp.net_sent_per_s)
+        self.up.set(_rate(smp.net_sent_per_s))
+        self._n += 1
+        if self._n % self.PING_EVERY == 1:
+            self._ping()
+        if self._n % self.DISK_EVERY == 0:
+            self._disk()
+
+    def _ping(self):
+        ips = self.runner.ips(self.key)
+        if not ips:
+            self.ping.set("-", t("No players online"))
+            return
+        if self._ping_busy:
+            return
+        self._ping_busy = True
+        key = self.key
+
+        def done(result):
+            self._ping_busy = False
+            if key != self.key:
+                return
+            vals = [v for v in result.values() if v is not None]
+            if vals:
+                avg = sum(vals) / len(vals)
+                self.ping.spark.add(avg)
+                self.ping.set(f"{avg:.0f} ms", t("average of {n} players", n=len(vals)))
+            else:
+                self.ping.set("?", t("Players' networks don't answer ping"))
+
+        def fail(_msg):
+            self._ping_busy = False
+
+        run_async(lambda task: stats.average_ping(set(ips.values())), done, fail)
+
+    def _disk(self):
+        if not self.meta or self._disk_busy:
+            return
+        self._disk_busy = True
+        meta = self.meta
+
+        def work(task):
+            return stats.folder_size(meta.folder), sum(stats.folder_size(d) for d in srv.world_dirs(meta) if d.exists())
+
+        def done(res):
+            self._disk_busy = False
+            if meta is self.meta:
+                total, world = res
+                self.disk.set(stats.human_bytes(total), t("World {size}", size=stats.human_bytes(world)))
+
+        def fail(_msg):
+            self._disk_busy = False
+
+        run_async(work, done, fail)
 
 
 # ==================================================================== update

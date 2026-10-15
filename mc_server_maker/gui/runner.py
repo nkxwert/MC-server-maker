@@ -1,8 +1,9 @@
 """Run server processes, console I/O and online-player tracking."""
 
 import re
+import time
 from collections import deque
-from typing import Deque, Dict, Set
+from typing import Deque, Dict, Optional, Set
 
 from PySide6.QtCore import QObject, QProcess, Signal
 
@@ -13,6 +14,8 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 JOIN_RE = re.compile(r":\s(?:\[[^\]]*\]\s)?([A-Za-z0-9_.]{1,16}) joined the game")
 LEFT_RE = re.compile(r":\s(?:\[[^\]]*\]\s)?([A-Za-z0-9_.]{1,16}) left the game")
 DONE_RE = re.compile(r'Done \([\d.,]+s\)! For help, type')
+# "Steve[/203.0.113.5:51234] logged in with entity id ..." (IPv6: "[/[::1]:51234]")
+LOGIN_RE = re.compile(r"([A-Za-z0-9_.]{1,16})\[/\[?([0-9a-fA-F.:]+?)\]?:\d+\] logged in")
 MAX_LINES = 5000
 
 STOPPED, STARTING, RUNNING, STOPPING = "stopped", "starting", "running", "stopping"
@@ -29,6 +32,9 @@ class ServerRunner(QObject):
         self.logs: Dict[str, Deque[str]] = {}
         self.players: Dict[str, Set[str]] = {}
         self.status: Dict[str, str] = {}
+        self.player_ips: Dict[str, Dict[str, str]] = {}
+        self.started_at: Dict[str, float] = {}
+        self.low_priority = True  # run servers below normal priority (low-resource mode)
         self._partial: Dict[str, str] = {}
 
     # ------------------------------------------------------------------ state
@@ -49,6 +55,19 @@ class ServerRunner(QObject):
     def online_players(self, key: str):
         return sorted(self.players.get(key, set()), key=str.lower)
 
+    def ips(self, key: str) -> Dict[str, str]:
+        """Online player -> IP address (from the login log line)."""
+        online = self.players.get(key, set())
+        return {n: ip for n, ip in self.player_ips.get(key, {}).items() if n in online}
+
+    def uptime(self, key: str) -> float:
+        if not self.is_running(key) or key not in self.started_at:
+            return 0.0
+        return time.time() - self.started_at[key]
+
+    def pid(self, key: str) -> Optional[int]:
+        return int(self.procs[key].processId()) if self.is_running(key) else None
+
     def _set_state(self, key: str, state: str):
         if self.status.get(key) != state:
             self.status[key] = state
@@ -61,6 +80,9 @@ class ServerRunner(QObject):
         self.line.emit(key, text)
         if self.state(key) == STARTING and DONE_RE.search(text):
             self._set_state(key, RUNNING)
+        m = LOGIN_RE.search(text)
+        if m:
+            self.player_ips.setdefault(key, {})[m.group(1)] = m.group(2)
         m = JOIN_RE.search(text)
         if m:
             self.players.setdefault(key, set()).add(m.group(1))
@@ -68,6 +90,7 @@ class ServerRunner(QObject):
         m = LEFT_RE.search(text)
         if m:
             self.players.setdefault(key, set()).discard(m.group(1))
+            self.player_ips.get(key, {}).pop(m.group(1), None)
             self.players_changed.emit(key)
 
     def system_line(self, key: str, text: str):
@@ -97,12 +120,25 @@ class ServerRunner(QObject):
         proc.readyReadStandardOutput.connect(lambda: self._read(key, proc))
         proc.finished.connect(lambda code, _status: self._finished(key, code))
         proc.errorOccurred.connect(lambda err: self._error(key, proc, err))
+        proc.started.connect(lambda: self._started(key, proc))
         self.procs[key] = proc
         self.players[key] = set()
+        self.player_ips[key] = {}
         self._partial[key] = ""
+        self.started_at[key] = time.time()
         self.system_line(key, t("Starting: {cmd}", cmd=" ".join(cmd)))
         self._set_state(key, STARTING)
         proc.start()
+
+    def _started(self, key: str, proc: QProcess):
+        if not self.low_priority:
+            return
+        try:
+            from mc_server_maker.core.stats import ProcessMonitor
+
+            ProcessMonitor(int(proc.processId())).lower_priority()
+        except Exception:  # noqa: BLE001 - priority is a nice-to-have
+            pass
 
     def _finished(self, key: str, code: int):
         rest = self._partial.pop(key, "")

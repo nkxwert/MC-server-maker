@@ -1,2 +1,3 @@
 PySide6-Essentials>=6.5
 certifi
+psutil>=5.9
