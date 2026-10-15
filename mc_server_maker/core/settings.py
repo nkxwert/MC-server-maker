@@ -11,6 +11,7 @@ class AppSettings:
     theme: str = "dark"  # dark | light
     language: str = "en"  # en | ko
     low_resource: bool = True  # lower server priority, smaller memory footprint, quiet UI
+    tunnel_address: str = ""  # last known playit.gg address
 
     @property
     def path(self):
@@ -21,11 +22,9 @@ class AppSettings:
         s = cls()
         try:
             data = json.loads(s.path.read_text(encoding="utf-8"))
-            for k in ("theme", "language"):
-                if isinstance(data.get(k), str):
+            for k, default in asdict(cls()).items():
+                if isinstance(data.get(k), type(default)):
                     setattr(s, k, data[k])
-            if isinstance(data.get("low_resource"), bool):
-                s.low_resource = data["low_resource"]
         except (OSError, ValueError):
             pass
         return s

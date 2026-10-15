@@ -44,6 +44,7 @@ QToolTip {{ background: {surface3}; color: {text}; border: 1px solid {border}; p
 #ItemName {{ font-weight: 600; }}
 #ItemSub {{ color: {muted}; font-size: 9pt; }}
 
+#Card {{ background: {surface}; border: 1px solid {border}; border-radius: 8px; }}
 #Header {{ background: {surface}; border-bottom: 1px solid {border}; }}
 #ServerName {{ font-size: 16pt; font-weight: 700; }}
 #Chip {{ background: {surface3}; border-radius: 10px; padding: 2px 10px; font-size: 9pt; }}

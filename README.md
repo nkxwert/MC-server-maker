@@ -29,11 +29,12 @@ Pushing a tag such as `v1.2.0` also publishes it under **Releases**.
 | Tab | |
 |---|---|
 | Console | Colored log, command input (↑↓ history), save world, online count (**More…** → kick / ban), uptime |
-| Status | CPU %, memory used / allowed, download / upload, average player ping, disk size — with live graphs |
+| Plugins / Mods | Shown only for software that supports them. **Drag .jar files onto the window** to add; each one is a card with name, version, author and an **on/off switch** (off = renamed to `.jar.disabled`); warns when a jar is for a different loader |
+| Server status | CPU %, memory used / allowed, download / upload, average player ping, disk size — with live graphs |
 | Settings | Name, MOTD with color preview, icon (any image → 64×64), game settings, RAM, **edit every server.properties key**, **Bedrock join on/off** |
 | World | Seed info, new world (random/seed), import world, backups (automatic before replacing) |
 | Players | OPs and whitelist |
-| Network | Addresses (this PC / Wi-Fi / Internet / Bedrock), **one-click port opening (UPnP)**, Windows Firewall rule, manual port-forwarding guide |
+| Network | Addresses (this PC / Wi-Fi / Internet / Bedrock), **playit.gg tunnel** (no port forwarding), **one-click port opening (UPnP)**, Windows Firewall rule, manual port-forwarding guide |
 | Update | Update to a newer version with a full backup first; Geyser is updated too |
 
 **App settings (⚙)**: Dark / Light theme, English / 한국어, **Low-resource mode** (on by default).
@@ -44,12 +45,18 @@ console drawing and stops live updates while hidden. Closing the window can keep
 Vanilla/Paper 1.21.2+ also pause the world when nobody is online (`pause-when-empty-seconds`).
 
 ### Playing with friends in other homes
-1. **Network** tab → **Open port automatically (UPnP)**.
+**Easiest — tunnel (no router setup):** Network tab → **Start tunnel**. The first time, the app downloads the
+official [playit.gg](https://playit.gg) agent and opens a page where you sign in (free) and add a *Minecraft Java*
+tunnel to local port 25565. After that the tunnel address (e.g. `name.gl.joinmc.link`) shows in the app; it can
+start automatically with the server. Free tier: no player or bandwidth caps for normal servers; latency grows
+a little with distance to the nearest playit relay.
+
+**Or open the port:**
+1. Network tab → **Open port automatically (UPnP)**.
 2. On Windows, also click **Allow in Windows Firewall**.
 3. Send friends the **Internet** address (Bedrock players: the Bedrock address and port).
 
 If UPnP is off in your router, forward the port manually (the tab shows the exact ports and your PC's IP).
-Behind carrier NAT (the app detects it) use a tunnel such as [playit.gg](https://playit.gg).
 
 ## Development
 
@@ -67,6 +74,8 @@ pip install pyinstaller && python build_exe.py   # build into dist/
 | `mc_server_maker/core/server.py` | Create, update, worlds, backups, launch command |
 | `mc_server_maker/core/plugins.py` | Bedrock support (Geyser + Floodgate) |
 | `mc_server_maker/core/network.py` | Public IP, UPnP, firewall |
+| `mc_server_maker/core/addons.py` | Plugins / mods: read jar metadata, on/off, compatibility |
+| `mc_server_maker/core/tunnel.py` | playit.gg agent download and output parsing |
 | `mc_server_maker/core/stats.py` | CPU / memory / network / disk / ping sampling |
 | `mc_server_maker/core/property_catalog.py` | Every server.properties key with defaults and descriptions |
 | `mc_server_maker/core/properties.py` | `server.properties` read/write (keeps comments and order) |

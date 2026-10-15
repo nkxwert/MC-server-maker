@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from mc_server_maker import APP_NAME, APP_VERSION
-from mc_server_maker.core import network, paths
+from mc_server_maker.core import addons, network, paths
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.plugins import udp_ports
 from mc_server_maker.core.settings import AppSettings
@@ -37,6 +37,7 @@ from mc_server_maker.gui import theme
 from mc_server_maker.gui.create_dialog import CreateServerDialog
 from mc_server_maker.gui.runner import RUNNING, STARTING, STOPPED, STOPPING, ServerRunner
 from mc_server_maker.gui.tabs import (
+    AddonsTab,
     ConsoleTab,
     NetworkTab,
     PlayersTab,
@@ -44,8 +45,10 @@ from mc_server_maker.gui.tabs import (
     StatusTab,
     UpgradeTab,
     WorldTab,
+    jar_paths,
     open_path,
 )
+from mc_server_maker.gui.tunnel_manager import TunnelManager
 from mc_server_maker.gui.theme import set_kind
 from mc_server_maker.gui.workers import TaskDialog, run_async, wait_all
 from mc_server_maker.i18n import LANGUAGES, set_language, t
@@ -128,8 +131,10 @@ class PreferencesDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, runner: ServerRunner, settings: AppSettings, select_folder=None):
+    def __init__(self, runner: ServerRunner, settings: AppSettings, tunnel: TunnelManager, select_folder=None):
         super().__init__()
+        self.tunnel = tunnel
+        self.setAcceptDrops(True)
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.resize(1180, 760)
         self.setMinimumSize(900, 600)
@@ -249,18 +254,20 @@ class MainWindow(QMainWindow):
         self.tabs.tabBar().setDrawBase(False)
         self.console_tab = ConsoleTab(self.runner, self.reload)
         self.status_tab = StatusTab(self.runner, self.reload)
+        self.addons_tab = AddonsTab(self.runner, self.reload)
         self.settings_tab = SettingsTab(self.runner, self.reload)
         self.world_tab = WorldTab(self.runner, self.reload)
         self.players_tab = PlayersTab(self.runner, self.reload)
         self.network_tab = NetworkTab(self.runner, self.reload)
         self.upgrade_tab = UpgradeTab(self.runner, self.reload)
         self.all_tabs = [
-            self.console_tab, self.status_tab, self.settings_tab, self.world_tab,
+            self.console_tab, self.status_tab, self.addons_tab, self.settings_tab, self.world_tab,
             self.players_tab, self.network_tab, self.upgrade_tab,
         ]
-        titles = ["Console", "Server status", "Settings", "World", "Players", "Network", "Update"]
+        titles = ["Console", "Server status", "Plugins", "Settings", "World", "Players", "Network", "Update"]
         for tab, name in zip(self.all_tabs, titles):
             self.tabs.addTab(tab, t(name))
+        self.network_tab.set_tunnel(self.tunnel)
         tab_wrap = QWidget()
         tw = QVBoxLayout(tab_wrap)
         tw.setContentsMargins(8, 6, 8, 0)
@@ -349,6 +356,14 @@ class MainWindow(QMainWindow):
             return
         self.meta = self.servers[row]
         self.stack.setCurrentIndex(1)
+        # Plugins / Mods tab only for software that supports them
+        label = addons.kind_label(self.meta)
+        idx = self.tabs.indexOf(self.addons_tab)
+        if not label and self.tabs.currentIndex() == idx:
+            self.tabs.setCurrentIndex(0)
+        self.tabs.setTabVisible(idx, bool(label))
+        if label:
+            self.tabs.setTabText(idx, t(label))
         self._update_header()
         for tab in self.all_tabs:
             tab.set_server(self.meta)
@@ -396,7 +411,7 @@ class MainWindow(QMainWindow):
             # rebuild the window in the new language; running servers keep running
             set_language(new_lang)
             retranslate_tray()
-            win = MainWindow(self.runner, self.settings, self.key)
+            win = MainWindow(self.runner, self.settings, self.tunnel, self.key)
             win.setGeometry(self.geometry())
             win.show()
             _windows.append(win)
@@ -433,6 +448,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, t("Start"), str(e))
             return
         self.tabs.setCurrentWidget(self.console_tab)
+        if meta.tunnel and not self.tunnel.is_active():
+            self.runner.system_line(key, t("Starting the playit.gg tunnel..."))
+            self.tunnel.start()
         if meta.upnp:
             port = meta.properties().get_int("server-port", 25565)
             udp = udp_ports(meta)
@@ -449,6 +467,18 @@ class MainWindow(QMainWindow):
                 done,
                 lambda m: self.runner.system_line(key, t("Could not open the port: {err}", err=m.replace("\n", " "))),
             )
+
+    # drag .jar files anywhere on the window -> Plugins / Mods tab
+    def dragEnterEvent(self, event):
+        if self.meta and addons.kind_label(self.meta) and jar_paths(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        files = jar_paths(event.mimeData())
+        if files and self.meta and addons.kind_label(self.meta):
+            event.acceptProposedAction()
+            self.tabs.setCurrentWidget(self.addons_tab)
+            self.addons_tab.add_files(files)
 
     def _kill(self):
         if QMessageBox.question(
@@ -528,6 +558,8 @@ def quit_app(win: Optional[MainWindow] = None):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         runner.stop_all()
         QApplication.restoreOverrideCursor()
+    if win and win.tunnel:
+        win.tunnel.stop()
     wait_all()
     _quitting["now"] = True
     if _tray.get("icon"):
@@ -584,7 +616,8 @@ def main():
     runner = ServerRunner(app)
     apply_low_resource(runner, settings.low_resource)
     _make_tray(app)
-    win = MainWindow(runner, settings)
+    tunnel = TunnelManager(settings, app)
+    win = MainWindow(runner, settings, tunnel)
     _windows.append(win)
     win.show()
     if moved:

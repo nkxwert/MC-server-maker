@@ -49,6 +49,7 @@ class ServerMeta:
     launch: dict = field(default_factory=dict)
     created: str = ""
     upnp: bool = False  # open router ports automatically on start
+    tunnel: bool = False  # start the playit.gg tunnel together with the server
     folder: Path = field(default=None, compare=False)
 
     def save(self) -> None:
@@ -362,7 +363,10 @@ def upgrade_server(
 
     if plugins.bedrock_installed(meta):
         task.log(t("Updating Geyser/Floodgate for the new version..."))
-        plugins.install_bedrock(meta, task)
+        try:
+            plugins.install_bedrock(meta, task)
+        except Exception as e:  # noqa: BLE001 - the server itself is updated; Geyser can be retried
+            task.log(t("Could not update Geyser: {err} (retry from Settings)", err=e))
     task.log(t("Upgrade complete! The world is converted to the new version on next start."))
     return meta
 

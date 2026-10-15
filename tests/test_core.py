@@ -9,11 +9,10 @@ import zipfile
 from pathlib import Path
 from unittest import mock
 
-_TMP = tempfile.mkdtemp(prefix="mcsm-test-")
-os.environ["MCSM_HOME"] = _TMP
+_TMP = os.environ.setdefault("MCSM_HOME", tempfile.mkdtemp(prefix="mcsm-test-"))
 
 from mc_server_maker.core import java as javamod  # noqa: E402
-from mc_server_maker.core import net, players, providers, versions  # noqa: E402
+from mc_server_maker.core import net, paths, players, providers, versions  # noqa: E402
 from mc_server_maker.core import server as srv  # noqa: E402
 from mc_server_maker.core.properties import Properties, escape, unescape  # noqa: E402
 
@@ -48,6 +47,10 @@ class Base(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         fake = FakeProvider()
         patches = [
+            # independent of import order: always use the temp data folder
+            mock.patch.object(paths, "BASE_DIR", Path(_TMP)),
+            mock.patch.object(paths, "SERVERS_DIR", Path(_TMP) / "servers"),
+            mock.patch.object(paths, "RUNTIME_DIR", Path(_TMP) / "runtime"),
             mock.patch.object(providers, "PROVIDERS", providers.PROVIDERS + [fake]),
             mock.patch.object(srv, "get_provider", lambda pid: fake if pid == "fake" else providers.get_provider(pid)),
             mock.patch.object(versions, "required_java", lambda v: 21),

@@ -16,6 +16,7 @@ INDIRECT = [
     "Operators (OP)", "Whitelist",
     "Online mode (off = allow non-premium accounts)", "PvP", "Hardcore", "Whitelist only",
     "Allow flight (recommended with mods/plugins)", "Command blocks",
+    "Plugins", "Mods", "Bukkit/Paper plugin", "Fabric mod", "Quilt mod", "Forge mod", "NeoForge mod", "Unknown",
 ]
 
 

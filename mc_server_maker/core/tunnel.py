@@ -1,0 +1,102 @@
+"""playit.gg tunnel: friends join without port forwarding.
+
+The playit agent (an official open-source program) is downloaded into
+runtime/playit/ and run in the background. On first use it prints a claim link;
+the user approves this PC on playit.gg and adds a Minecraft tunnel there. After
+that the agent keeps the tunnel up and logs its public address.
+"""
+
+import os
+import platform
+import re
+from pathlib import Path
+from typing import List, Optional
+
+from mc_server_maker.core import net, paths
+from mc_server_maker.core.tasks import Task
+from mc_server_maker.i18n import t
+
+RELEASES = "https://api.github.com/repos/playit-cloud/playit-agent/releases/latest"
+DASHBOARD = "https://playit.gg/account/tunnels"
+CLAIM_RE = re.compile(r"https://playit\.gg/(?:claim|mc)/[A-Za-z0-9_-]+")
+# public tunnel addresses look like "name.gl.joinmc.link" or "name.ply.gg:12345"
+ADDRESS_RE = re.compile(r"\b((?:[a-z0-9-]+\.)+(?:joinmc\.link|ply\.gg)(?::\d{2,5})?)\b", re.IGNORECASE)
+
+
+class TunnelError(Exception):
+    pass
+
+
+def agent_dir() -> Path:
+    return paths.RUNTIME_DIR / "playit"
+
+
+def agent_path() -> Path:
+    return agent_dir() / ("playit.exe" if os.name == "nt" else "playit")
+
+
+def secret_path() -> Path:
+    return agent_dir() / "playit.toml"
+
+
+def is_installed() -> bool:
+    return agent_path().exists()
+
+
+def is_claimed() -> bool:
+    return secret_path().exists() and secret_path().stat().st_size > 0
+
+
+def pick_asset(assets: List[dict], system: str, machine: str) -> Optional[dict]:
+    """Choose the agent download for this OS/CPU from a GitHub release."""
+    system, machine = system.lower(), machine.lower()
+    arm = machine in ("arm64", "aarch64")
+    names = [(a, a.get("name", "").lower()) for a in assets]
+    if system == "windows":
+        cands = [a for a, n in names if "windows" in n and n.endswith(".exe") and ("x86_64" in n or "amd64" in n)]
+        cands.sort(key=lambda a: "signed" not in a["name"].lower())
+    elif system == "linux":
+        want = ("aarch64", "arm64") if arm else ("amd64", "x86_64")
+        cands = [a for a, n in names if "linux" in n and any(w in n for w in want)
+                 and not n.endswith((".deb", ".rpm", ".sha256", ".sig"))]
+    elif system == "darwin":
+        cands = [a for a, n in names if any(k in n for k in ("darwin", "macos", "apple"))
+                 and not n.endswith((".sha256", ".sig", ".dmg", ".pkg"))]
+    else:
+        cands = []
+    return cands[0] if cands else None
+
+
+def install_agent(task: Optional[Task] = None) -> Path:
+    task = task or Task()
+    task.log(t("Downloading the playit.gg agent..."))
+    release = net.get_json(RELEASES)
+    asset = pick_asset(release.get("assets", []), platform.system(), platform.machine())
+    if not asset:
+        raise TunnelError(t("playit.gg has no agent for this system. Install it from playit.gg/download."))
+    dest = agent_path()
+    net.download(asset["browser_download_url"], dest, task)
+    if os.name != "nt":
+        dest.chmod(0o755)
+    task.log(t("playit.gg agent {v} installed.", v=release.get("tag_name", "")))
+    return dest
+
+
+# Agent command lines to try, newest syntax first (the CLI has changed between versions).
+def command_variants() -> List[List[str]]:
+    exe, secret = str(agent_path()), str(secret_path())
+    return [
+        [exe, "--secret_path", secret, "--stdout", "start"],
+        [exe, "--secret-path", secret, "--stdout", "start"],
+        [exe, "--secret_path", secret, "-s"],
+    ]
+
+
+def find_claim_url(text: str) -> Optional[str]:
+    m = CLAIM_RE.search(text)
+    return m.group(0) if m else None
+
+
+def find_address(text: str) -> Optional[str]:
+    m = ADDRESS_RE.search(text)
+    return m.group(1).lower() if m else None

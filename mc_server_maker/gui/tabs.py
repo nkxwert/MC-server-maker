@@ -4,7 +4,7 @@ import os
 import re
 from collections import deque
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 from PySide6.QtCore import QPointF, Qt, QTimer, QUrl
 from PySide6.QtGui import (
@@ -19,6 +19,7 @@ from PySide6.QtGui import (
     QTextCursor,
 )
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QAbstractItemView,
     QButtonGroup,
     QCheckBox,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -35,6 +37,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -48,7 +51,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mc_server_maker.core import network, players, plugins, property_catalog, stats, versions
+from mc_server_maker.core import addons, network, players, plugins, property_catalog, stats, versions
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import get_provider
@@ -971,6 +974,12 @@ class AddressRow(QWidget):
 
 class NetworkTab(ServerTab):
     _public_ip = None  # looked up once per app run
+    tunnel = None  # TunnelManager, set by the main window
+
+    def set_tunnel(self, manager):
+        self.tunnel = manager
+        manager.changed.connect(self._refresh_tunnel)
+        self._refresh_tunnel()
 
     def __init__(self, runner, on_changed):
         super().__init__(runner, on_changed)
@@ -985,6 +994,39 @@ class NetworkTab(ServerTab):
         self.addr_bedrock = AddressRow(t("Bedrock (Internet)"), t("Phone / console players: address + port"))
         for w in (self.addr_local, self.addr_lan, self.addr_public, self.addr_bedrock):
             v.addWidget(w)
+        layout.addWidget(box)
+
+        box = QGroupBox(t("Tunnel (no port forwarding) — playit.gg"))
+        v = QVBoxLayout(box)
+        v.addWidget(hint(t(
+            "Easiest way for friends in other homes to join: a free playit.gg tunnel. Works even where ports "
+            "can't be opened, no player or bandwidth caps for normal servers. Adds a little latency depending "
+            "on the distance to the nearest playit relay.")))
+        self.tunnel_status = QLabel()
+        self.tunnel_status.setWordWrap(True)
+        self.tunnel_status.setObjectName("ItemName")
+        self.tunnel_status.setTextFormat(Qt.RichText)
+        self.tunnel_status.setOpenExternalLinks(True)
+        v.addWidget(self.tunnel_status)
+        self.addr_tunnel = AddressRow(t("Tunnel address"), t("Give this to friends (Java Edition)"))
+        v.addWidget(self.addr_tunnel)
+        row = QHBoxLayout()
+        self.btn_tunnel = set_kind(QPushButton(), "primary")
+        self.btn_tunnel.clicked.connect(self._toggle_tunnel)
+        dash = set_kind(QPushButton(t("Open playit.gg dashboard")), "ghost")
+        dash.clicked.connect(lambda: self.tunnel and self.tunnel.open_dashboard())
+        edit = set_kind(QPushButton(t("Enter address...")), "ghost")
+        edit.setToolTip(t("If the address isn't detected, copy it from the playit.gg dashboard."))
+        edit.clicked.connect(self._edit_tunnel_address)
+        log_btn = set_kind(QPushButton(t("Agent log")), "ghost")
+        log_btn.clicked.connect(self._show_tunnel_log)
+        for w in (self.btn_tunnel, dash, edit, log_btn):
+            row.addWidget(w)
+        row.addStretch()
+        v.addLayout(row)
+        self.auto_tunnel = QCheckBox(t("Start the tunnel together with this server"))
+        self.auto_tunnel.toggled.connect(self._toggle_auto_tunnel)
+        v.addWidget(self.auto_tunnel)
         layout.addWidget(box)
 
         box = QGroupBox(t("Let friends from other homes join"))
@@ -1054,6 +1096,10 @@ class NetworkTab(ServerTab):
         self.auto_upnp.blockSignals(True)
         self.auto_upnp.setChecked(self.meta.upnp)
         self.auto_upnp.blockSignals(False)
+        self.auto_tunnel.blockSignals(True)
+        self.auto_tunnel.setChecked(self.meta.tunnel)
+        self.auto_tunnel.blockSignals(False)
+        self._refresh_tunnel()
         if not self.port_status.text():
             self.port_status.setText("⚪ " + t("Port not opened yet."))
         ports = f"TCP {self.port}" + "".join(f", UDP {u}" for u in udp)
@@ -1109,6 +1155,70 @@ class NetworkTab(ServerTab):
                   lambda _: self.port_status.setText("⚪ " + t("Port closed.")),
                   lambda msg: self.port_status.setText("🔴 " + msg))
 
+    # ------------------------------------------------------------ tunnel
+
+    def _refresh_tunnel(self):
+        tm = self.tunnel
+        if not tm:
+            return
+        from mc_server_maker.gui import tunnel_manager as tmod
+
+        port = self.port
+        texts = {
+            tmod.OFF: "⚪ " + t("Tunnel is off."),
+            tmod.INSTALLING: "⏳ " + t("Downloading the playit.gg agent..."),
+            tmod.STARTING: "⏳ " + t("Starting the tunnel..."),
+            tmod.WAITING_CLAIM: "🟡 " + t(
+                "First time only: in the browser page that opened, sign in to playit.gg and approve this PC. "
+                "Then add a tunnel: <b>Minecraft Java</b>, local port <b>{port}</b>. "
+                "(Bedrock players: also add a <b>Minecraft Bedrock</b> tunnel, port <b>19132</b>.)", port=port)
+                + (f" <a href='{tm.claim_url}'>{t('Open the link again')}</a>" if tm.claim_url else ""),
+            tmod.RUNNING: "🟢 " + t("Tunnel is running. Friends can join with the tunnel address."),
+            tmod.ERROR: "🔴 " + (tm.error or t("Tunnel error.")),
+        }
+        self.tunnel_status.setText(texts.get(tm.state, ""))
+        self.btn_tunnel.setText(t("Stop tunnel") if tm.is_active() else t("Start tunnel"))
+        set_kind(self.btn_tunnel, "ghost" if tm.is_active() else "primary")
+        self.addr_tunnel.set(tm.address or "-", bool(tm.address))
+        if port != 25565 and tm.state == tmod.RUNNING:
+            self.tunnel_status.setText(self.tunnel_status.text() + " " + t(
+                "(Make sure the playit tunnel points to local port {port}.)", port=port))
+
+    def _toggle_tunnel(self):
+        if not self.tunnel:
+            return
+        if self.tunnel.is_active():
+            self.tunnel.stop()
+        else:
+            self.tunnel.start()
+
+    def _edit_tunnel_address(self):
+        if not self.tunnel:
+            return
+        text, ok = QInputDialog.getText(self, t("Tunnel address"), t("Address from the playit.gg dashboard:"),
+                                        text=self.tunnel.address)
+        if ok:
+            self.tunnel.set_address(text)
+
+    def _show_tunnel_log(self):
+        if not self.tunnel:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(t("Agent log"))
+        dlg.resize(640, 400)
+        v = QVBoxLayout(dlg)
+        view = QPlainTextEdit(readOnly=True)
+        view.setObjectName("Console")
+        view.setPlainText("\n".join(self.tunnel.log) or t("(empty)"))
+        v.addWidget(view)
+        dlg.exec()
+        dlg.deleteLater()
+
+    def _toggle_auto_tunnel(self, on: bool):
+        if self.meta:
+            self.meta.tunnel = on
+            self.meta.save()
+
     def _toggle_auto(self, on: bool):
         if self.meta:
             self.meta.upnp = on
@@ -1117,6 +1227,223 @@ class NetworkTab(ServerTab):
     def _firewall(self):
         if not network.allow_firewall(self.port, plugins.udp_ports(self.meta)):
             QMessageBox.warning(self, t("Firewall"), t("Could not add the firewall rule."))
+
+
+# ============================================================ plugins / mods
+
+
+class ToggleSwitch(QAbstractButton):
+    """iOS-style on/off switch."""
+
+    def __init__(self, checked: bool = True, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(checked)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(40, 22)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        on = self.isChecked()
+        track = QColor(theme.C["accent"] if on else theme.C["surface3"])
+        if not self.isEnabled():
+            track.setAlpha(110)
+        p.setPen(Qt.NoPen)
+        p.setBrush(track)
+        p.drawRoundedRect(0, 0, self.width(), self.height(), 11, 11)
+        p.setBrush(QColor("#ffffff"))
+        x = self.width() - 19 if on else 3
+        p.drawEllipse(x, 3, 16, 16)
+
+
+class AddonCard(QFrame):
+    def __init__(self, addon, warning: str, on_toggle, on_remove):
+        super().__init__()
+        self.setObjectName("Card")
+        self.addon = addon
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 8, 12, 8)
+        col = QVBoxLayout()
+        col.setSpacing(1)
+        name = QLabel(addon.name + (f"  <span style='color:{theme.C['muted']}'>{addon.version}</span>" if addon.version else ""))
+        name.setObjectName("ItemName")
+        name.setTextFormat(Qt.RichText)
+        col.addWidget(name)
+        bits = [addon.file_name, stats.human_bytes(addon.size)]
+        if addon.authors:
+            bits.insert(0, ", ".join(addon.authors[:3]))
+        col.addWidget(hint(" · ".join(bits)))
+        if warning:
+            col.addWidget(warn_label("⚠ " + warning))
+        row.addLayout(col, 1)
+        self.switch = ToggleSwitch(addon.enabled)
+        self.switch.setToolTip(t("On / off"))
+        self.switch.toggled.connect(lambda on: on_toggle(self, on))
+        row.addWidget(self.switch)
+        remove = set_kind(QPushButton("✕"), "ghost")
+        remove.setToolTip(t("Remove"))
+        remove.setFixedWidth(34)
+        remove.clicked.connect(lambda: on_remove(self))
+        row.addWidget(remove)
+        self.setOpacity(addon.enabled)
+
+    def setOpacity(self, enabled: bool):
+        self.setStyleSheet("" if enabled else "QLabel { color: %s; }" % theme.C["disabled"])
+
+
+class DropZone(QFrame):
+    def __init__(self, on_files, on_browse):
+        super().__init__()
+        self.setObjectName("DropZone")
+        self.on_files = on_files
+        self.setAcceptDrops(True)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(16, 14, 16, 14)
+        self.title = QLabel()
+        self.title.setObjectName("ItemName")
+        self.title.setAlignment(Qt.AlignCenter)
+        v.addWidget(self.title)
+        row = QHBoxLayout()
+        row.addStretch()
+        browse = QPushButton(t("Choose files..."))
+        browse.clicked.connect(on_browse)
+        row.addWidget(browse)
+        row.addStretch()
+        v.addLayout(row)
+        self._set_hover(False)
+
+    def _set_hover(self, hover: bool):
+        border = theme.C["accent"] if hover else theme.C["border"]
+        bg = theme.C["accent_soft"] if hover else "transparent"
+        self.setStyleSheet(f"#DropZone {{ border: 2px dashed {border}; border-radius: 10px; background: {bg}; }}")
+
+    def dragEnterEvent(self, event):
+        if jar_paths(event.mimeData()):
+            event.acceptProposedAction()
+            self._set_hover(True)
+
+    def dragLeaveEvent(self, event):
+        self._set_hover(False)
+
+    def dropEvent(self, event):
+        self._set_hover(False)
+        files = jar_paths(event.mimeData())
+        if files:
+            event.acceptProposedAction()
+            self.on_files(files)
+
+
+def jar_paths(mime) -> List[Path]:
+    if not mime.hasUrls():
+        return []
+    return [Path(u.toLocalFile()) for u in mime.urls()
+            if u.isLocalFile() and u.toLocalFile().lower().endswith(".jar")]
+
+
+class AddonsTab(ServerTab):
+    """Plugins (Paper/Purpur) or mods (Fabric/NeoForge/Forge). Hidden for Vanilla."""
+
+    def __init__(self, runner, on_changed):
+        super().__init__(runner, on_changed)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 10, 16, 16)
+        layout.setSpacing(10)
+        self.notice = warn_label(t("The server is running. Changes apply after a restart."))
+        layout.addWidget(self.notice)
+        self.drop = DropZone(self.add_files, self._browse)
+        layout.addWidget(self.drop)
+        row = QHBoxLayout()
+        self.summary = QLabel()
+        self.summary.setObjectName("ItemName")
+        row.addWidget(self.summary)
+        row.addStretch()
+        self.search = QLineEdit(placeholderText=t("Search..."))
+        self.search.setFixedWidth(200)
+        self.search.textChanged.connect(self._filter)
+        row.addWidget(self.search)
+        open_btn = set_kind(QPushButton(t("Open folder")), "ghost")
+        open_btn.clicked.connect(lambda: open_path(addons.addon_dir(self.meta)))
+        row.addWidget(open_btn)
+        layout.addLayout(row)
+        self.list = QListWidget()
+        self.list.setObjectName("ServerList")
+        self.list.setSelectionMode(QAbstractItemView.NoSelection)
+        self.list.setSpacing(3)
+        layout.addWidget(self.list, 1)
+        self.empty = hint("")
+        self.empty.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.empty)
+
+    def label(self) -> str:
+        return addons.kind_label(self.meta) if self.meta else ""
+
+    def refresh(self):
+        if not self.meta or not self.label():
+            return
+        self.drop.title.setText(t("Drag plugin .jar files here") if self.label() == "Plugins" else t("Drag mod .jar files here"))
+        self.list.clear()
+        items = addons.list_addons(self.meta)
+        for a in items:
+            self._add_card(a, addons.compatibility_warning(self.meta, a))
+        on = sum(1 for a in items if a.enabled)
+        self.summary.setText(t("{n} installed · {on} on", n=len(items), on=on))
+        self.empty.setText("" if items else t("Nothing installed yet."))
+        self.empty.setVisible(not items)
+        self.on_state()
+        self._filter(self.search.text())
+
+    def on_state(self):
+        self.notice.setVisible(self.running)
+
+    def _add_card(self, addon, warning: str):
+        item = QListWidgetItem()
+        card = AddonCard(addon, warning, self._toggle, self._remove)
+        item.setSizeHint(card.sizeHint())
+        item.setData(Qt.UserRole, (addon.name + " " + addon.file_name).lower())
+        self.list.addItem(item)
+        self.list.setItemWidget(item, card)
+
+    def _filter(self, text: str):
+        text = text.lower().strip()
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            it.setHidden(bool(text) and text not in it.data(Qt.UserRole))
+
+    def _browse(self):
+        files, _ = QFileDialog.getOpenFileNames(self, t("Choose files..."), "", "Java (*.jar)")
+        if files:
+            self.add_files([Path(f) for f in files])
+
+    def add_files(self, files: List[Path]):
+        if not self.meta or not files:
+            return
+        # warn before copying jars made for another loader
+        mismatched = [(f, addons.compatibility_warning(self.meta, addons.read_info(f))) for f in files]
+        mismatched = [(f, w) for f, w in mismatched if w]
+        if mismatched:
+            text = "\n".join(f"• {f.name}: {w}" for f, w in mismatched)
+            if QMessageBox.question(self, t("Check these files"), text + "\n\n" + t("Add them anyway?")) != QMessageBox.Yes:
+                files = [f for f in files if f not in {m for m, _ in mismatched}]
+        try:
+            addons.add_files(self.meta, files)
+        except (OSError, ValueError) as e:
+            QMessageBox.warning(self, t(self.label()), str(e))
+        self.refresh()
+
+    def _toggle(self, card, on: bool):
+        try:
+            addons.set_enabled(card.addon, on)
+        except OSError as e:
+            QMessageBox.warning(self, t(self.label()), str(e))
+        card.setOpacity(on)
+        items = addons.list_addons(self.meta)
+        self.summary.setText(t("{n} installed · {on} on", n=len(items), on=sum(1 for a in items if a.enabled)))
+
+    def _remove(self, card):
+        if QMessageBox.question(self, t("Remove"), t("Delete {name}?", name=card.addon.file_name)) == QMessageBox.Yes:
+            addons.remove(card.addon)
+            self.refresh()
 
 
 # ==================================================================== status

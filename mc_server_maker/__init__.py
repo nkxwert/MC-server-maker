@@ -1,4 +1,4 @@
 """MC Server Maker - create and manage Minecraft servers with a GUI."""
 
 APP_NAME = "MC Server Maker"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
