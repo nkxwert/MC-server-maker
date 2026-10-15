@@ -89,6 +89,9 @@ QPushButton[kind="ghost"] {{ background: transparent; border-color: transparent;
 QPushButton[kind="ghost"]:hover {{ background: {surface2}; color: {text}; }}
 QPushButton[kind="card"] {{ text-align: left; padding: 10px 12px; border-radius: 9px; background: {surface2}; }}
 QPushButton[kind="card"]:checked {{ border: 2px solid {accent}; background: {accent_soft}; }}
+QPushButton[kind="segment"] {{ background: transparent; border: 1px solid {border}; border-radius: 7px; padding: 6px 16px; color: {muted}; }}
+QPushButton[kind="segment"]:hover {{ color: {text}; }}
+QPushButton[kind="segment"]:checked {{ background: {accent_soft}; border-color: {accent}; color: {text}; font-weight: 700; }}
 
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
     background: {bg}; border: 1px solid {border}; border-radius: 6px; padding: 5px 8px;

@@ -3,6 +3,16 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.11.0
+### en
+- **Find more plugins and mods**: Plugins/Mods tab → *Find more* searches Modrinth and installs with one click. Only versions made for your server's software and Minecraft version are shown, and required add-ons (like Fabric API) come along automatically.
+- **Check for updates** in the Plugins/Mods tab finds newer versions of plugins and mods that came from Modrinth and updates them all at once.
+- Mods that players also have to install are marked "Players need it too".
+### ko
+- **플러그인·모드 찾아보기**: 플러그인/모드 탭 → *더 찾아보기*에서 Modrinth를 검색하고 버튼 한 번으로 설치해요. 이 서버의 구동기와 마인크래프트 버전에 맞는 것만 보여주고, 꼭 필요한 다른 모드(예: Fabric API)도 같이 설치돼요.
+- 플러그인/모드 탭의 **업데이트 확인**으로 Modrinth에서 받은 플러그인·모드의 새 버전을 찾아 한 번에 업데이트해요.
+- 접속하는 사람도 설치해야 하는 모드에는 "플레이어도 설치 필요"라고 표시해요.
+
 ## 1.10.0
 ### en
 - **Total uptime**: the console now shows how long the server has run in total, across every start, under the current uptime.

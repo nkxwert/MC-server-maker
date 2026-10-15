@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QToolTip,
@@ -55,7 +56,8 @@ from mc_server_maker.core import addons, joincheck, net, network, players, plugi
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import get_provider
-from mc_server_maker.gui import theme
+from mc_server_maker.gui import browse, theme
+from mc_server_maker.gui.browse import ModrinthBrowser
 from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
 from mc_server_maker.gui.runner import ServerRunner
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
@@ -1464,11 +1466,34 @@ class AddonsTab(ServerTab):
 
     def __init__(self, runner, on_changed):
         super().__init__(runner, on_changed)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 10, 16, 16)
-        layout.setSpacing(10)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 10, 16, 16)
+        outer.setSpacing(10)
         self.notice = warn_label(t("The server is running. Changes apply after a restart."))
-        layout.addWidget(self.notice)
+        outer.addWidget(self.notice)
+        seg = QHBoxLayout()
+        seg.setSpacing(6)
+        self.btn_installed = set_kind(QPushButton(t("Installed")), "segment")
+        self.btn_browse = set_kind(QPushButton("🔍 " + t("Find more")), "segment")
+        self.pages = QButtonGroup(self)
+        for i, b in enumerate((self.btn_installed, self.btn_browse)):
+            b.setCheckable(True)
+            self.pages.addButton(b, i)
+            seg.addWidget(b)
+        seg.addStretch()
+        outer.addLayout(seg)
+        self.stack = QStackedWidget()
+        outer.addWidget(self.stack, 1)
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        self.stack.addWidget(page)
+        self.browser = ModrinthBrowser(self.refresh_installed, lambda: self.running)
+        self.stack.addWidget(self.browser)
+        self.pages.idClicked.connect(self.stack.setCurrentIndex)
+        self.btn_installed.setChecked(True)
         self.drop = DropZone(self.add_files, self._browse)
         layout.addWidget(self.drop)
         row = QHBoxLayout()
@@ -1481,6 +1506,9 @@ class AddonsTab(ServerTab):
         self.search.setMinimumWidth(100)
         self.search.textChanged.connect(self._filter)
         row.addWidget(self.search)
+        self.btn_updates = QPushButton(t("Check for updates"))
+        self.btn_updates.clicked.connect(self._check_updates)
+        row.addWidget(self.btn_updates)
         open_btn = set_kind(QPushButton(t("Open folder")), "ghost")
         open_btn.clicked.connect(lambda: open_path(addons.addon_dir(self.meta)))
         row.addWidget(open_btn)
@@ -1496,6 +1524,18 @@ class AddonsTab(ServerTab):
 
     def label(self) -> str:
         return addons.kind_label(self.meta) if self.meta else ""
+
+    def set_server(self, meta) -> None:
+        super().set_server(meta)
+        if self.label():
+            self.browser.set_server(meta)
+
+    def refresh_installed(self):
+        self.refresh()
+
+    def _check_updates(self):
+        if self.meta:
+            browse.check_updates(self, self.meta, self.refresh, self.running, self.btn_updates)
 
     def refresh(self):
         if not self.meta or not self.label():

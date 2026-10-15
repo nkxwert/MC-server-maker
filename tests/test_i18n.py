@@ -20,6 +20,7 @@ INDIRECT = [
     "One life: players become spectators when they die.",
     "Only players on the whitelist (Players tab) can join.",
     "Stops the server from kicking players for flying. Turn it on if mods or plugins let players fly.",
+    "Relevance", "Most downloads", "Recently updated",
     "Plugins", "Mods", "Bukkit/Paper plugin", "Fabric mod", "Quilt mod", "Forge mod", "NeoForge mod", "Unknown",
 ]
 

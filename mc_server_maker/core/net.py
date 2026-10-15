@@ -33,8 +33,11 @@ def _ssl_context() -> ssl.SSLContext:
 _CTX = _ssl_context()
 
 
-def _open(url: str):
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _open(url: str, body: Optional[bytes] = None, content_type: str = ""):
+    headers = {"User-Agent": USER_AGENT}
+    if content_type:
+        headers["Content-Type"] = content_type
+    req = urllib.request.Request(url, data=body, headers=headers)
     try:
         return urllib.request.urlopen(req, timeout=TIMEOUT, context=_CTX)
     except urllib.error.HTTPError as e:
@@ -46,6 +49,19 @@ def _open(url: str):
 def get_json(url: str):
     with _open(url) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def post_json(url: str, payload):
+    """POST a JSON body and return the JSON answer."""
+    body = json.dumps(payload).encode("utf-8")
+    with _open(url, body, "application/json") as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def get_bytes(url: str, limit: int = 2 * 1024 * 1024) -> bytes:
+    """Small downloads kept in memory (icons). Stops at `limit` bytes."""
+    with _open(url) as resp:
+        return resp.read(limit)
 
 
 def get_text(url: str) -> str:
@@ -68,6 +84,7 @@ def download(
     sha1: Optional[str] = None,
     sha256: Optional[str] = None,
     md5: Optional[str] = None,
+    sha512: Optional[str] = None,
 ) -> Path:
     """Download url to dest, verifying the hash when one is given."""
     task = task or Task()
@@ -76,7 +93,7 @@ def download(
     tmp = dest.with_name(dest.name + ".part")
     hashers = {
         name: (hashlib.new(name), expected.lower())
-        for name, expected in (("sha1", sha1), ("sha256", sha256), ("md5", md5))
+        for name, expected in (("sha1", sha1), ("sha256", sha256), ("md5", md5), ("sha512", sha512))
         if expected
     }
     task.log(t("Downloading: {url}", url=url))
