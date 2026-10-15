@@ -5,8 +5,14 @@ English by default; switch to 한국어 in **⚙ Settings**. (한국어는 왼�
 
 ## Download (EXE)
 
-GitHub **Actions → Build EXE → latest run → Artifacts → `MC-Server-Maker-windows`** contains `MC-Server-Maker.exe`.
-Pushing a tag such as `v1.2.0` also publishes it under **Releases**.
+Download `MC-Server-Maker.exe` from **[Releases](https://github.com/nkxwert/MC-server-maker/releases/latest)**.
+
+- **Updates:** ⚙ Settings → *Check for updates* downloads the newest release, shows what's new, and restarts the app.
+  The app also checks once a day and tells you what was added.
+- **Publishing a release:** bump `APP_VERSION` in `mc_server_maker/__init__.py` and add a `## <version>` section
+  (with `### en` and `### ko`) to `CHANGELOG.md`. When that reaches the default branch, the workflow builds the EXE and
+  creates the release with those notes. (CI fails if the changelog entry is missing.)
+- Every build is also available under **Actions → Build EXE → Artifacts**.
 
 - All data lives in **Documents/MC-Server-Maker-Files**: `servers/<each server>/` (its files and settings), `runtime/` (Java), `settings.json`.
   Data that older versions left next to the EXE (e.g. on the Desktop) is moved there automatically.
@@ -65,6 +71,12 @@ a little with distance to the nearest playit relay.
 
 If UPnP is off in your router, forward the port manually (the tab shows the exact ports and your PC's IP).
 
+### Without internet
+Servers you already created run offline, and players on the same PC or Wi-Fi can join. Creating a server, the
+first start of Fabric/Forge/NeoForge, and the tunnel need internet. With online mode on, players can't sign in
+while offline (accounts are verified by Microsoft/Mojang); the console warns about this. Turning online mode off
+lets LAN players in, but they get different player IDs, so inventories and progress don't carry over.
+
 ## Development
 
 ```
@@ -84,6 +96,8 @@ pip install pyinstaller && python build_exe.py   # build into dist/
 | `mc_server_maker/core/addons.py` | Plugins / mods: read jar metadata, on/off, compatibility |
 | `mc_server_maker/core/tunnel.py` | playit.gg agent download and output parsing |
 | `mc_server_maker/core/joincheck.py` | Server List Ping and internet reachability check |
+| `mc_server_maker/core/updater.py` | App self-update from GitHub Releases, changelog parsing |
+| `scripts/release_notes.py` | Release notes for the current version (used by the workflow) |
 | `mc_server_maker/core/stats.py` | CPU / memory / network / disk / ping sampling |
 | `mc_server_maker/core/property_catalog.py` | Every server.properties key with defaults and descriptions |
 | `mc_server_maker/core/properties.py` | `server.properties` read/write (keeps comments and order) |

@@ -31,6 +31,7 @@ args = [
     "--clean",
     "--icon", os.path.join("assets", "icon.ico"),
     "--add-data", f"assets{os.pathsep}assets",
+    "--add-data", f"CHANGELOG.md{os.pathsep}.",  # shown as "What's new"
 ]
 for mod in EXCLUDES:
     args += ["--exclude-module", mod]

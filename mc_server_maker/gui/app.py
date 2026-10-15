@@ -1,10 +1,11 @@
 """Main window."""
 
 import sys
+import time
 from typing import List, Optional
 
-from PySide6.QtCore import QFile, QSize, Qt
-from PySide6.QtGui import QGuiApplication, QPixmap
+from PySide6.QtCore import QFile, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -24,13 +25,14 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QSystemTrayIcon,
     QTabWidget,
+    QTextBrowser,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from mc_server_maker import APP_NAME, APP_VERSION
-from mc_server_maker.core import addons, network, paths
+from mc_server_maker.core import addons, network, paths, updater
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.plugins import udp_ports
 from mc_server_maker.core.settings import AppSettings
@@ -106,8 +108,36 @@ class ServerItem(QWidget):
         row.addWidget(more)
 
 
+class UpdateDialog(QDialog):
+    """New version: what's new + Update now / Later. Also used for "What's new" after updating."""
+
+    def __init__(self, parent, title: str, heading: str, notes_md: str, can_update: bool = False,
+                 update_label: str = ""):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(560, 520)
+        layout = QVBoxLayout(self)
+        h = QLabel(heading)
+        h.setObjectName("Big")
+        h.setWordWrap(True)
+        layout.addWidget(h)
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setMarkdown(notes_md or t("(no notes)"))
+        layout.addWidget(browser, 1)
+        buttons = QDialogButtonBox()
+        if can_update:
+            set_kind(buttons.addButton(update_label or t("Update now"), QDialogButtonBox.AcceptRole), "primary")
+            buttons.addButton(t("Later"), QDialogButtonBox.RejectRole)
+        else:
+            set_kind(buttons.addButton(t("OK"), QDialogButtonBox.AcceptRole), "primary")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class PreferencesDialog(QDialog):
-    def __init__(self, parent, settings: AppSettings):
+    def __init__(self, parent, settings: AppSettings, on_check_updates=None):
         super().__init__(parent)
         self.setWindowTitle(t("App settings"))
         self.setMinimumWidth(360)
@@ -130,6 +160,14 @@ class PreferencesDialog(QDialog):
             "and pauses the app's live updates while its window is hidden."))
         form.addRow("", self.low_resource)
         form.addRow("", QLabel(t("Data folder: {path}", path=paths.BASE_DIR)))
+        row = QHBoxLayout()
+        row.addWidget(QLabel(t("Version {v}", v=APP_VERSION)))
+        check = QPushButton(t("Check for updates"))
+        if on_check_updates:
+            check.clicked.connect(on_check_updates)
+        row.addWidget(check)
+        row.addStretch()
+        form.addRow(t("App"), row)
         layout.addLayout(form)
         buttons = QDialogButtonBox()
         set_kind(buttons.addButton(t("Save"), QDialogButtonBox.AcceptRole), "primary")
@@ -204,6 +242,8 @@ class MainWindow(QMainWindow):
         folder_btn.clicked.connect(lambda: open_path(paths.SERVERS_DIR))
         prefs_btn = set_kind(QPushButton("⚙ " + t("Settings")), "ghost")
         prefs_btn.clicked.connect(self.open_preferences)
+        self.prefs_btn = prefs_btn
+        self._show_update_dot()
         row.addWidget(folder_btn)
         row.addWidget(prefs_btn)
         sv.addLayout(row)
@@ -409,7 +449,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def open_preferences(self):
-        dlg = PreferencesDialog(self, self.settings)
+        dlg = PreferencesDialog(self, self.settings, lambda: self.check_updates(manual=True))
         if not dlg.exec():
             return
         new_theme, new_lang = dlg.theme.currentData(), dlg.language.currentData()
@@ -431,6 +471,76 @@ class MainWindow(QMainWindow):
             self.close()
         else:
             self.reload()
+
+    # ------------------------------------------------------------- app updates
+
+    def _show_update_dot(self):
+        info = _update.get("info")
+        self.prefs_btn.setText("⚙ " + t("Settings") + ("  ●" if info else ""))
+        self.prefs_btn.setToolTip(t("Update available: v{v}", v=info.version) if info else "")
+
+    def check_updates(self, manual: bool = False):
+        def done(info):
+            self.settings.last_update_check = time.strftime("%Y-%m-%d")
+            self.settings.save()
+            _update["info"] = info
+            for w in list(_windows):
+                w._show_update_dot()
+            if not info:
+                if manual:
+                    QMessageBox.information(self, t("Updates"), t("You're on the latest version ({v}).", v=APP_VERSION))
+                return
+            if manual or self.settings.notified_version != info.version:
+                self.settings.notified_version = info.version
+                self.settings.save()
+                self.offer_update(info)
+
+        def fail(msg):
+            if manual:
+                QMessageBox.warning(self, t("Updates"), t("Couldn't check for updates: {err}", err=msg))
+
+        run_async(lambda task: updater.check(), done, fail)
+
+    def offer_update(self, info):
+        can = updater.can_self_update() and bool(info.exe_url)
+        dlg = UpdateDialog(
+            self, t("Update available"),
+            t("v{new} is available (you have v{cur}). What's new:", new=info.version, cur=APP_VERSION),
+            info.notes_text(self.settings.language), can_update=True,
+            update_label=t("Update now") if can else t("Open download page"))
+        if not dlg.exec():
+            return
+        if not can:
+            QDesktopServices.openUrl(QUrl(info.page_url))
+            return
+        if self.runner.any_running() and QMessageBox.question(
+                self, t("Update"), t("Running servers will be stopped safely before updating. Continue?")) != QMessageBox.Yes:
+            return
+        task_dlg = TaskDialog(self, t("Downloading v{v}...", v=info.version), lambda task: updater.download(info, task))
+        task_dlg.exec()
+        if not task_dlg.succeeded():
+            return
+        new_exe = task_dlg.result_value
+        if self.runner.any_running():
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            self.runner.stop_all()
+            QApplication.restoreOverrideCursor()
+        try:
+            updater.install_and_restart(new_exe)
+        except OSError as e:
+            QMessageBox.warning(self, t("Update"), t("Couldn't install the update: {err}", err=e))
+            return
+        quit_app(self)
+
+    def show_whats_new_if_updated(self):
+        """After an update, show the notes for this version once."""
+        previous = self.settings.last_run_version
+        self.settings.last_run_version = APP_VERSION
+        self.settings.save()
+        if previous and previous != APP_VERSION:
+            notes = updater.bundled_notes(APP_VERSION, self.settings.language)
+            if notes:
+                UpdateDialog(self, t("What's new"), t("Updated to v{v}", v=APP_VERSION), notes).exec()
 
     def create_server(self):
         dlg = CreateServerDialog(self)
@@ -460,6 +570,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, t("Start"), str(e))
             return
         self.tabs.setCurrentWidget(self.console_tab)
+        if meta.properties().get_bool("online-mode", True):
+            def offline(has_net):
+                if not has_net:
+                    self.runner.system_line(key, t(
+                        "No internet: premium players can't sign in until the connection is back. "
+                        "(Turning online mode off lets LAN players in, but their inventories won't carry over.)"))
+            run_async(lambda task: network.has_internet(), offline)
         if meta.tunnel and not self.tunnel.is_active():
             self.runner.system_line(key, t("Starting the playit.gg tunnel..."))
             self.tunnel.start()
@@ -594,6 +711,7 @@ class MainWindow(QMainWindow):
 
 _windows: List[MainWindow] = []  # keep windows alive
 _tray: dict = {}
+_update: dict = {"info": None}  # newest release found by the update check
 _quitting = {"now": False}
 
 
@@ -692,6 +810,10 @@ def main():
     win = MainWindow(runner, settings, tunnel)
     _windows.append(win)
     win.show()
+    updater.cleanup_old()
+    QTimer.singleShot(400, win.show_whats_new_if_updated)
+    if settings.last_update_check != time.strftime("%Y-%m-%d"):
+        QTimer.singleShot(4000, lambda: current_window() and current_window().check_updates(manual=False))
     if moved:
         QMessageBox.information(win, APP_NAME, t("Your servers were moved to:\n{path}", path=paths.BASE_DIR))
     sys.exit(app.exec())

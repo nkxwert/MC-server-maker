@@ -87,6 +87,11 @@ def migrate_legacy_data(old_base: Path = None) -> List[str]:
     return moved
 
 
+def resource_root() -> Path:
+    """Folder with files shipped with the app (project root, or the unpacked EXE)."""
+    return _RESOURCE_BASE
+
+
 def resource(name: str) -> Path:
     """A file from assets/ (also inside the EXE)."""
     return _RESOURCE_BASE / "assets" / name

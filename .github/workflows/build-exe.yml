@@ -50,9 +50,51 @@ jobs:
           path: dist/MC-Server-Maker.exe
           if-no-files-found: error
 
-      - name: Publish release (tags v*)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+  release:
+    # Publishes a GitHub Release when APP_VERSION changes on the default branch.
+    # The app's "Check for updates" downloads the EXE from here.
+    name: Publish release
+    needs: windows
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    concurrency: release
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
         with:
-          files: dist/MC-Server-Maker.exe
-          generate_release_notes: true
+          python-version: "3.12"
+
+      - name: Read version
+        id: v
+        run: echo "version=$(python scripts/release_notes.py --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Already released?
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.v.outputs.version }}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "v${{ steps.v.outputs.version }} is already released; nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download EXE
+        if: steps.exists.outputs.exists == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          name: MC-Server-Maker-windows
+          path: dist
+
+      - name: Create release
+        if: steps.exists.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          python scripts/release_notes.py > notes.md
+          (cd dist && sha256sum MC-Server-Maker.exe | cut -d' ' -f1 > MC-Server-Maker.exe.sha256)
+          gh release create "v$VERSION" dist/MC-Server-Maker.exe dist/MC-Server-Maker.exe.sha256 \
+            --title "MC Server Maker v$VERSION" --notes-file notes.md --target "$GITHUB_SHA"
