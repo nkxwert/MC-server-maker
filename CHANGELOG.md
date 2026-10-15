@@ -3,6 +3,14 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.12.7
+### en
+- Plugin/mod on/off switches slide smoothly.
+- Network tab: click a blurred address to show it, click it again to blur it (the 👁 button is gone).
+### ko
+- 플러그인/모드 켜기·끄기 스위치가 부드럽게 움직여요.
+- 네트워크 탭: 흐린 주소를 누르면 보이고, 한 번 더 누르면 다시 가려져요 (👁 버튼은 없앴어요).
+
 ## 1.12.6
 ### en
 - The (?) next to Description is gone. The colour codes still show when you hover over the description box.

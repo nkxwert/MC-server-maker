@@ -7,7 +7,7 @@ from collections import deque
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import QPointF, Qt, QTimer, QUrl
+from PySide6.QtCore import QEasingCurve, QPointF, Qt, QTimer, QUrl, QVariantAnimation, Signal
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
@@ -57,7 +57,7 @@ from mc_server_maker.core import addons, joincheck, net, network, players, plugi
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import get_provider
-from mc_server_maker.gui import browse, theme
+from mc_server_maker.gui import anim, browse, theme
 from mc_server_maker.gui.anim import FadeInDialog
 from mc_server_maker.gui.browse import ModrinthBrowser
 from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
@@ -1116,6 +1116,15 @@ def mask_address(text: str) -> str:
     return re.sub(r"[^.]", "•", host) + port
 
 
+class ClickLabel(QLabel):
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class AddressRow(QWidget):
     def __init__(self, title: str, sub: str, private: bool = False):
         super().__init__()
@@ -1132,19 +1141,16 @@ class AddressRow(QWidget):
         col.addWidget(title_label)
         col.addWidget(hint(sub))
         row.addLayout(col, 1)
-        self.value = QLabel("-")
+        self.value = ClickLabel("-")
         self.value.setObjectName("Big")
         self.value.setTextInteractionFlags(Qt.TextSelectableByMouse)
         row.addWidget(self.value)
         self.copy = QPushButton(t("Copy"))
         self.copy.clicked.connect(self._copy)
         row.addWidget(self.copy)
-        if private:
-            self.eye = set_kind(QPushButton(), "ghost")
-            self.eye.setFixedWidth(40)
-            self.eye.setStyleSheet("font-size: 14pt; padding: 2px;")
-            self.eye.clicked.connect(self._toggle_shown)
-            row.addWidget(self.eye)
+        if private:  # click the address to show it, click again to blur it
+            self.value.setCursor(Qt.PointingHandCursor)
+            self.value.clicked.connect(self._toggle_shown)
             self._render()
 
     def _copy(self):
@@ -1153,6 +1159,8 @@ class AddressRow(QWidget):
         QTimer.singleShot(1200, lambda: self.copy.setText(t("Copy")))
 
     def _toggle_shown(self):
+        if not self._real:
+            return
         self._shown = not self._shown
         self._render()
 
@@ -1166,10 +1174,11 @@ class AddressRow(QWidget):
             self.value.setGraphicsEffect(blur)
         else:
             self.value.setGraphicsEffect(None)
-        self.value.setTextInteractionFlags(Qt.NoTextInteraction if hide else Qt.TextSelectableByMouse)
+        # private rows aren't selectable: a click toggles them (Copy is there for copying)
+        self.value.setTextInteractionFlags(Qt.NoTextInteraction if self._private else Qt.TextSelectableByMouse)
         if self._private:
-            self.eye.setText("👁" if not self._shown else "🙈")
-            self.eye.setToolTip(t("Show address") if not self._shown else t("Hide address"))
+            self.value.setToolTip(t("Click to show the address") if hide else
+                                  (t("Click to hide the address") if self._real else ""))
 
     def set(self, text: str, enabled: bool = True):
         self._text, self._real = text, enabled and text not in ("", "-")
@@ -1445,7 +1454,7 @@ class NetworkTab(ServerTab):
 
 
 class ToggleSwitch(QAbstractButton):
-    """iOS-style on/off switch."""
+    """iOS-style on/off switch; the knob slides and the colour blends when it changes."""
 
     def __init__(self, checked: bool = True, parent=None):
         super().__init__(parent)
@@ -1453,20 +1462,42 @@ class ToggleSwitch(QAbstractButton):
         self.setChecked(checked)
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedSize(40, 22)
+        self._pos = 1.0 if checked else 0.0  # 0 = off, 1 = on
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(160)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.valueChanged.connect(self._set_pos)
+        self.toggled.connect(self.animate_to)
+
+    def _set_pos(self, value):
+        self._pos = float(value)
+        self.update()
+
+    def animate_to(self, on: bool):
+        self._anim.stop()
+        if not anim.enabled():  # low-resource mode: jump
+            self._set_pos(1.0 if on else 0.0)
+            return
+        self._anim.setStartValue(self._pos)
+        self._anim.setEndValue(1.0 if on else 0.0)
+        self._anim.start()
 
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        on = self.isChecked()
-        track = QColor(theme.C["accent"] if on else theme.C["surface3"])
+        off, on = QColor(theme.C["surface3"]), QColor(theme.C["accent"])
+        k = self._pos
+        track = QColor(round(off.red() + (on.red() - off.red()) * k),
+                       round(off.green() + (on.green() - off.green()) * k),
+                       round(off.blue() + (on.blue() - off.blue()) * k))
         if not self.isEnabled():
             track.setAlpha(110)
         p.setPen(Qt.NoPen)
         p.setBrush(track)
         p.drawRoundedRect(0, 0, self.width(), self.height(), 11, 11)
         p.setBrush(QColor("#ffffff"))
-        x = self.width() - 19 if on else 3
-        p.drawEllipse(x, 3, 16, 16)
+        x = 3 + (self.width() - 22) * k
+        p.drawEllipse(QPointF(x + 8, 11), 8, 8)
 
 
 class AddonCard(QFrame):
@@ -1690,7 +1721,7 @@ class AddonsTab(ServerTab):
             card.switch.blockSignals(True)
             card.switch.setChecked(not on)
             card.switch.blockSignals(False)
-            card.switch.update()
+            card.switch.animate_to(not on)  # slide back
             QMessageBox.warning(self, t(self.label()), t("Couldn't change {file}. Stop the server, then try again.",
                                                          file=card.addon.file_name) + f"\n{e}")
             return
