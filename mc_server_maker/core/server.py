@@ -61,6 +61,7 @@ class ServerMeta:
     tunnel: bool = False  # start the playit.gg tunnel together with the server
     memory_saver: bool = False  # shorter view/simulation distance, no spawn chunks, eager heap shrinking
     saved_distances: dict = field(default_factory=dict)  # distances before memory saver, to restore
+    autosave_minutes: int = 0  # save the world every N minutes while running (0 = off)
     offline_session: bool = False  # online-mode was turned off for one run without internet; turn back on after
     folder: Path = field(default=None, compare=False)
 

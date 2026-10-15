@@ -3,6 +3,14 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.13.0
+### en
+- **Auto-save**: Settings tab → *Auto-save* saves the world every 5, 10, 15, 30 or 60 minutes while the server runs.
+- The console's *Send* button is gone; press Enter to send a command.
+### ko
+- **자동 저장**: 설정 탭 → *자동 저장*에서 고른 간격(5·10·15·30분, 1시간)마다 서버가 켜져 있는 동안 월드를 저장해요.
+- 콘솔의 *보내기* 버튼을 없앴어요. 명령어는 Enter로 보내요.
+
 ## 1.12.7
 ### en
 - Plugin/mod on/off switches slide smoothly.

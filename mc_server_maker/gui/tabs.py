@@ -88,6 +88,9 @@ def hint(text: str) -> QLabel:
     return label
 
 
+AUTOSAVE_CHOICES = (0, 5, 10, 15, 30, 60)
+
+
 def set_spin(spin: QSpinBox, value) -> None:
     """Put a value into a number box, clamped to its range.
 
@@ -300,15 +303,12 @@ class ConsoleTab(ServerTab):
         self.input = HistoryLineEdit(placeholderText=t("Type a command and press Enter (↑↓ history)"))
         self.input.setObjectName("ConsoleInput")
         self.input.returnPressed.connect(self._send)
-        self.send_btn = set_kind(QPushButton(t("Send")), "primary")
-        self.send_btn.clicked.connect(self._send)
         self.save_btn = QPushButton(t("Save world"))
         self.save_btn.setToolTip("save-all")
         self.save_btn.clicked.connect(lambda: self.runner.send(self.key, "save-all"))
         clear = set_kind(QPushButton(t("Clear")), "ghost")
         clear.clicked.connect(self._clear)
         row.addWidget(self.input, 1)
-        row.addWidget(self.send_btn)
         row.addWidget(self.save_btn)
         row.addWidget(clear)
         left.addLayout(row)
@@ -359,7 +359,7 @@ class ConsoleTab(ServerTab):
 
     @property
     def controls(self):
-        return [self.input, self.send_btn, self.save_btn]
+        return [self.input, self.save_btn]
 
     def refresh(self):
         self._pending.clear()
@@ -648,6 +648,13 @@ class SettingsTab(ServerTab):
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64)
         form.addRow(with_help(t("Memory (RAM)"), t(
             "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")), self.ram)
+        self.autosave = QComboBox()
+        for minutes in AUTOSAVE_CHOICES:
+            self.autosave.addItem(t("Off") if not minutes else
+                                  t("Every {n} minutes", n=minutes) if minutes < 60 else t("Every hour"), minutes)
+        form.addRow(with_help(t("Auto-save"), t(
+            "While the server runs, the world is saved at this interval, so less is lost if the PC "
+            "shuts down suddenly. Saving takes a moment on big worlds.")), self.autosave)
         all_props = set_kind(QPushButton(t("Edit all server.properties...")), "ghost")
         all_props.clicked.connect(self._edit_all)
         form.addRow("", all_props)
@@ -716,6 +723,11 @@ class SettingsTab(ServerTab):
         for key, cb in self.checks.items():
             cb.setChecked(p.get_bool(key, defaults.get(key, False)))
         set_spin(self.ram, max(1, self.meta.ram_mb // 1024))
+        idx = self.autosave.findData(self.meta.autosave_minutes)
+        if idx < 0:  # an interval not in the list (edited by hand): show it anyway
+            self.autosave.addItem(t("Every {n} minutes", n=self.meta.autosave_minutes), self.meta.autosave_minutes)
+            idx = self.autosave.count() - 1
+        self.autosave.setCurrentIndex(idx)
         self._update_preview()
         self._loaded = self._form_state()  # what's on disk; Save writes only what differs
         self.on_state()
@@ -729,7 +741,8 @@ class SettingsTab(ServerTab):
         state.update({key: cb.isChecked() for key, cb in self.checks.items()})
         state.update(motd=self.motd.toPlainText(), gamemode=self.gamemode.currentData(),
                      difficulty=self.difficulty.currentData(), _name=self.name.text(),
-                     _ram=self.ram.value(), _saver=self.memory_saver.isChecked())
+                     _ram=self.ram.value(), _saver=self.memory_saver.isChecked(),
+                     _autosave=self.autosave.currentData())
         return state
 
     def _apply_form_state(self, state: dict):
@@ -742,6 +755,7 @@ class SettingsTab(ServerTab):
         self.difficulty.setCurrentIndex(self.difficulty.findData(state["difficulty"]))
         self.name.setText(state["_name"])
         self.ram.setValue(state["_ram"])
+        self.autosave.setCurrentIndex(max(0, self.autosave.findData(state["_autosave"])))
         self.memory_saver.blockSignals(True)
         self.memory_saver.setChecked(state["_saver"])
         self.memory_saver.blockSignals(False)
@@ -862,6 +876,7 @@ class SettingsTab(ServerTab):
         p.save()
         self.meta.name = name
         self.meta.ram_mb = self.ram.value() * 1024
+        self.meta.autosave_minutes = int(self.autosave.currentData() or 0)
         self.meta.save()
         srv.write_start_scripts(self.meta)
         self.on_changed()

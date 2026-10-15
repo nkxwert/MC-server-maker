@@ -569,4 +569,9 @@ KO = {
     "Click to show the address": "누르면 주소가 보여요",
     "Click to hide the address": "누르면 주소를 가려요",
     "the 'Same Wi-Fi' address above": "위의 '같은 와이파이' 주소",
+    "Auto-save": "자동 저장",
+    "Every {n} minutes": "{n}분마다",
+    "Every hour": "1시간마다",
+    "While the server runs, the world is saved at this interval, so less is lost if the PC shuts down suddenly. Saving takes a moment on big worlds.":
+        "서버가 켜져 있는 동안 정한 간격마다 월드를 저장해요. PC가 갑자기 꺼져도 잃는 게 적어요. 월드가 크면 저장하는 동안 잠깐 멈칫할 수 있어요.",
 }

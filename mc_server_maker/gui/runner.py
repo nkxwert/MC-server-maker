@@ -44,6 +44,10 @@ class ServerRunner(QObject):
         self._uptime_saver = QTimer(self)  # save the total now and then, so a crash loses little
         self._uptime_saver.timeout.connect(self._save_uptimes)
         self._uptime_saver.start(60_000)
+        self._last_autosave: Dict[str, float] = {}
+        self._autosave_timer = QTimer(self)  # checks every 30 s whether a server is due for a save
+        self._autosave_timer.timeout.connect(self._autosave)
+        self._autosave_timer.start(30_000)
         self.metas: Dict[str, srv.ServerMeta] = {}
         self.low_priority = True  # run servers below normal priority (low-resource mode)
         self._partial: Dict[str, str] = {}
@@ -97,6 +101,21 @@ class ServerRunner(QObject):
             if self.is_running(key):
                 self._count_uptime(key)
 
+    def _autosave(self) -> None:
+        now = time.time()
+        for key in list(self.procs):
+            if self.state(key) != RUNNING:
+                continue
+            try:  # read from disk: the setting may have changed since the server started
+                minutes = srv.ServerMeta.load(Path(key)).autosave_minutes
+            except (OSError, ValueError, TypeError):
+                continue
+            if minutes > 0 and now - self._last_autosave.get(key, now) >= minutes * 60 - 5:
+                self._last_autosave[key] = now
+                self.system_line(key, t("Auto-save"))
+                self.procs[key].write(b"save-all\n")
+            self._last_autosave.setdefault(key, now)
+
     def pid(self, key: str) -> Optional[int]:
         return int(self.procs[key].processId()) if self.is_running(key) else None
 
@@ -112,6 +131,7 @@ class ServerRunner(QObject):
         self.line.emit(key, text)
         if self.state(key) == STARTING and DONE_RE.search(text):
             self._set_state(key, RUNNING)
+            self._last_autosave[key] = time.time()  # count the interval from when it's ready
             meta = self.metas.get(key)
             cmd = srv.spawn_chunk_command(meta) if meta and meta.memory_saver else None
             if cmd:
@@ -189,6 +209,7 @@ class ServerRunner(QObject):
             self._emit_line(key, ANSI_RE.sub("", rest))
         self._count_uptime(key)
         self._counted_until.pop(key, None)
+        self._last_autosave.pop(key, None)
         self.system_line(key, t("Server stopped (exit code {code}).", code=code))
         self.players[key] = set()
         self.players_changed.emit(key)
