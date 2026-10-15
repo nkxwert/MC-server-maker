@@ -26,7 +26,7 @@ from mc_server_maker.i18n import t
 REPO = "nkxwert/MC-server-maker"
 RELEASES_API = f"https://api.github.com/repos/{REPO}/releases?per_page=30"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases"
-EXE_NAME = "MC-Server-Maker.exe"
+EXE_NAME = "Bartizan.exe"
 
 
 class UpdateError(Exception):

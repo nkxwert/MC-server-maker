@@ -3,7 +3,7 @@
     pip install -r requirements.txt pyinstaller
     python build_exe.py
 
-결과: dist/MC-Server-Maker.exe (Windows) / dist/MC-Server-Maker (macOS, Linux)
+결과: dist/Bartizan.exe (Windows) / dist/Bartizan (macOS, Linux)
 """
 
 import os
@@ -11,7 +11,7 @@ import sys
 
 import PyInstaller.__main__
 
-NAME = "MC-Server-Maker"
+NAME = "Bartizan"
 
 # 쓰지 않는 Qt 모듈은 빼서 파일 크기를 줄인다
 EXCLUDES = [

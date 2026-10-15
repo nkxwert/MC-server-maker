@@ -1,6 +1,6 @@
 """Data locations.
 
-Everything lives in Documents/MC-Server-Maker-Files:
+Everything lives in Documents/Bartizan:
     servers/<server>/   one folder per server (its files + server-maker.json settings)
     runtime/            Java installed by the app
     settings.json       app settings
@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import List
 
 FROZEN = getattr(sys, "frozen", False)  # running from a PyInstaller EXE
-DATA_FOLDER_NAME = "MC-Server-Maker-Files"
+DATA_FOLDER_NAME = "Bartizan"
+OLD_DATA_FOLDER_NAMES = ("MC-Server-Maker-Files",)  # before the app was renamed
 
 if FROZEN:
     _APP_DIR = Path(sys.executable).resolve().parent
@@ -66,10 +67,21 @@ def migrate_legacy_data(old_base: Path = None) -> List[str]:
 
     Only moves an item when the new location doesn't have it yet. Returns what was moved.
     """
-    old_base = Path(old_base or _APP_DIR)
-    if os.environ.get("MCSM_HOME") or old_base.resolve() == BASE_DIR.resolve():
+    if os.environ.get("MCSM_HOME"):
         return []
     moved = []
+    # the app used to be called MC Server Maker: rename its Documents folder
+    if old_base is None:
+        for old_name in OLD_DATA_FOLDER_NAMES:
+            old_dir = BASE_DIR.parent / old_name
+            if old_dir.is_dir() and (not BASE_DIR.exists() or not any(BASE_DIR.iterdir())):
+                if BASE_DIR.exists():
+                    BASE_DIR.rmdir()
+                shutil.move(str(old_dir), str(BASE_DIR))
+                moved.append(old_name)
+    old_base = Path(old_base or _APP_DIR)
+    if old_base.resolve() == BASE_DIR.resolve():
+        return moved
     for name in _LEGACY_ITEMS:
         src, dst = old_base / name, BASE_DIR / name
         if not src.exists():

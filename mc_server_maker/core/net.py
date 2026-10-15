@@ -12,7 +12,7 @@ from mc_server_maker import APP_VERSION
 from mc_server_maker.i18n import t
 from mc_server_maker.core.tasks import Task
 
-USER_AGENT = f"MC-Server-Maker/{APP_VERSION} (+https://github.com/nkxwert/MC-server-maker)"
+USER_AGENT = f"Bartizan/{APP_VERSION} (+https://github.com/nkxwert/MC-server-maker)"
 TIMEOUT = 30
 
 

@@ -13,7 +13,7 @@ from mc_server_maker.core import net, updater
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def release(tag, body="", assets=("MC-Server-Maker.exe", "MC-Server-Maker.exe.sha256"), **kw):
+def release(tag, body="", assets=("Bartizan.exe", "Bartizan.exe.sha256"), **kw):
     return {"tag_name": tag, "body": body, "html_url": f"https://x/{tag}",
             "assets": [{"name": n, "browser_download_url": f"https://dl/{tag}/{n}"} for n in assets], **kw}
 
@@ -48,7 +48,7 @@ class CheckTest(unittest.TestCase):
         with mock.patch.object(net, "get_json", return_value=releases):
             info = updater.check("1.5.0")
             self.assertEqual(info.version, "1.7.0")
-            self.assertEqual(info.exe_url, "https://dl/v1.7.0/MC-Server-Maker.exe")
+            self.assertEqual(info.exe_url, "https://dl/v1.7.0/Bartizan.exe")
             self.assertTrue(info.sha256_url.endswith(".sha256"))
             self.assertEqual([v for v, _ in info.notes], ["1.7.0", "1.6.0"])
             text = info.notes_text("ko")
@@ -65,15 +65,15 @@ class CheckTest(unittest.TestCase):
 class SwapTest(unittest.TestCase):
     def test_install_and_restart_swaps_and_rolls_back(self):
         with tempfile.TemporaryDirectory() as d:
-            exe = Path(d) / "MC-Server-Maker.exe"
+            exe = Path(d) / "Bartizan.exe"
             exe.write_text("old")
-            new = Path(d) / "MC-Server-Maker.exe.new"
+            new = Path(d) / "Bartizan.exe.new"
             new.write_text("new")
             with mock.patch.object(sys, "executable", str(exe)), \
                     mock.patch.object(updater.subprocess, "Popen") as popen:
                 updater.install_and_restart(new)
                 self.assertEqual(exe.read_text(), "new")
-                self.assertEqual((Path(d) / "MC-Server-Maker.exe.old").read_text(), "old")
+                self.assertEqual((Path(d) / "Bartizan.exe.old").read_text(), "old")
                 popen.assert_called_once()
                 # failure while moving the new file in -> original restored
                 new.write_text("newer")

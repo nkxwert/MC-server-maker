@@ -15,7 +15,7 @@ from mc_server_maker.core import server as srv
 class MigrationTest(unittest.TestCase):
     def setUp(self):
         self.old = Path(tempfile.mkdtemp())
-        self.new = Path(tempfile.mkdtemp()) / "MC-Server-Maker-Files"
+        self.new = Path(tempfile.mkdtemp()) / "Bartizan"
         self.addCleanup(shutil.rmtree, self.old, True)
         self.addCleanup(shutil.rmtree, self.new.parent, True)
         patches = [
@@ -36,6 +36,15 @@ class MigrationTest(unittest.TestCase):
         self.assertTrue((self.new / "servers" / "My Server" / "server-maker.json").exists())
         self.assertFalse((self.old / "servers").exists())
         self.assertFalse((self.old / "runtime").exists())
+
+    def test_renames_old_documents_folder(self):
+        old_docs = self.new.parent / "MC-Server-Maker-Files"
+        (old_docs / "servers" / "SMP").mkdir(parents=True)
+        (old_docs / "settings.json").write_text("{}")
+        moved = paths.migrate_legacy_data()
+        self.assertIn("MC-Server-Maker-Files", moved)
+        self.assertTrue((self.new / "servers" / "SMP").is_dir())
+        self.assertFalse(old_docs.exists())
 
     def test_never_overwrites(self):
         (self.old / "settings.json").write_text("old")

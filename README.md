@@ -1,11 +1,13 @@
-# MC Server Maker
+# Bartizan
+
+<img src="assets/icon.png" width="96" alt="Bartizan icon">
 
 Create and manage Minecraft servers with a few clicks. Windows / macOS / Linux.
 English by default; switch to 한국어 in **⚙ Settings**. (한국어는 왼쪽 아래 ⚙ 설정에서 바꿀 수 있어요.)
 
 ## Download (EXE)
 
-Download `MC-Server-Maker.exe` from **[Releases](https://github.com/nkxwert/MC-server-maker/releases/latest)**.
+Download `Bartizan.exe` from **[Releases](https://github.com/nkxwert/MC-server-maker/releases/latest)**.
 
 - **Updates:** ⚙ Settings → *Check for updates* downloads the newest release, shows what's new, and restarts the app.
   The app also checks once a day and tells you what was added.
@@ -14,8 +16,8 @@ Download `MC-Server-Maker.exe` from **[Releases](https://github.com/nkxwert/MC-s
   creates the release with those notes. (CI fails if the changelog entry is missing.)
 - Every build is also available under **Actions → Build EXE → Artifacts**.
 
-- All data lives in **Documents/MC-Server-Maker-Files**: `servers/<each server>/` (its files and settings), `runtime/` (Java), `settings.json`.
-  Data that older versions left next to the EXE (e.g. on the Desktop) is moved there automatically.
+- All data lives in **Documents/Bartizan**: `servers/<each server>/` (its files and settings), `runtime/` (Java), `settings.json`.
+  Data from older versions (next to the EXE, or in `Documents/MC-Server-Maker-Files` from before the rename) is moved there automatically.
 - If Windows SmartScreen warns, click **More info → Run anyway** (the EXE isn't code-signed).
 
 ## Run from source

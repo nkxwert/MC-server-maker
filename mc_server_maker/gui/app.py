@@ -212,7 +212,7 @@ class MainWindow(QMainWindow):
         brand.addWidget(logo)
         titles = QVBoxLayout()
         titles.setSpacing(0)
-        title = QLabel("MC Server Maker")
+        title = QLabel(APP_NAME)
         title.setObjectName("AppTitle")
         subtitle = QLabel(f"v{APP_VERSION}")
         subtitle.setObjectName("AppSubtitle")
@@ -694,7 +694,7 @@ class MainWindow(QMainWindow):
             if box.clickedButton() is keep:
                 event.ignore()
                 self.hide()
-                tray_message(t("MC Server Maker is still running. Open it from the tray icon."))
+                tray_message(t("{app} is still running. Open it from the tray icon.", app=APP_NAME))
                 return
             if box.clickedButton() is not stop:
                 event.ignore()
@@ -789,7 +789,7 @@ def main():
         try:
             import ctypes
 
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MCServerMaker")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Bartizan")
         except (AttributeError, OSError):
             pass
     try:

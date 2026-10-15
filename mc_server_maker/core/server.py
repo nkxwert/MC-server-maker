@@ -274,7 +274,7 @@ def create_server(opts: CreateOptions, task: Optional[Task] = None) -> ServerMet
         result = provider.install(folder, opts.mc_version, java, task)
 
         (folder / "eula.txt").write_text(
-            "# https://aka.ms/MinecraftEULA (accepted in MC Server Maker)\neula=true\n", encoding="utf-8"
+            "# https://aka.ms/MinecraftEULA (accepted in Bartizan)\neula=true\n", encoding="utf-8"
         )
 
         props = Properties(folder / "server.properties")

@@ -37,17 +37,17 @@ jobs:
       - name: Check EXE starts
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "dist\MC-Server-Maker.exe" -PassThru
+          $p = Start-Process -FilePath "dist\Bartizan.exe" -PassThru
           Start-Sleep -Seconds 15
           if ($p.HasExited) { Write-Error "EXE exited early with code $($p.ExitCode)"; exit 1 }
           Stop-Process -Id $p.Id -Force
-          Get-Item dist\MC-Server-Maker.exe | Select-Object Name, @{n="MB";e={[math]::Round($_.Length/1MB,1)}}
+          Get-Item dist\Bartizan.exe | Select-Object Name, @{n="MB";e={[math]::Round($_.Length/1MB,1)}}
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: MC-Server-Maker-windows
-          path: dist/MC-Server-Maker.exe
+          name: Bartizan-windows
+          path: dist/Bartizan.exe
           if-no-files-found: error
 
   release:
@@ -85,7 +85,7 @@ jobs:
         if: steps.exists.outputs.exists == 'false'
         uses: actions/download-artifact@v4
         with:
-          name: MC-Server-Maker-windows
+          name: Bartizan-windows
           path: dist
 
       - name: Create release
@@ -95,6 +95,6 @@ jobs:
           VERSION: ${{ steps.v.outputs.version }}
         run: |
           python scripts/release_notes.py > notes.md
-          (cd dist && sha256sum MC-Server-Maker.exe | cut -d' ' -f1 > MC-Server-Maker.exe.sha256)
-          gh release create "v$VERSION" dist/MC-Server-Maker.exe dist/MC-Server-Maker.exe.sha256 \
-            --title "MC Server Maker v$VERSION" --notes-file notes.md --target "$GITHUB_SHA"
+          (cd dist && sha256sum Bartizan.exe | cut -d' ' -f1 > Bartizan.exe.sha256)
+          gh release create "v$VERSION" dist/Bartizan.exe dist/Bartizan.exe.sha256 \
+            --title "Bartizan v$VERSION" --notes-file notes.md --target "$GITHUB_SHA"

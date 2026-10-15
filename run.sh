@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# MC Server Maker 실행 (macOS / Linux)
+# Bartizan 실행 (macOS / Linux)
 cd "$(dirname "$0")" || exit 1
 if [ ! -d .venv ]; then
   echo "처음 실행: 필요한 파일을 설치합니다..."

@@ -343,7 +343,7 @@ KO = {
         "다운로드/업로드는 PC 전체 기준입니다. 핑은 이 PC에서 각 플레이어까지 잰 값이에요 (일부 네트워크는 응답하지 않음).",
     "Keep running in background": "백그라운드에서 계속 실행",
     "Low-resource mode": "저사양 모드",
-    "MC Server Maker is still running. Open it from the tray icon.": "MC Server Maker가 계속 실행 중입니다. 트레이 아이콘에서 다시 열 수 있어요.",
+    "{app} is still running. Open it from the tray icon.": "{app}이(가) 계속 실행 중입니다. 트레이 아이콘에서 다시 열 수 있어요.",
     "Memory": "메모리",
     "More...": "더보기...",
     "No players online": "접속한 플레이어 없음",

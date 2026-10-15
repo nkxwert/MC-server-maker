@@ -85,7 +85,7 @@ class Properties:
         if self.path.exists():
             self._load()
         else:
-            self.lines.append("#Minecraft server properties (MC Server Maker)")
+            self.lines.append("#Minecraft server properties (Bartizan)")
 
     def _load(self):
         raw = self.path.read_bytes()

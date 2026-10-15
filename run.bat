@@ -1,5 +1,5 @@
 @echo off
-rem MC Server Maker 실행 (Windows)
+rem Bartizan 실행 (Windows)
 chcp 65001 >nul
 cd /d "%~dp0"
 if not exist .venv (
