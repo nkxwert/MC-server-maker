@@ -58,7 +58,7 @@ from mc_server_maker.core.providers import get_provider
 from mc_server_maker.gui import theme
 from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
 from mc_server_maker.gui.runner import ServerRunner
-from mc_server_maker.gui.theme import form_layout, set_kind
+from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import MotdPreview, amp_to_section, color_help, convert_icon, section_to_amp
 from mc_server_maker.gui.workers import TaskDialog, run_async
 from mc_server_maker.i18n import t
@@ -192,7 +192,7 @@ class OnlinePlayersDialog(QDialog):
         super().__init__(parent)
         self.runner, self.key = runner, key
         self.setWindowTitle(t("Online players"))
-        self.resize(360, 420)
+        fit_to_screen(self, 360, 420)
         layout = QVBoxLayout(self)
         self.count = QLabel()
         self.count.setObjectName("Big")
@@ -295,7 +295,7 @@ class ConsoleTab(ServerTab):
         side_w = QWidget()
         side_w.setLayout(side)
         side.setContentsMargins(0, 0, 0, 0)
-        side_w.setFixedWidth(170)
+        side_w.setFixedWidth(132)
         outer.addWidget(side_w)
 
         # Lines are drawn in batches (a few times per second) instead of one by one,
@@ -410,7 +410,7 @@ class PropertiesDialog(QDialog):
     def __init__(self, parent, path: Path):
         super().__init__(parent)
         self.setWindowTitle(t("All server.properties"))
-        self.resize(860, 680)
+        fit_to_screen(self, 860, 680)
         self.props = Properties(path)
         layout = QVBoxLayout(self)
         layout.addWidget(hint(t("All settings. Gray values are defaults that aren't in the file yet. Changes apply on next start.")))
@@ -1241,7 +1241,7 @@ class NetworkTab(ServerTab):
             return
         dlg = QDialog(self)
         dlg.setWindowTitle(t("Agent log"))
-        dlg.resize(640, 400)
+        fit_to_screen(dlg, 640, 400)
         v = QVBoxLayout(dlg)
         view = QPlainTextEdit(readOnly=True)
         view.setObjectName("Console")
@@ -1395,7 +1395,8 @@ class AddonsTab(ServerTab):
         row.addWidget(self.summary)
         row.addStretch()
         self.search = QLineEdit(placeholderText=t("Search..."))
-        self.search.setFixedWidth(200)
+        self.search.setMaximumWidth(200)
+        self.search.setMinimumWidth(100)
         self.search.textChanged.connect(self._filter)
         row.addWidget(self.search)
         open_btn = set_kind(QPushButton(t("Open folder")), "ghost")
@@ -1591,7 +1592,8 @@ class CheckRow(QWidget):
         row.addWidget(self.icon)
         self.title = QLabel(title)
         self.title.setObjectName("ItemName")
-        self.title.setFixedWidth(150)
+        self.title.setMinimumWidth(90)
+        self.title.setMaximumWidth(150)
         row.addWidget(self.title)
         self.detail = QLabel("-")
         self.detail.setWordWrap(True)

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QSystemTrayIcon,
     QTabWidget,
@@ -52,7 +53,7 @@ from mc_server_maker.gui.tabs import (
     open_path,
 )
 from mc_server_maker.gui.tunnel_manager import TunnelManager
-from mc_server_maker.gui.theme import form_layout, set_kind
+from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.workers import TaskDialog, run_async, wait_all
 from mc_server_maker.i18n import LANGUAGES, set_language, t
 
@@ -87,10 +88,14 @@ class ServerItem(QWidget):
         row.addWidget(icon)
         col = QVBoxLayout()
         col.setSpacing(1)
-        name = QLabel(meta.name)
+        name = QLabel()
         name.setObjectName("ItemName")
-        sub = QLabel(f"{meta.software_name} {meta.mc_version}")
+        sub = QLabel()
         sub.setObjectName("ItemSub")
+        # long names end with "…" instead of pushing the ⋯ button out of the sidebar
+        for label, text in ((name, meta.name), (sub, f"{meta.software_name} {meta.mc_version}")):
+            label.setText(label.fontMetrics().elidedText(text, Qt.ElideRight, 100))
+            label.setToolTip(text)
         col.addWidget(name)
         col.addWidget(sub)
         row.addLayout(col, 1)
@@ -115,7 +120,7 @@ class UpdateDialog(QDialog):
                  update_label: str = ""):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(560, 520)
+        fit_to_screen(self, 560, 520)
         layout = QVBoxLayout(self)
         h = QLabel(heading)
         h.setObjectName("Big")
@@ -183,8 +188,7 @@ class MainWindow(QMainWindow):
         self.tunnel = tunnel
         self.setAcceptDrops(True)
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
-        self.resize(1180, 760)
-        self.setMinimumSize(900, 600)
+        fit_to_screen(self, 1180, 760, center=True)
         paths.ensure_dirs()
         self.runner = runner
         self.settings = settings
@@ -202,7 +206,7 @@ class MainWindow(QMainWindow):
         # ---- sidebar
         side = QFrame()
         side.setObjectName("Sidebar")
-        side.setFixedWidth(260)
+        side.setFixedWidth(212)
         sv = QVBoxLayout(side)
         sv.setContentsMargins(14, 18, 14, 14)
         sv.setSpacing(10)
@@ -282,9 +286,15 @@ class MainWindow(QMainWindow):
             chips.addWidget(c)
         chips.addStretch()
         info.addLayout(chips)
-        hl.addLayout(info, 1)
+        # the name/chips area may shrink (text is cut) so narrow screens still fit the buttons
+        info_w = QWidget()
+        info_w.setLayout(info)
+        info.setContentsMargins(0, 0, 0, 0)
+        info_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        info_w.setMinimumWidth(140)
+        hl.addWidget(info_w, 1)
         self.btn_start = set_kind(QPushButton("▶  " + t("Start")), "primary")
-        self.btn_start.setMinimumSize(120, 42)
+        self.btn_start.setMinimumSize(96, 42)
         self.btn_start.clicked.connect(self.start_server)
         self.btn_stop = QPushButton("■  " + t("Stop"))
         self.btn_stop.setMinimumHeight(42)
@@ -427,7 +437,8 @@ class MainWindow(QMainWindow):
         state = self.runner.state(self.key)
         text, color = state_text(state)
         self.h_icon.setPixmap(server_icon(m, 52))
-        self.h_name.setText(m.name)
+        self.h_name.setText(self.h_name.fontMetrics().elidedText(m.name, Qt.ElideRight, 360))
+        self.h_name.setToolTip(m.name)
         self.chip_state.setText(f"● {text}")
         self.chip_state.setStyleSheet(f"color: {color};")
         self.chip_soft.setText(f"{m.software_name} {m.mc_version}")

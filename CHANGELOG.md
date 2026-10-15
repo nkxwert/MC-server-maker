@@ -3,6 +3,14 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.7.1
+### en
+- Fixed windows not fitting on screen with Windows display scaling (125–150%): the main window, New server dialog and settings editor now size themselves to the screen, so no buttons end up off-screen.
+- Long server names are shortened with "…" instead of pushing buttons out of view.
+### ko
+- Windows 화면 배율(125~150%)에서 창이 화면 밖으로 넘치던 문제를 고쳤습니다. 메인 창, 새 서버 창, 설정 편집 창이 화면 크기에 맞춰져 버튼이 화면 밖으로 나가지 않습니다.
+- 긴 서버 이름은 "…"으로 줄여 표시해 버튼이 밀려나지 않습니다.
+
 ## 1.7.0
 ### en
 - **New name: Bartizan**, with a new icon.

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from mc_server_maker.core.tasks import Cancelled, Task
+from mc_server_maker.gui.theme import fit_to_screen
 from mc_server_maker.i18n import t
 
 _running = set()  # keep running threads alive (not garbage-collected)
@@ -121,7 +122,7 @@ class TaskDialog(QDialog):
     def __init__(self, parent, title: str, fn: Callable[[Task], object]):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(640, 400)
+        fit_to_screen(self, 640, 400)
         self.result_value = None
         self.error: Optional[str] = None
 

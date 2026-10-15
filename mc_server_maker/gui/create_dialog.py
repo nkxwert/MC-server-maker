@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from mc_server_maker.core import plugins
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.providers import PROVIDERS
-from mc_server_maker.gui.theme import form_layout, set_kind
+from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import amp_to_section, color_help
 from mc_server_maker.gui.workers import run_async
 from mc_server_maker.i18n import t
@@ -80,7 +80,7 @@ class CreateServerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(t("New server"))
-        self.resize(680, 780)
+        fit_to_screen(self, 680, 780)
         self.options = None
 
         outer = QVBoxLayout(self)

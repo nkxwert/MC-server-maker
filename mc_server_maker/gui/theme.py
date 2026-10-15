@@ -2,7 +2,7 @@
 
 from PySide6 import QtSvg  # noqa: F401 - bundles the SVG plugin used for check marks
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPalette
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPalette
 from PySide6.QtWidgets import QApplication, QFormLayout
 
 from mc_server_maker.core import paths
@@ -196,3 +196,21 @@ def form_layout(parent=None) -> QFormLayout:
     form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
     return form
+
+
+def fit_to_screen(widget, width: int, height: int, center: bool = False) -> None:
+    """Resize to the preferred size, but never larger than the screen's usable area.
+
+    Windows laptops with 125-150% display scaling often have only ~900x600 usable
+    logical pixels; fixed sizes larger than that push buttons off-screen.
+    """
+    screen = widget.screen() or QGuiApplication.primaryScreen()
+    if screen is not None:
+        avail = screen.availableGeometry()
+        width = min(width, int(avail.width() * 0.95))
+        height = min(height, int(avail.height() * 0.92))
+    widget.resize(width, height)
+    if center and screen is not None:
+        frame = widget.frameGeometry()
+        frame.moveCenter(screen.availableGeometry().center())
+        widget.move(frame.topLeft())
