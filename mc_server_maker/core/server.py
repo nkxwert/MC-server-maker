@@ -3,7 +3,6 @@
 import json
 import re
 import shutil
-import socket
 import tempfile
 import time
 import zipfile
@@ -48,6 +47,7 @@ class ServerMeta:
     java_path: str = "java"
     launch: dict = field(default_factory=dict)
     created: str = ""
+    upnp: bool = False  # 서버를 켤 때 공유기 포트를 자동으로 열지
     folder: Path = field(default=None, compare=False)
 
     def save(self) -> None:
@@ -464,15 +464,3 @@ def regenerate_world(meta: ServerMeta, seed: str, level_type: str, task: Optiona
     props.set("level-type", level_type_value(level_type, meta.mc_version))
     props.save()
     task.log("기존 맵을 지웠습니다. 서버를 켜면 새 맵이 만들어집니다.")
-
-
-# ------------------------------------------------------------------ 기타
-
-
-def lan_ip() -> str:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("10.255.255.255", 1))  # 실제로 패킷을 보내지 않음
-            return s.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"

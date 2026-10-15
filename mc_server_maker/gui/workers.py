@@ -129,6 +129,7 @@ class TaskDialog(QDialog):
         self.status.setStyleSheet("font-weight: bold;")
         layout.addWidget(self.status)
         self.log_view = QPlainTextEdit(readOnly=True)
+        self.log_view.setObjectName("Console")
         self.log_view.setMaximumBlockCount(5000)
         layout.addWidget(self.log_view)
         self.bar = QProgressBar()

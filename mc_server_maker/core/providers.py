@@ -17,6 +17,7 @@ class Provider:
     id = ""
     name = ""
     description = ""
+    short = ""  # 카드에 표시할 짧은 설명
     supports_plugins = False
     supports_mods = False
 
@@ -53,6 +54,7 @@ def _is_stable(v: str) -> bool:
 class VanillaProvider(Provider):
     id = "vanilla"
     name = "Vanilla (바닐라)"
+    short = "순정 공식 서버"
     description = "Mojang 공식 서버. 플러그인/모드 없이 순정 그대로."
 
     def _list_versions(self, include_unstable):
@@ -79,6 +81,7 @@ class VanillaProvider(Provider):
 class PaperProvider(Provider):
     id = "paper"
     name = "Paper (추천)"
+    short = "플러그인 · 최적화"
     description = "플러그인 지원 + 최적화. 대부분의 서버에 추천."
     supports_plugins = True
     API = "https://fill.papermc.io/v3/projects/paper"
@@ -116,6 +119,7 @@ class PaperProvider(Provider):
 class PurpurProvider(Provider):
     id = "purpur"
     name = "Purpur"
+    short = "Paper + 추가 설정"
     description = "Paper 기반 + 추가 설정이 많은 서버. 플러그인 지원."
     supports_plugins = True
     API = "https://api.purpurmc.org/v2/purpur"
@@ -140,6 +144,7 @@ class PurpurProvider(Provider):
 class FabricProvider(Provider):
     id = "fabric"
     name = "Fabric (모드)"
+    short = "가벼운 모드 서버"
     description = "가벼운 모드 서버. mods 폴더에 Fabric 모드를 넣어 사용."
     supports_mods = True
     API = "https://meta.fabricmc.net/v2"
@@ -168,6 +173,7 @@ class FabricProvider(Provider):
 class ForgeProvider(Provider):
     id = "forge"
     name = "Forge (모드)"
+    short = "대표 모드 서버"
     description = "가장 오래된 모드 서버. mods 폴더에 Forge 모드를 넣어 사용."
     supports_mods = True
     PROMOS = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"

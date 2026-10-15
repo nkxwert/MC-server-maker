@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -25,8 +26,16 @@ from PySide6.QtWidgets import (
 
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.providers import PROVIDERS
+from mc_server_maker.gui.theme import set_kind
 from mc_server_maker.gui.widgets import COLOR_HELP, amp_to_section
 from mc_server_maker.gui.workers import run_async
+
+
+def hint_label(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setObjectName("Hint")
+    return label
 
 
 def random_seed() -> str:
@@ -69,7 +78,7 @@ class CreateServerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("새 서버 만들기")
-        self.resize(620, 760)
+        self.resize(660, 800)
         self.options = None
 
         outer = QVBoxLayout(self)
@@ -77,6 +86,8 @@ class CreateServerDialog(QDialog):
         scroll.setWidgetResizable(True)
         body = QWidget()
         layout = QVBoxLayout(body)
+        layout.setContentsMargins(4, 0, 12, 0)
+        layout.setSpacing(10)
         scroll.setWidget(body)
         outer.addWidget(scroll)
 
@@ -85,18 +96,23 @@ class CreateServerDialog(QDialog):
         form = QFormLayout(box)
         self.name = QLineEdit("내 서버")
         form.addRow("서버 이름", self.name)
-        self.software = QComboBox()
-        for p in PROVIDERS:
-            self.software.addItem(p.name, p.id)
-        form.addRow("구동기 종류", self.software)
-        self.software_desc = QLabel()
-        self.software_desc.setWordWrap(True)
-        self.software_desc.setStyleSheet("color: gray;")
+        cards = QGridLayout()
+        cards.setSpacing(8)
+        self.software = QButtonGroup(self)
+        for i, p in enumerate(PROVIDERS):
+            card = set_kind(QPushButton(f"{p.name}\n{p.short}"), "card")
+            card.setCheckable(True)
+            card.setMinimumHeight(54)
+            card.setToolTip(p.description)
+            self.software.addButton(card, i)
+            cards.addWidget(card, i // 2, i % 2)
+        self.software.button(0).setChecked(True)
+        form.addRow("구동기 종류", cards)
+        self.software_desc = hint_label("")
         form.addRow("", self.software_desc)
         self.version = QComboBox()
         form.addRow("버전", self.version)
-        self.version_status = QLabel()
-        self.version_status.setStyleSheet("color: gray;")
+        self.version_status = hint_label("")
         form.addRow("", self.version_status)
         self.unstable = QCheckBox("스냅샷 / 테스트 버전도 표시")
         form.addRow("", self.unstable)
@@ -110,9 +126,7 @@ class CreateServerDialog(QDialog):
         self.auto_java = QCheckBox("필요한 Java가 없으면 자동으로 설치 (권장)")
         self.auto_java.setChecked(True)
         form.addRow("Java", self.auto_java)
-        hint = QLabel("버전에 맞는 Java(Eclipse Temurin)를 runtime 폴더에 받아서 이 프로그램만 사용합니다.")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray;")
+        hint = hint_label("버전에 맞는 Java(Eclipse Temurin)를 runtime 폴더에 받아서 이 프로그램만 사용합니다.")
         form.addRow("", hint)
         layout.addWidget(box)
 
@@ -166,9 +180,7 @@ class CreateServerDialog(QDialog):
         form = QFormLayout(box)
         self.motd = QLineEdit("&a마인크래프트 서버에 오신 걸 환영합니다!")
         form.addRow("서버 설명(MOTD)", self.motd)
-        color_help = QLabel(COLOR_HELP)
-        color_help.setWordWrap(True)
-        color_help.setStyleSheet("color: gray; font-size: 11px;")
+        color_help = hint_label(COLOR_HELP)
         form.addRow("", color_help)
         self.gamemode = QComboBox()
         for key, label in srv.GAMEMODES:
@@ -204,14 +216,14 @@ class CreateServerDialog(QDialog):
         layout.addStretch()
 
         buttons = QDialogButtonBox()
-        self.create_btn = buttons.addButton("서버 만들기", QDialogButtonBox.AcceptRole)
+        self.create_btn = set_kind(buttons.addButton("서버 만들기", QDialogButtonBox.AcceptRole), "primary")
         buttons.addButton("취소", QDialogButtonBox.RejectRole)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
         self.loader = VersionLoader(self.version, self.version_status)
-        self.software.currentIndexChanged.connect(self._software_changed)
+        self.software.idToggled.connect(lambda _id, on: on and self._software_changed())
         self.unstable.toggled.connect(self._reload_versions)
         self.world_group.idToggled.connect(self._world_mode_changed)
         self._software_changed()
@@ -220,7 +232,7 @@ class CreateServerDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _provider(self):
-        return PROVIDERS[self.software.currentIndex()]
+        return PROVIDERS[self.software.checkedId()]
 
     def _software_changed(self):
         self.software_desc.setText(self._provider().description)

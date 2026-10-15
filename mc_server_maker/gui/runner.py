@@ -1,24 +1,41 @@
-"""서버 프로세스 실행 / 콘솔 입출력."""
+"""서버 프로세스 실행 / 콘솔 입출력 / 접속자 추적."""
 
 import re
-from typing import Dict
+import time
+from collections import deque
+from typing import Deque, Dict, Set
 
 from PySide6.QtCore import QObject, QProcess, Signal
 
 from mc_server_maker.core import server as srv
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-MAX_LOG_CHARS = 300_000
+JOIN_RE = re.compile(r":\s(?:\[[^\]]*\]\s)?([A-Za-z0-9_.]{1,16}) joined the game")
+LEFT_RE = re.compile(r":\s(?:\[[^\]]*\]\s)?([A-Za-z0-9_.]{1,16}) left the game")
+DONE_RE = re.compile(r'Done \([\d.,]+s\)! For help, type')
+MAX_LINES = 5000
+
+STOPPED, STARTING, RUNNING, STOPPING = "stopped", "starting", "running", "stopping"
 
 
 class ServerRunner(QObject):
-    output = Signal(str, str)  # (서버 폴더, 텍스트)
-    state_changed = Signal(str, bool)  # (서버 폴더, 실행 중)
+    line = Signal(str, str)  # (서버 폴더, 한 줄)
+    state_changed = Signal(str, str)  # (서버 폴더, 상태)
+    players_changed = Signal(str)  # (서버 폴더)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.procs: Dict[str, QProcess] = {}
-        self.logs: Dict[str, str] = {}
+        self.logs: Dict[str, Deque[str]] = {}
+        self.players: Dict[str, Set[str]] = {}
+        self.status: Dict[str, str] = {}
+        self.started_at: Dict[str, float] = {}
+        self._partial: Dict[str, str] = {}
+
+    # ---------------------------------------------------------------- 상태
+
+    def state(self, key: str) -> str:
+        return self.status.get(key, STOPPED)
 
     def is_running(self, key: str) -> bool:
         p = self.procs.get(key)
@@ -27,15 +44,48 @@ class ServerRunner(QObject):
     def any_running(self) -> bool:
         return any(self.is_running(k) for k in self.procs)
 
-    def log_text(self, key: str) -> str:
-        return self.logs.get(key, "")
+    def log_lines(self, key: str):
+        return list(self.logs.get(key, ()))
 
-    def _append(self, key: str, text: str):
-        log = self.logs.get(key, "") + text
-        if len(log) > MAX_LOG_CHARS:
-            log = log[-MAX_LOG_CHARS:]
-        self.logs[key] = log
-        self.output.emit(key, text)
+    def online_players(self, key: str):
+        return sorted(self.players.get(key, set()), key=str.lower)
+
+    def uptime(self, key: str) -> float:
+        return time.time() - self.started_at[key] if self.is_running(key) and key in self.started_at else 0
+
+    def _set_state(self, key: str, state: str):
+        if self.status.get(key) != state:
+            self.status[key] = state
+            self.state_changed.emit(key, state)
+
+    # ---------------------------------------------------------------- 출력
+
+    def _emit_line(self, key: str, text: str):
+        self.logs.setdefault(key, deque(maxlen=MAX_LINES)).append(text)
+        self.line.emit(key, text)
+        if self.state(key) == STARTING and DONE_RE.search(text):
+            self._set_state(key, RUNNING)
+        m = JOIN_RE.search(text)
+        if m:
+            self.players.setdefault(key, set()).add(m.group(1))
+            self.players_changed.emit(key)
+        m = LEFT_RE.search(text)
+        if m:
+            self.players.setdefault(key, set()).discard(m.group(1))
+            self.players_changed.emit(key)
+
+    def system_line(self, key: str, text: str):
+        """프로그램이 콘솔에 남기는 안내 메시지."""
+        self._emit_line(key, "»» " + text)
+
+    def _read(self, key: str, proc: QProcess):
+        data = bytes(proc.readAllStandardOutput()).decode("utf-8", errors="replace")
+        text = self._partial.get(key, "") + ANSI_RE.sub("", data).replace("\r\n", "\n").replace("\r", "")
+        *lines, self._partial[key] = text.split("\n")
+        for ln in lines:
+            self._emit_line(key, ln)
+
+    # ---------------------------------------------------------------- 제어
 
     def start(self, meta: srv.ServerMeta) -> None:
         key = str(meta.folder)
@@ -52,41 +102,49 @@ class ServerRunner(QObject):
         proc.finished.connect(lambda code, _status: self._finished(key, code))
         proc.errorOccurred.connect(lambda err: self._error(key, proc, err))
         self.procs[key] = proc
-        self._append(key, f"\n▶ 서버 시작: {' '.join(cmd)}\n")
+        self.players[key] = set()
+        self._partial[key] = ""
+        self.started_at[key] = time.time()
+        self.system_line(key, f"서버 시작: {' '.join(cmd)}")
+        self._set_state(key, STARTING)
         proc.start()
-        self.state_changed.emit(key, True)
-
-    def _read(self, key: str, proc: QProcess):
-        data = bytes(proc.readAllStandardOutput())
-        self._append(key, ANSI_RE.sub("", data.decode("utf-8", errors="replace")).replace("\r\n", "\n"))
 
     def _finished(self, key: str, code: int):
-        self._append(key, f"\n■ 서버가 종료되었습니다. (코드 {code})\n")
-        self.state_changed.emit(key, False)
+        rest = self._partial.pop(key, "")
+        if rest:
+            self._emit_line(key, rest)
+        self.system_line(key, f"서버가 종료되었습니다. (코드 {code})")
+        self.players[key] = set()
+        self.players_changed.emit(key)
+        self._set_state(key, STOPPED)
 
     def _error(self, key: str, proc: QProcess, err):
         if err == QProcess.FailedToStart:
-            self._append(key, f"\n❌ 서버를 시작하지 못했습니다: {proc.errorString()}\n")
-            self.state_changed.emit(key, False)
+            self.system_line(key, f"서버를 시작하지 못했습니다: {proc.errorString()}")
+            self._set_state(key, STOPPED)
 
     def send(self, key: str, command: str) -> bool:
         if not self.is_running(key):
             return False
-        self._append(key, f"> {command}\n")
+        self._emit_line(key, "> " + command)
         self.procs[key].write((command + "\n").encode("utf-8"))
         return True
 
     def stop(self, key: str) -> None:
-        self.send(key, "stop")
+        if self.send(key, "stop"):
+            self._set_state(key, STOPPING)
 
     def kill(self, key: str) -> None:
         if self.is_running(key):
             self.procs[key].kill()
 
+    def clear_log(self, key: str) -> None:
+        self.logs.pop(key, None)
+
     def stop_all(self, timeout_ms: int = 30000) -> None:
-        for key, proc in self.procs.items():
+        for key in list(self.procs):
             if self.is_running(key):
                 self.send(key, "stop")
-        for key, proc in self.procs.items():
+        for proc in self.procs.values():
             if proc.state() != QProcess.NotRunning and not proc.waitForFinished(timeout_ms):
                 proc.kill()

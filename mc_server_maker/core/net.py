@@ -47,6 +47,11 @@ def get_json(url: str):
         return json.loads(resp.read().decode("utf-8"))
 
 
+def get_text(url: str) -> str:
+    with _open(url) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
 def exists(url: str) -> bool:
     try:
         with _open(url):

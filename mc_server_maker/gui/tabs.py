@@ -1,10 +1,12 @@
 """서버 관리 탭들: 설정 / 월드 / 플레이어 / 콘솔 / 업그레이드."""
 
+import os
+import re
 from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QFont, QTextCursor
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -27,12 +29,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mc_server_maker.core import players
+from mc_server_maker.core import network, players
 from mc_server_maker.core import server as srv
 from mc_server_maker.core import versions
 from mc_server_maker.core.providers import get_provider
 from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
 from mc_server_maker.gui.runner import ServerRunner
+from mc_server_maker.gui.theme import ACCENT, DANGER, INFO, TEXT, WARN, set_kind
 from mc_server_maker.gui.widgets import (
     COLOR_HELP,
     MotdPreview,
@@ -51,7 +54,14 @@ def open_path(path: Path) -> None:
 def gray(text: str) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
-    label.setStyleSheet("color: gray;")
+    label.setObjectName("Hint")
+    return label
+
+
+def warn_label(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setObjectName("Warn")
     return label
 
 
@@ -79,6 +89,10 @@ class ServerTab(QWidget):
     def refresh(self) -> None:
         pass
 
+    def on_state(self) -> None:
+        """서버가 켜지거나 꺼졌을 때."""
+        self.refresh()
+
     def run_task(self, title: str, fn) -> bool:
         dlg = TaskDialog(self, title, fn)
         dlg.exec()
@@ -86,6 +100,8 @@ class ServerTab(QWidget):
 
 
 def _scroll(widget: QWidget) -> QScrollArea:
+    widget.layout().setContentsMargins(16, 8, 16, 16)
+    widget.layout().setSpacing(10)
     area = QScrollArea()
     area.setWidgetResizable(True)
     area.setWidget(widget)
@@ -111,9 +127,7 @@ class SettingsTab(ServerTab):
         self.motd.setFixedHeight(56)
         self.motd.textChanged.connect(self._update_preview)
         form.addRow("서버 설명\n(MOTD, 2줄까지)", self.motd)
-        help_label = gray(COLOR_HELP)
-        help_label.setStyleSheet("color: gray; font-size: 11px;")
-        form.addRow("", help_label)
+        form.addRow("", gray(COLOR_HELP))
 
         icon_row = QHBoxLayout()
         pick = QPushButton("🖼 사진 선택...")
@@ -168,10 +182,10 @@ class SettingsTab(ServerTab):
         form.addRow("메모리(RAM)", self.ram)
         layout.addWidget(box)
 
-        self.notice = gray("")
+        self.notice = warn_label("")
         layout.addWidget(self.notice)
-        save = QPushButton("💾 저장")
-        save.setMinimumHeight(36)
+        save = set_kind(QPushButton("💾 저장"), "primary")
+        save.setMinimumHeight(38)
         save.clicked.connect(self.save)
         layout.addWidget(save)
         layout.addStretch()
@@ -204,6 +218,10 @@ class SettingsTab(ServerTab):
         self.ram.setValue(max(1, self.meta.ram_mb // 1024))
         self.notice.setText("⚠ 서버가 켜져 있습니다. 저장한 설정은 서버를 다시 켜야 적용됩니다." if self.running else "")
         self._update_preview()
+
+    def on_state(self):
+        # 입력 중인 내용을 덮어쓰지 않도록 안내 문구만 바꾼다
+        self.notice.setText("⚠ 서버가 켜져 있습니다. 저장한 설정은 서버를 다시 켜야 적용됩니다." if self.running else "")
 
     def _update_preview(self):
         if not self.meta:
@@ -281,8 +299,7 @@ class WorldTab(ServerTab):
         form.addRow("상태", self.info_exists)
         layout.addWidget(box)
 
-        self.running_notice = QLabel("⚠ 서버가 켜져 있는 동안에는 맵을 바꿀 수 없습니다. 먼저 서버를 꺼 주세요.")
-        self.running_notice.setStyleSheet("color: #d08000; font-weight: bold;")
+        self.running_notice = warn_label("⚠ 서버가 켜져 있는 동안에는 맵을 바꿀 수 없습니다. 먼저 서버를 꺼 주세요.")
         layout.addWidget(self.running_notice)
 
         # 새 맵
@@ -311,7 +328,7 @@ class WorldTab(ServerTab):
             self.level_type.addItem(label, k)
         row.addWidget(self.level_type, 1)
         v.addLayout(row)
-        self.btn_new = QPushButton("🌱 새 맵으로 교체")
+        self.btn_new = set_kind(QPushButton("🌱 새 맵으로 교체"), "primary")
         self.btn_new.clicked.connect(self._new_world)
         v.addWidget(self.btn_new)
         self.mode_group.idToggled.connect(lambda *_: self.seed.setEnabled(self.rb_seed.isChecked()))
@@ -430,6 +447,7 @@ class PlayersTab(ServerTab):
     def __init__(self, runner, on_changed):
         super().__init__(runner, on_changed)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 10, 16, 16)
         self.hint = gray("")
         layout.addWidget(self.hint)
         row = QHBoxLayout()
@@ -501,47 +519,392 @@ class PlayersTab(ServerTab):
 
 # ===================================================================== 콘솔
 
+_CONSOLE_RULES = [
+    (re.compile(r"^»» "), ACCENT, True),
+    (re.compile(r"^> "), INFO, True),
+    (re.compile(r"ERROR|SEVERE|Exception|^\s+at "), DANGER, False),
+    (re.compile(r"WARN"), WARN, False),
+    (re.compile(r"joined the game"), ACCENT, False),
+    (re.compile(r"left the game"), "#e6a35c", False),
+    (re.compile(r": <[^>]+> "), TEXT, True),  # 채팅
+    (re.compile(r"Done \("), ACCENT, True),
+]
+
+
+def _line_format(line: str) -> QTextCharFormat:
+    fmt = QTextCharFormat()
+    fmt.setForeground(QColor("#b9c0cb"))
+    for pattern, color, bold in _CONSOLE_RULES:
+        if pattern.search(line):
+            fmt.setForeground(QColor(color))
+            if bold:
+                fmt.setFontWeight(QFont.Bold)
+            break
+    return fmt
+
+
+class HistoryLineEdit(QLineEdit):
+    """↑/↓ 키로 이전 명령어를 다시 불러온다."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.history = []
+        self.pos = 0
+
+    def remember(self, text: str):
+        if text and (not self.history or self.history[-1] != text):
+            self.history.append(text)
+        self.pos = len(self.history)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Up and self.history:
+            self.pos = max(0, self.pos - 1)
+            self.setText(self.history[self.pos])
+        elif event.key() == Qt.Key_Down and self.history:
+            self.pos = min(len(self.history), self.pos + 1)
+            self.setText(self.history[self.pos] if self.pos < len(self.history) else "")
+        else:
+            super().keyPressEvent(event)
+
 
 class ConsoleTab(ServerTab):
+    QUICK = [
+        ("☀ 낮", "time set day"),
+        ("🌙 밤", "time set night"),
+        ("🌤 맑음", "weather clear"),
+        ("💾 저장", "save-all"),
+        ("👥 접속자", "list"),
+    ]
+
     def __init__(self, runner, on_changed):
         super().__init__(runner, on_changed)
-        layout = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(16, 12, 16, 16)
+        outer.setSpacing(12)
+
+        left = QVBoxLayout()
+        left.setSpacing(8)
         self.view = QPlainTextEdit(readOnly=True)
-        font = QFont("Consolas")
-        font.setStyleHint(QFont.Monospace)
-        self.view.setFont(font)
-        self.view.setStyleSheet("background: #111; color: #ddd;")
-        layout.addWidget(self.view)
+        self.view.setObjectName("Console")
+        self.view.setMaximumBlockCount(5000)
+        self.view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        left.addWidget(self.view, 1)
+
+        quick = QHBoxLayout()
+        quick.setSpacing(6)
+        self.quick_buttons = []
+        for label, cmd in self.QUICK:
+            b = QPushButton(label)
+            b.setToolTip(cmd)
+            b.clicked.connect(lambda _=False, c=cmd: self._run(c))
+            quick.addWidget(b)
+            self.quick_buttons.append(b)
+        quick.addStretch()
+        clear = set_kind(QPushButton("🧹 지우기"), "ghost")
+        clear.clicked.connect(self._clear)
+        quick.addWidget(clear)
+        left.addLayout(quick)
+
         row = QHBoxLayout()
-        self.input = QLineEdit(placeholderText="명령어 입력 (예: say 안녕, time set day, op 닉네임)  — 앞에 / 없이")
+        self.input = HistoryLineEdit(placeholderText="명령어 입력 후 Enter  (예: say 안녕, gamemode creative 닉네임)   ↑↓ 이전 명령어")
+        self.input.setObjectName("ConsoleInput")
         self.input.returnPressed.connect(self._send)
-        send = QPushButton("보내기")
-        send.clicked.connect(self._send)
+        self.send_btn = set_kind(QPushButton("보내기"), "primary")
+        self.send_btn.clicked.connect(self._send)
         row.addWidget(self.input, 1)
-        row.addWidget(send)
-        layout.addLayout(row)
-        runner.output.connect(self._on_output)
+        row.addWidget(self.send_btn)
+        left.addLayout(row)
+        outer.addLayout(left, 1)
+
+        side = QVBoxLayout()
+        side.setSpacing(8)
+        box = QGroupBox("접속 중인 플레이어")
+        v = QVBoxLayout(box)
+        self.player_count = QLabel("0명")
+        self.player_count.setObjectName("Big")
+        v.addWidget(self.player_count)
+        self.player_list = QListWidget()
+        v.addWidget(self.player_list, 1)
+        self.btn_op = QPushButton("👑 OP 주기")
+        self.btn_op.clicked.connect(lambda: self._player_cmd("op"))
+        self.btn_kick = set_kind(QPushButton("추방"), "danger")
+        self.btn_kick.clicked.connect(lambda: self._player_cmd("kick"))
+        v.addWidget(self.btn_op)
+        v.addWidget(self.btn_kick)
+        side.addWidget(box, 1)
+        box = QGroupBox("가동 시간")
+        v = QVBoxLayout(box)
+        self.uptime = QLabel("-")
+        self.uptime.setObjectName("Big")
+        v.addWidget(self.uptime)
+        side.addWidget(box)
+        side_w = QWidget()
+        side_w.setLayout(side)
+        side_w.setFixedWidth(210)
+        side.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(side_w)
+
+        runner.line.connect(self._on_line)
+        runner.players_changed.connect(self._on_players)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        self.timer.start(1000)
 
     def refresh(self):
-        self.view.setPlainText(self.runner.log_text(self.key) if self.meta else "")
+        self.view.clear()
+        if self.meta:
+            cursor = QTextCursor(self.view.document())
+            for ln in self.runner.log_lines(self.key):
+                self._insert(cursor, ln)
+            if self.view.document().isEmpty() or not self.runner.log_lines(self.key):
+                self.view.setPlaceholderText("서버가 꺼져 있습니다. 위의 ▶ 서버 켜기를 누르면 여기에 서버 로그가 나옵니다.")
         self.view.moveCursor(QTextCursor.End)
-        self.input.setEnabled(self.running)
+        running = self.running
+        for w in [self.input, self.send_btn, *self.quick_buttons]:
+            w.setEnabled(running)
+        self._on_players(self.key)
+        self._tick()
 
-    def _on_output(self, key: str, text: str):
+    def on_state(self):
+        # 로그를 다시 그리지 않고 버튼만 갱신
+        running = self.running
+        for w in [self.input, self.send_btn, *self.quick_buttons]:
+            w.setEnabled(running)
+        self._on_players(self.key)
+
+    def _insert(self, cursor: QTextCursor, line: str):
+        cursor.movePosition(QTextCursor.End)
+        if not self.view.document().isEmpty():
+            cursor.insertBlock()
+        cursor.insertText(line, _line_format(line))
+
+    def _on_line(self, key: str, line: str):
         if key != self.key:
             return
         bar = self.view.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 4
-        cursor = QTextCursor(self.view.document())
-        cursor.movePosition(QTextCursor.End)
-        cursor.insertText(text)
+        self._insert(QTextCursor(self.view.document()), line)
         if at_bottom:
             bar.setValue(bar.maximum())
+
+    def _on_players(self, key: str):
+        if key != self.key:
+            return
+        names = self.runner.online_players(key)
+        self.player_list.clear()
+        self.player_list.addItems(names)
+        self.player_count.setText(f"{len(names)}명")
+        has = bool(names) and self.running
+        self.btn_op.setEnabled(has)
+        self.btn_kick.setEnabled(has)
+
+    def _tick(self):
+        secs = int(self.runner.uptime(self.key)) if self.meta else 0
+        if not secs:
+            self.uptime.setText("-")
+            return
+        h, rem = divmod(secs, 3600)
+        m, s = divmod(rem, 60)
+        self.uptime.setText(f"{h:02d}:{m:02d}:{s:02d}")
+
+    def _run(self, cmd: str):
+        self.runner.send(self.key, cmd)
+
+    def _player_cmd(self, cmd: str):
+        item = self.player_list.currentItem()
+        if not item:
+            QMessageBox.information(self, "플레이어", "목록에서 플레이어를 먼저 선택해 주세요.")
+            return
+        self._run(f"{cmd} {item.text()}")
+
+    def _clear(self):
+        self.runner.clear_log(self.key)
+        self.view.clear()
 
     def _send(self):
         cmd = self.input.text().strip().lstrip("/")
         if cmd and self.runner.send(self.key, cmd):
+            self.input.remember(cmd)
             self.input.clear()
+
+
+# ================================================================ 외부 접속
+
+
+class AddressRow(QWidget):
+    def __init__(self, title: str, hint: str):
+        super().__init__()
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 2, 0, 2)
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        t = QLabel(title)
+        t.setObjectName("ItemName")
+        col.addWidget(t)
+        col.addWidget(gray(hint))
+        row.addLayout(col, 1)
+        self.value = QLabel("-")
+        self.value.setObjectName("Big")
+        self.value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        row.addWidget(self.value)
+        self.copy = QPushButton("복사")
+        self.copy.clicked.connect(lambda: (QGuiApplication.clipboard().setText(self.value.text()),
+                                           self.copy.setText("복사됨 ✓"),
+                                           QTimer.singleShot(1200, lambda: self.copy.setText("복사"))))
+        row.addWidget(self.copy)
+
+    def set(self, text: str, enabled: bool = True):
+        self.value.setText(text)
+        self.copy.setEnabled(enabled)
+
+
+class NetworkTab(ServerTab):
+    _public_ip = None  # 프로그램 실행 중 한 번만 확인
+
+    def __init__(self, runner, on_changed):
+        super().__init__(runner, on_changed)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+
+        box = QGroupBox("접속 주소")
+        v = QVBoxLayout(box)
+        self.addr_local = AddressRow("같은 PC", "이 컴퓨터에서 접속할 때")
+        self.addr_lan = AddressRow("같은 와이파이 / 공유기", "같은 집에 있는 사람")
+        self.addr_public = AddressRow("🌍 다른 집 (인터넷)", "멀리 있는 친구에게 이 주소를 알려주세요")
+        for w in (self.addr_local, self.addr_lan, self.addr_public):
+            v.addWidget(w)
+        layout.addWidget(box)
+
+        box = QGroupBox("다른 집에서 들어오게 하기")
+        v = QVBoxLayout(box)
+        v.addWidget(gray("다른 집 사람이 들어오려면 공유기의 포트를 열어야 합니다(포트포워딩). "
+                         "대부분의 공유기는 아래 버튼으로 자동으로 열 수 있어요."))
+        self.port_status = QLabel()
+        self.port_status.setWordWrap(True)
+        self.port_status.setObjectName("ItemName")
+        v.addWidget(self.port_status)
+        row = QHBoxLayout()
+        self.btn_open = set_kind(QPushButton("🔓 자동으로 포트 열기 (UPnP)"), "primary")
+        self.btn_open.clicked.connect(self._open_port)
+        self.btn_close = QPushButton("포트 닫기")
+        self.btn_close.clicked.connect(self._close_port)
+        row.addWidget(self.btn_open)
+        row.addWidget(self.btn_close)
+        row.addStretch()
+        v.addLayout(row)
+        self.auto_upnp = QCheckBox("서버를 켤 때마다 자동으로 포트 열기")
+        self.auto_upnp.toggled.connect(self._toggle_auto)
+        v.addWidget(self.auto_upnp)
+        if os.name == "nt":
+            row = QHBoxLayout()
+            fw = QPushButton("🛡 Windows 방화벽 허용")
+            fw.clicked.connect(self._firewall)
+            row.addWidget(fw)
+            row.addWidget(gray("관리자 권한 창이 뜨면 '예'를 눌러 주세요. (Java 첫 실행 때 뜨는 방화벽 창에서 '허용'을 눌러도 됩니다)"), 1)
+            v.addLayout(row)
+        layout.addWidget(box)
+
+        box = QGroupBox("자동으로 안 될 때 (직접 포트포워딩)")
+        v = QVBoxLayout(box)
+        self.manual = QLabel()
+        self.manual.setWordWrap(True)
+        self.manual.setTextFormat(Qt.RichText)
+        self.manual.setOpenExternalLinks(True)
+        self.manual.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        v.addWidget(self.manual)
+        layout.addWidget(box)
+        layout.addStretch()
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(_scroll(body))
+        self._router_host = ""
+
+    @property
+    def port(self) -> int:
+        return self.meta.properties().get_int("server-port", 25565) if self.meta else 25565
+
+    def _fmt(self, host: str) -> str:
+        return host if self.port == 25565 else f"{host}:{self.port}"
+
+    def refresh(self):
+        if not self.meta:
+            return
+        lan = network.lan_ip()
+        self.addr_local.set(self._fmt("localhost"))
+        self.addr_lan.set(self._fmt(lan))
+        if NetworkTab._public_ip:
+            self.addr_public.set(self._fmt(NetworkTab._public_ip))
+        else:
+            self.addr_public.set("확인 중...", False)
+            run_async(lambda task: network.public_ip(), self._got_public_ip,
+                      lambda msg: self.addr_public.set("확인 실패 (인터넷 연결 확인)", False))
+        self.auto_upnp.blockSignals(True)
+        self.auto_upnp.setChecked(self.meta.upnp)
+        self.auto_upnp.blockSignals(False)
+        if not self.port_status.text():
+            self._status("⚪ 아직 포트를 열지 않았어요.")
+        router = self._router_host or "192.168.0.1 또는 192.168.1.1"
+        self.manual.setText(
+            "<ol style='margin-left:-20px'>"
+            f"<li>인터넷 주소창에 공유기 관리 페이지 <b>http://{router}</b> 를 입력해 들어갑니다. "
+            "(ipTIME 192.168.0.1 · KT 172.30.1.254 · SK 192.168.45.1 · LG U+ 192.168.219.1 등)</li>"
+            "<li><b>포트포워딩</b> (또는 'NAT', '가상 서버') 메뉴로 갑니다.</li>"
+            f"<li>내부 IP <b>{lan}</b>, 외부/내부 포트 <b>{self.port}</b>, 프로토콜 <b>TCP</b> 로 규칙을 추가합니다.</li>"
+            f"<li>친구에게 위의 <b>다른 집 주소</b>를 알려줍니다.</li></ol>"
+            "<p>포트를 열 수 없는 환경(통신사 공유기 뒤, 기숙사·회사 와이파이, 모바일 핫스팟)이라면 "
+            "<a href='https://playit.gg'>playit.gg</a> 같은 무료 터널 서비스를 쓰면 포트포워딩 없이 "
+            "접속 주소를 받을 수 있어요.</p>"
+            "<p>정품 계정이 없는 친구가 있다면 설정 탭에서 '정품 인증'을 끄세요.</p>"
+        )
+
+    def _got_public_ip(self, ip: str):
+        NetworkTab._public_ip = ip
+        if self.meta:
+            self.addr_public.set(self._fmt(ip))
+
+    def _status(self, text: str):
+        self.port_status.setText(text)
+
+    def _open_port(self):
+        port, name = self.port, self.meta.name
+        self._status("⏳ 공유기를 찾는 중... (몇 초 걸려요)")
+        self.btn_open.setEnabled(False)
+
+        def done(res):
+            self.btn_open.setEnabled(True)
+            self._router_host = res.router_host
+            if res.cgnat:
+                self._status(
+                    f"🟡 포트는 열었지만, 공유기의 외부 IP({res.router_ip})가 사설 IP입니다. "
+                    "통신사 공유기가 한 번 더 있거나 통신사 NAT 뒤라서 다른 집에서 접속이 안 될 수 있어요. "
+                    "아래 안내(playit.gg)를 참고하세요."
+                )
+            else:
+                self._status(f"🟢 포트 {res.port} 열림! 다른 집 친구가 위의 주소로 들어올 수 있어요. (내 PC: {res.lan_ip})")
+            self.refresh()
+
+        def fail(msg):
+            self.btn_open.setEnabled(True)
+            self._status("🔴 " + msg)
+
+        run_async(lambda task: network.open_port(port, f"Minecraft {name}"[:60]), done, fail)
+
+    def _close_port(self):
+        port = self.port
+        self._status("⏳ 포트 닫는 중...")
+        run_async(lambda task: network.close_port(port),
+                  lambda _: self._status("⚪ 포트를 닫았습니다."),
+                  lambda msg: self._status("🔴 " + msg))
+
+    def _toggle_auto(self, on: bool):
+        if self.meta:
+            self.meta.upnp = on
+            self.meta.save()
+
+    def _firewall(self):
+        if not network.allow_firewall(self.port):
+            QMessageBox.warning(self, "방화벽", "방화벽 규칙을 추가하지 못했습니다.")
 
 
 # =============================================================== 업그레이드
@@ -564,8 +927,7 @@ class UpgradeTab(ServerTab):
         form.addRow("Java", self.cur_java)
         layout.addWidget(box)
 
-        self.running_notice = QLabel("⚠ 서버를 끈 다음 업그레이드할 수 있습니다.")
-        self.running_notice.setStyleSheet("color: #d08000; font-weight: bold;")
+        self.running_notice = warn_label("⚠ 서버를 끈 다음 업그레이드할 수 있습니다.")
         layout.addWidget(self.running_notice)
 
         box = QGroupBox("버전 업그레이드")
@@ -591,8 +953,8 @@ class UpgradeTab(ServerTab):
             gray("플러그인/모드는 새 버전을 지원하는지 따로 확인해 주세요. "
                  "업그레이드 후 처음 켤 때 맵이 새 버전 형식으로 변환되어 시간이 걸릴 수 있습니다."),
         )
-        self.btn_upgrade = QPushButton("⬆ 업그레이드")
-        self.btn_upgrade.setMinimumHeight(36)
+        self.btn_upgrade = set_kind(QPushButton("⬆ 업그레이드"), "primary")
+        self.btn_upgrade.setMinimumHeight(38)
         self.btn_upgrade.clicked.connect(self._upgrade)
         form.addRow(self.btn_upgrade)
         layout.addWidget(box)
