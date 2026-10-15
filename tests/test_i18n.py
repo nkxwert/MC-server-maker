@@ -12,10 +12,14 @@ ROOT = Path(__file__).resolve().parents[1] / "mc_server_maker"
 INDIRECT = [
     "Survival", "Creative", "Adventure", "Spectator", "Peaceful", "Easy", "Normal", "Hard",
     "Default", "Flat", "Large biomes", "Amplified",
-    "Console", "Server status", "Settings", "World", "Players", "Network", "Update",
+    "Console", "Server status", "Settings", "World", "Players", "Network",
     "Operators (OP)", "Whitelist",
-    "Online mode (off = allow non-premium accounts)", "PvP", "Hardcore", "Whitelist only",
-    "Allow flight (recommended with mods/plugins)", "Command blocks",
+    "Online mode", "PvP", "Hardcore", "Whitelist only", "Allow flight", "Command blocks",
+    "Players must sign in with a real Minecraft account. "
+    "Turn it off to let non-premium accounts join (anyone can then use any name).",
+    "One life: players become spectators when they die.",
+    "Only players on the whitelist (Players tab) can join.",
+    "Stops the server from kicking players for flying. Turn it on if mods or plugins let players fly.",
     "Plugins", "Mods", "Bukkit/Paper plugin", "Fabric mod", "Quilt mod", "Forge mod", "NeoForge mod", "Unknown",
 ]
 

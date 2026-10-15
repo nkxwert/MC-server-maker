@@ -125,6 +125,11 @@ class CatalogTest(unittest.TestCase):
         for p in property_catalog.CATALOG:
             self.assertTrue(p.en and p.ko, p.key)
 
+    def test_new_server_defaults_are_known_keys(self):
+        for key in srv.NEW_SERVER_DEFAULTS:
+            self.assertIn(key, property_catalog.BY_KEY)
+        self.assertEqual(srv.NEW_SERVER_DEFAULTS["spawn-protection"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

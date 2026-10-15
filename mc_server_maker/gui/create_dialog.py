@@ -27,7 +27,7 @@ from mc_server_maker.core import plugins
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.providers import PROVIDERS
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
-from mc_server_maker.gui.widgets import amp_to_section, color_help
+from mc_server_maker.gui.widgets import amp_to_section, color_help, with_help
 from mc_server_maker.gui.workers import run_async
 from mc_server_maker.i18n import t
 
@@ -109,7 +109,7 @@ class CreateServerDialog(QDialog):
             self.software.addButton(card, i)
             cards.addWidget(card, i // 3, i % 3)
         self.software.button(0).setChecked(True)
-        form.addRow(t("Software"), cards)
+        form.addRow(with_help(t("Software"), "\n\n".join(f"{p.name}: {t(p.description)}" for p in PROVIDERS)), cards)
         self.version = QComboBox()
         form.addRow(t("Version"), self.version)
         row = QHBoxLayout()
@@ -124,12 +124,14 @@ class CreateServerDialog(QDialog):
         box = QGroupBox(t("2. Runtime"))
         form = form_layout(box)
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64, value=2)
-        form.addRow(t("Memory (RAM)"), self.ram)
+        form.addRow(with_help(t("Memory (RAM)"), t(
+            "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")), self.ram)
         self.auto_java = QCheckBox(t("Install the right Java automatically"))
         self.auto_java.setChecked(True)
         form.addRow("Java", self.auto_java)
-        self.bedrock = QCheckBox(t("Let Bedrock players join (phone / console) — Geyser + Floodgate"))
-        form.addRow("Bedrock", self.bedrock)
+        self.bedrock = QCheckBox(t("Let Bedrock players join"))
+        form.addRow(t("Bedrock"), with_help(self.bedrock, t(
+            "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account.")))
         layout.addWidget(box)
 
         # --- 3. world
@@ -144,7 +146,8 @@ class CreateServerDialog(QDialog):
             self.world_group.addButton(rb, i)
 
         v.addWidget(self.rb_random)
-        v.addWidget(self.rb_seed)
+        v.addWidget(with_help(self.rb_seed, t(
+            "The same seed always makes the same world. Use one from a friend or a seed website.")))
         seed_row = QHBoxLayout()
         self.seed = QLineEdit(placeholderText=t("Seed (numbers or text)"))
         self.seed_dice = QPushButton("🎲 " + t("Random"))
@@ -181,8 +184,9 @@ class CreateServerDialog(QDialog):
         box = QGroupBox(t("4. Basics (can be changed later)"))
         form = form_layout(box)
         self.motd = QLineEdit(t("&aWelcome to my Minecraft server!"))
-        form.addRow(t("Description (MOTD)"), self.motd)
-        form.addRow("", hint_label(color_help()))
+        form.addRow(with_help(t("Description"), t(
+            "Shown under the server name in the multiplayer list (MOTD). Up to 2 lines.") + "\n\n" + color_help()),
+            self.motd)
         self.gamemode = QComboBox()
         for key, label in srv.GAMEMODES:
             self.gamemode.addItem(t(label), key)
@@ -196,9 +200,11 @@ class CreateServerDialog(QDialog):
         form.addRow(t("Max players"), self.max_players)
         self.port = QSpinBox(minimum=1, maximum=65535, value=25565)
         form.addRow(t("Port"), self.port)
-        self.online_mode = QCheckBox(t("Online mode (turn off to allow non-premium accounts)"))
+        self.online_mode = QCheckBox(t("Online mode"))
         self.online_mode.setChecked(True)
-        form.addRow("", self.online_mode)
+        form.addRow("", with_help(self.online_mode, t(
+            "Players must sign in with a real Minecraft account. "
+            "Turn it off to let non-premium accounts join (anyone can then use any name).")))
         self.pvp = QCheckBox("PvP")
         self.pvp.setChecked(True)
         form.addRow("", self.pvp)

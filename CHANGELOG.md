@@ -3,6 +3,20 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.9.0
+### en
+- **Server version moved into the World tab**: updating the server version and reinstalling Java are now in World → *Server version*.
+- **(?) help buttons**: long explanations are tucked behind a small (?) next to each setting — click it to read more. Screens are shorter and easier to scan.
+- **Spawn protection** can be changed in the Settings tab.
+- New servers start with spawn protection off (everyone can build at spawn) and no kicking for chatting or typing commands fast (Minecraft 26.2+).
+- Korean text is easier to read: a Korean font is used first, and the wording is more consistent.
+### ko
+- **서버 버전을 월드 탭으로 옮겼습니다**: 서버 버전 업데이트와 Java 다시 설치는 이제 월드 → *서버 버전*에 있어요.
+- **(?) 도움말 버튼**: 긴 설명은 설정 옆의 작은 (?)를 누르면 볼 수 있어요. 화면이 짧아지고 한눈에 보기 쉬워졌어요.
+- 설정 탭에서 **스폰 보호** 범위를 바꿀 수 있어요.
+- 새 서버는 스폰 보호가 꺼져 있고(스폰에서 누구나 건축 가능), 채팅·명령어를 빨리 쳐도 추방하지 않아요(마인크래프트 26.2 이상).
+- 한국어 가독성 개선: 한글 글꼴을 먼저 쓰고, 문장 말투를 통일했어요.
+
 ## 1.8.0
 ### en
 - **Play without internet**: starting a server with no internet now offers *Start in offline mode*, so players on this PC or the same Wi-Fi can join instead of getting "Authentication servers are down". Online mode turns back on by itself when the server stops.

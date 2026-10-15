@@ -68,15 +68,15 @@ KO = {
     "Importing world...": "월드 불러오는 중...",
     "World imported!": "월드 불러오기 완료!",
     "Old world removed. A new world is generated on next start.": "기존 월드를 지웠습니다. 다음에 시작할 때 새 월드가 만들어집니다.",
-    "Java {v} not found. Reinstall it from the Update tab.": "Java {v}을(를) 찾지 못했습니다. 업데이트 탭에서 Java를 다시 설치해 주세요.",
+    "Java {v} not found. Reinstall it in the World tab (Server version).": "Java {v}을(를) 찾지 못했어요. 월드 탭의 '서버 버전'에서 Java를 다시 설치해 주세요.",
     "You must accept the Minecraft EULA to create a server.": "마인크래프트 EULA에 동의해야 서버를 만들 수 있습니다.",
     "Installing {name} {v}...": "{name} {v} 설치 중...",
     "Server created!": "서버 만들기 완료!",
     "Updating Geyser/Floodgate for the new version...": "새 버전에 맞게 Geyser/Floodgate 업데이트 중...",
     "Choose a world (folder or zip) to import.": "불러올 월드(폴더 또는 zip)를 선택해 주세요.",
     "World path does not exist: {path}": "월드 경로가 없습니다: {path}",
-    "No level.dat found in that folder. Choose a world folder.": "선택한 폴더에서 level.dat 을 찾지 못했습니다. 월드 폴더를 골라 주세요.",
-    "The zip file has no level.dat.": "zip 파일 안에 level.dat 이 없습니다.",
+    "No level.dat found in that folder. Choose a world folder.": "선택한 폴더에서 level.dat을 찾지 못했어요. 월드 폴더를 골라 주세요.",
+    "The zip file has no level.dat.": "zip 파일 안에 level.dat이 없어요.",
     "Could not install Bedrock support: {err} (you can retry in Settings)": "베드락 접속 설치 실패: {err} (설정 탭에서 다시 시도할 수 있어요)",
     "Survival": "서바이벌",
     "Creative": "크리에이티브",
@@ -139,7 +139,6 @@ KO = {
     "2. Runtime": "2. 실행 환경",
     "Memory (RAM)": "메모리(RAM)",
     "Install the right Java automatically": "필요한 Java가 없으면 자동으로 설치",
-    "Let Bedrock players join (phone / console) — Geyser + Floodgate": "베드락(모바일 / 콘솔) 플레이어도 접속 가능 — Geyser + Floodgate",
     "3. World": "3. 월드",
     "Random world": "무작위 월드",
     "From seed": "시드로 생성",
@@ -148,15 +147,13 @@ KO = {
     "Zip...": "zip...",
     "4. Basics (can be changed later)": "4. 기본 설정 (나중에 바꿀 수 있어요)",
     "&aWelcome to my Minecraft server!": "&a마인크래프트 서버에 오신 걸 환영합니다!",
-    "Description (MOTD)": "서버 설명(MOTD)",
     "Game mode": "게임 모드",
     "Difficulty": "난이도",
     "Max players": "최대 인원",
     "Port": "포트",
-    "Online mode (turn off to allow non-premium accounts)": "정품 인증 (끄면 비정품 계정도 접속 가능)",
     "I accept the <a href=\"https://aka.ms/MinecraftEULA\">Minecraft EULA</a> (required).":
         "<a href=\"https://aka.ms/MinecraftEULA\">마인크래프트 EULA</a>에 동의합니다. (필수)",
-    "Choose a world folder (with level.dat)": "월드 폴더 선택 (level.dat 이 있는 폴더)",
+    "Choose a world folder (with level.dat)": "월드 폴더 선택 (level.dat이 있는 폴더)",
     "Choose a world zip": "월드 zip 파일 선택",
     "Seed (numbers or text)": "시드 입력 (숫자 또는 글자)",
     "Random": "무작위",
@@ -191,24 +188,21 @@ KO = {
     "Key": "키",
     "Value": "값",
     "Name · description · icon": "이름 · 설명 · 아이콘",
-    "Description\n(MOTD, 2 lines)": "서버 설명\n(MOTD, 2줄)",
     "Choose image...": "이미지 선택...",
     "Remove": "삭제",
-    "Any image; resized to 64×64 automatically.": "아무 이미지나 고르면 64×64로 자동 변환됩니다.",
+    "Any image; resized to 64×64 automatically.": "아무 이미지나 고르면 64×64 크기로 자동으로 맞춰져요.",
     "Icon": "아이콘",
     "Preview": "미리보기",
     "Game": "게임",
     "View distance": "시야 거리",
-    "Online mode (off = allow non-premium accounts)": "정품 인증 (끄면 비정품 접속 허용)",
     "PvP": "PvP",
     "Hardcore": "하드코어",
     "Whitelist only": "화이트리스트 전용",
-    "Allow flight (recommended with mods/plugins)": "비행 허용 (모드/플러그인 서버에 권장)",
     "Command blocks": "커맨드 블록",
     "Edit all server.properties...": "server.properties 전체 편집...",
     "Bedrock players (phone / console / Windows)": "베드락 플레이어 (모바일 / 콘솔 / Windows)",
     "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account.":
-        "Geyser + Floodgate를 설치해서 베드락 에디션 플레이어가 Xbox 계정으로 들어올 수 있게 합니다.",
+        "Geyser + Floodgate를 설치해서 베드락 에디션 플레이어도 Xbox 계정으로 들어올 수 있게 해요.",
     "The server is running. Saved changes apply after a restart.": "서버가 실행 중입니다. 저장한 설정은 재시작 후 적용됩니다.",
     "Enabled — Bedrock port {port} (UDP)": "사용 중 — 베드락 포트 {port} (UDP)",
     "Not enabled": "사용 안 함",
@@ -221,7 +215,6 @@ KO = {
     "Saved.": "저장했습니다.",
     "Restart the server to apply.": "서버를 재시작하면 적용됩니다.",
     # ---- world tab
-    "Stop the server to change the world.": "월드를 바꾸려면 먼저 서버를 중지하세요.",
     "Current world": "현재 월드",
     "Seed": "시드",
     "Status": "상태",
@@ -229,7 +222,7 @@ KO = {
     "Replace with new world": "새 월드로 교체",
     "Import world": "월드 불러오기",
     "Singleplayer worlds are in .minecraft/saves. Choose the folder with level.dat, or a zip.":
-        "싱글플레이 월드는 .minecraft/saves 폴더에 있습니다. level.dat 이 있는 폴더나 zip을 고르세요.",
+        "싱글플레이 월드는 .minecraft/saves 폴더에 있어요. level.dat이 있는 폴더나 zip 파일을 고르세요.",
     "From folder...": "폴더에서...",
     "From zip...": "zip에서...",
     "Backups": "백업",
@@ -268,7 +261,7 @@ KO = {
     "Phone / console players: address + port": "모바일 / 콘솔 플레이어: 주소 + 포트",
     "Let friends from other homes join": "다른 집 친구 초대하기",
     "Your router must forward the server port. Most routers can do it automatically (UPnP).":
-        "다른 집 사람이 들어오려면 공유기에서 포트를 열어야 합니다. 대부분의 공유기는 자동으로 열 수 있어요 (UPnP).",
+        "다른 집 사람이 들어오려면 공유기에서 포트를 열어야 해요. 대부분의 공유기는 자동으로 열 수 있어요(UPnP).",
     "Open port automatically (UPnP)": "자동으로 포트 열기 (UPnP)",
     "Close port": "포트 닫기",
     "Allow in Windows Firewall": "Windows 방화벽 허용",
@@ -281,10 +274,10 @@ KO = {
     "<li>Give friends the <b>Internet</b> address above.</li></ol>"
     "<p>Can't forward ports (carrier NAT, dorm or office Wi-Fi, hotspot)? A free tunnel such as "
     "<a href='https://playit.gg'>playit.gg</a> works without it.</p>":
-        "<ol style='margin-left:-20px'><li>브라우저 주소창에 공유기 관리 페이지 <b>http://{router}</b> 를 입력합니다. "
+        "<ol style='margin-left:-20px'><li>브라우저 주소창에 공유기 관리 페이지 <b>http://{router}</b>를 입력합니다. "
         "(ipTIME 192.168.0.1 · KT 172.30.1.254 · SK 192.168.45.1 · LG U+ 192.168.219.1 등)</li>"
         "<li><b>포트포워딩</b> (또는 NAT / 가상 서버) 메뉴로 갑니다.</li>"
-        "<li><b>{ports}</b> 를 이 PC(<b>{lan}</b>)로 연결하는 규칙을 추가합니다.</li>"
+        "<li><b>{ports}</b>를 이 PC(<b>{lan}</b>)로 연결하는 규칙을 추가합니다.</li>"
         "<li>친구에게 위의 <b>인터넷</b> 주소를 알려줍니다.</li></ol>"
         "<p>포트를 열 수 없는 환경(통신사 NAT, 기숙사·회사 와이파이, 핫스팟)이라면 "
         "<a href='https://playit.gg'>playit.gg</a> 같은 무료 터널 서비스를 쓰면 됩니다.</p>",
@@ -299,18 +292,13 @@ KO = {
     "Port closed.": "포트를 닫았습니다.",
     "Firewall": "방화벽",
     "Could not add the firewall rule.": "방화벽 규칙을 추가하지 못했습니다.",
-    # ---- update tab
-    "Stop the server to update it.": "업데이트하려면 먼저 서버를 중지하세요.",
+    # ---- server version (World tab)
     "Current": "현재",
-    "Update version": "버전 업데이트",
-    "New version": "새 버전",
-    "Show older versions (may break the world)": "낮은 버전도 표시 (월드가 깨질 수 있음)",
     "Back up the whole server first (recommended)": "업데이트 전에 서버 전체 백업 (권장)",
-    "Check that your plugins/mods support the new version.": "플러그인/모드가 새 버전을 지원하는지 확인해 주세요.",
-    "Re-detect / reinstall Java": "Java 다시 찾기 / 설치",
+    "Check that your plugins/mods support the new version.": "쓰고 있는 플러그인/모드가 새 버전을 지원하는지 먼저 확인해 주세요.",
     "You're on the latest version.": "이미 최신 버전입니다.",
     "Going to an older version can break the world!": "낮은 버전으로 바꾸면 월드가 깨질 수 있습니다!",
-    "Update {name} {old} → {new}?": "{name} {old} → {new} 로 업데이트할까요?",
+    "Update {name} {old} → {new}?": "{name} {old} → {new}(으)로 업데이트할까요?",
     # ---- widgets / workers
     "Colors: &0 black &1 dark blue &2 green &3 teal &4 red &5 purple &6 gold &7 gray "
     "&8 dark gray &9 blue &a lime &b aqua &c light red &d pink &e yellow &f white · "
@@ -335,12 +323,11 @@ KO = {
     "Ban {name} from this server?": "{name} 님을 이 서버에서 밴할까요?",
     "CPU": "CPU",
     "Close": "닫기",
-    "Data folder: {path}": "데이터 폴더: {path}",
     "Description": "설명",
     "Disk": "디스크",
     "Download": "다운로드",
     "Download/upload are for the whole PC. Ping is measured from this PC to each player (some networks block it).":
-        "다운로드/업로드는 PC 전체 기준입니다. 핑은 이 PC에서 각 플레이어까지 잰 값이에요 (일부 네트워크는 응답하지 않음).",
+        "다운로드/업로드는 PC 전체 기준이에요. 핑은 이 PC에서 각 플레이어까지 잰 값이에요(일부 네트워크는 응답하지 않아요).",
     "Keep running in background": "백그라운드에서 계속 실행",
     "Low-resource mode": "저사양 모드",
     "{app} is still running. Open it from the tray icon.": "{app}이(가) 계속 실행 중입니다. 트레이 아이콘에서 다시 열 수 있어요.",
@@ -352,7 +339,7 @@ KO = {
     "Players' networks don't answer ping": "플레이어 네트워크가 핑에 응답하지 않음",
     "Reason (optional)": "사유 (선택)",
     "Runs servers at lower priority with a smaller memory footprint, and pauses the app's live updates while its window is hidden.":
-        "서버를 낮은 우선순위와 적은 메모리로 실행하고, 창이 숨겨져 있을 때는 실시간 갱신을 멈춥니다.",
+        "서버를 낮은 우선순위와 적은 메모리로 실행하고, 창이 숨겨져 있을 때는 실시간 갱신을 멈춰요.",
     "Stop server and quit": "서버 중지 후 종료",
     "Stop servers and quit": "서버 중지 후 종료",
     "The server is off. Live numbers appear while it runs.": "서버가 꺼져 있습니다. 실행 중일 때 실시간 수치가 나옵니다.",
@@ -419,15 +406,15 @@ KO = {
     "Starting the playit.gg tunnel...": "playit.gg 터널 시작 중...",
     "Could not update Geyser: {err} (retry from Settings)": "Geyser 업데이트 실패: {err} (설정 탭에서 다시 시도할 수 있어요)",
     # ---- memory saver / server menu / join check
-    "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.": "1~3명이면 보통 1~2GB로 충분합니다. 모드팩은 4GB 이상이 필요해요.",
+    "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.": "1~3명이면 보통 1~2GB면 충분해요. 모드팩은 4GB 이상이 필요해요.",
     "Memory saver": "메모리 절약",
     "Use less memory": "메모리 적게 쓰기",
     "Usually saves a third to half of the memory. Sets view distance 6 and simulation distance 4, unloads spawn chunks and returns unused memory sooner. Far-away farms only run while someone is nearby.":
-        "보통 메모리를 3분의 1~절반 정도 줄여 줍니다. 시야 거리 6, 시뮬레이션 거리 4로 맞추고, 스폰 청크를 내리고, 안 쓰는 메모리를 더 빨리 돌려줍니다. 멀리 있는 농장은 근처에 사람이 있을 때만 돌아갑니다.",
+        "메모리를 보통 3분의 1에서 절반까지 줄여 줘요. 시야 거리를 6, 시뮬레이션 거리를 4로 맞추고, 스폰 청크를 내리고, 안 쓰는 메모리를 더 빨리 돌려줘요. 대신 멀리 있는 농장은 근처에 사람이 있을 때만 돌아가요.",
     "Memory saver: unloading spawn chunks": "메모리 절약: 스폰 청크 내리는 중",
     "Simulation distance": "시뮬레이션 거리",
     "Free and the easiest option: friends join without opening any ports. Adds a little latency (distance to the nearest playit server).":
-        "무료이고 가장 쉬운 방법: 포트를 열지 않아도 친구가 들어올 수 있어요. 가장 가까운 playit 서버까지의 거리만큼 지연이 조금 늘어납니다.",
+        "무료이고 가장 쉬운 방법이에요. 포트를 열지 않아도 친구가 들어올 수 있어요. 대신 가장 가까운 playit 서버까지의 거리만큼 지연이 조금 늘어나요.",
     "Rename, duplicate, delete...": "이름 바꾸기, 복제, 삭제...",
     "Rename...": "이름 바꾸기...",
     "Rename": "이름 바꾸기",
@@ -497,4 +484,38 @@ KO = {
     "Offline mode for this run: players join without signing in. Online mode turns back on when the server stops.":
         "이번 실행은 오프라인 모드입니다. 로그인 없이 접속할 수 있으며, 서버를 끄면 정품 인증이 다시 켜집니다.",
     "Online mode is back on.": "정품 인증(온라인 모드)을 다시 켰습니다.",
+    "About these numbers": "이 수치에 대해",
+    "Allow flight": "비행 허용",
+    "Data folder": "데이터 폴더",
+    "Going back to an older version can break the world. Keep the backup option on.":
+        "예전 버전으로 되돌리면 월드가 깨질 수 있어요. 백업 옵션은 켜 두세요.",
+    "Help": "도움말",
+    "How far from players the world keeps moving (crops, mobs, redstone), in chunks. Lower is lighter.":
+        "플레이어 주변에서 작물·몹·레드스톤이 계속 움직이는 거리(청크)예요. 낮을수록 가벼워요.",
+    "How far players can see, in chunks. Higher looks better but uses more memory and CPU.":
+        "플레이어가 볼 수 있는 거리(청크)예요. 높을수록 멀리 보이지만 메모리와 CPU를 더 써요.",
+    "Let Bedrock players join": "베드락 플레이어도 접속 허용",
+    "Off": "끔",
+    "One life: players become spectators when they die.": "목숨이 하나뿐이에요. 죽으면 관전 모드가 돼요.",
+    "Online mode": "정품 인증",
+    "Only players on the whitelist (Players tab) can join.": "화이트리스트(플레이어 탭)에 있는 사람만 접속할 수 있어요.",
+    "Players must sign in with a real Minecraft account. Turn it off to let non-premium accounts join (anyone can then use any name).":
+        "정품 마인크래프트 계정으로 로그인해야 접속할 수 있어요. 끄면 비정품 계정도 들어올 수 있지만, 누구나 아무 닉네임이나 쓸 수 있게 돼요.",
+    "Reinstall Java": "Java 다시 설치",
+    "Server version": "서버 버전",
+    "Show older versions": "이전 버전 보기",
+    "Shown under the server name in the multiplayer list (MOTD). Up to 2 lines.":
+        "멀티플레이 목록에서 서버 이름 아래에 보이는 글(MOTD)이에요. 최대 2줄까지 쓸 수 있어요.",
+    "Spawn protection": "스폰 보호",
+    "Stop the server to change the world or update it.": "월드를 바꾸거나 업데이트하려면 서버를 먼저 꺼 주세요.",
+    "Stops the server from kicking players for flying. Turn it on if mods or plugins let players fly.":
+        "날고 있는 플레이어를 서버가 추방하지 않게 해요. 모드나 플러그인으로 날 수 있다면 켜 주세요.",
+    "Test versions of upcoming updates. They can be unstable.": "다음 업데이트의 테스트 버전이에요. 불안정할 수 있어요.",
+    "The same seed always makes the same world. Use one from a friend or a seed website.":
+        "같은 시드는 항상 같은 월드를 만들어요. 친구나 시드 사이트에서 받은 시드를 넣어 보세요.",
+    "Update to": "업데이트할 버전",
+    "Usually 25565. Change it only to run several servers at the same time.":
+        "보통 25565예요. 서버 여러 개를 동시에 켤 때만 바꾸세요.",
+    "Within this many blocks of the world spawn, only OPs can break or place blocks. 0 = off, everyone can build. It only works once the server has at least one OP.":
+        "월드 스폰 지점에서 이 거리(블록) 안에서는 OP만 블록을 부수거나 놓을 수 있어요. 0이면 꺼지고 누구나 건축할 수 있어요. OP가 한 명 이상 있어야 작동해요.",
 }

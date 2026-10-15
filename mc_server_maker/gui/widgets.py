@@ -1,12 +1,12 @@
-"""Shared widgets: MOTD preview, server icon conversion."""
+"""Shared widgets: (?) help buttons, MOTD preview, server icon conversion."""
 
 import html
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QCursor, QGuiApplication, QImage, QPixmap
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 from mc_server_maker.gui import theme
 from mc_server_maker.i18n import t
 
@@ -16,6 +16,57 @@ COLORS = {
     "8": "#555555", "9": "#5555FF", "a": "#55FF55", "b": "#55FFFF",
     "c": "#FF5555", "d": "#FF55FF", "e": "#FFFF55", "f": "#FFFFFF",
 }
+class HelpButton(QToolButton):
+    """A small (?) next to a setting. Click it to read the longer explanation."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent)
+        self.help_text = text
+        self.setText("?")
+        self.setObjectName("Help")
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setFocusPolicy(Qt.TabFocus)
+        self.setAccessibleName(t("Help"))
+        self.setAccessibleDescription(text)
+        self.clicked.connect(self.show_help)
+        self._popup = None
+
+    def show_help(self):
+        popup = QFrame(self, Qt.Popup)
+        popup.setObjectName("HelpPopup")
+        v = QVBoxLayout(popup)
+        v.setContentsMargins(12, 10, 12, 10)
+        label = QLabel(self.help_text)
+        label.setWordWrap(True)
+        label.setTextFormat(Qt.PlainText)
+        label.setMaximumWidth(340)
+        label.setMinimumWidth(min(340, max(160, label.fontMetrics().horizontalAdvance(self.help_text) + 4)))
+        v.addWidget(label)
+        popup.adjustSize()
+        pos = self.mapToGlobal(QPoint(0, self.height() + 4))
+        screen = (self.screen() or QGuiApplication.primaryScreen()).availableGeometry()
+        x = min(pos.x(), screen.right() - popup.width() - 4)
+        y = pos.y() if pos.y() + popup.height() < screen.bottom() else self.mapToGlobal(QPoint(0, 0)).y() - popup.height() - 4
+        popup.move(max(screen.left() + 4, x), y)
+        popup.show()
+        self._popup = popup
+
+
+def with_help(widget, text: str, expand: bool = False) -> QWidget:
+    """`widget` (or a label for a string) followed by a (?) button.
+
+    expand=True lets the widget take the row's width (for wrapping status text)."""
+    box = QWidget()
+    row = QHBoxLayout(box)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(6)
+    row.addWidget(QLabel(widget) if isinstance(widget, str) else widget, 1 if expand else 0)
+    row.addWidget(HelpButton(text), 0, Qt.AlignTop if expand else Qt.AlignVCenter)
+    if not expand:
+        row.addStretch()
+    return box
+
+
 def color_help() -> str:
     return t("Colors: &0 black &1 dark blue &2 green &3 teal &4 red &5 purple &6 gold &7 gray "
              "&8 dark gray &9 blue &a lime &b aqua &c light red &d pink &e yellow &f white · "

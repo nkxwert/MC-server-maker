@@ -48,13 +48,13 @@ from mc_server_maker.gui.tabs import (
     PlayersTab,
     SettingsTab,
     StatusTab,
-    UpgradeTab,
     WorldTab,
     jar_paths,
     open_path,
 )
 from mc_server_maker.gui.tunnel_manager import TunnelManager
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
+from mc_server_maker.gui.widgets import with_help
 from mc_server_maker.gui.workers import TaskDialog, run_async, wait_all
 from mc_server_maker.i18n import LANGUAGES, set_language, t
 
@@ -160,11 +160,13 @@ class PreferencesDialog(QDialog):
         form.addRow(t("Language"), self.language)
         self.low_resource = QCheckBox(t("Low-resource mode"))
         self.low_resource.setChecked(settings.low_resource)
-        self.low_resource.setToolTip(t(
+        form.addRow("", with_help(self.low_resource, t(
             "Runs servers at lower priority with a smaller memory footprint, "
-            "and pauses the app's live updates while its window is hidden."))
-        form.addRow("", self.low_resource)
-        form.addRow("", QLabel(t("Data folder: {path}", path=paths.BASE_DIR)))
+            "and pauses the app's live updates while its window is hidden.")))
+        folder = QLabel(str(paths.BASE_DIR))
+        folder.setWordWrap(True)
+        folder.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        form.addRow(t("Data folder"), folder)
         row = QHBoxLayout()
         row.addWidget(QLabel(t("Version {v}", v=APP_VERSION)))
         check = QPushButton(t("Check for updates"))
@@ -320,12 +322,11 @@ class MainWindow(QMainWindow):
         self.world_tab = WorldTab(self.runner, self.reload)
         self.players_tab = PlayersTab(self.runner, self.reload)
         self.network_tab = NetworkTab(self.runner, self.reload)
-        self.upgrade_tab = UpgradeTab(self.runner, self.reload)
         self.all_tabs = [
             self.console_tab, self.status_tab, self.addons_tab, self.settings_tab, self.world_tab,
-            self.players_tab, self.network_tab, self.upgrade_tab,
+            self.players_tab, self.network_tab,
         ]
-        titles = ["Console", "Server status", "Plugins", "Settings", "World", "Players", "Network", "Update"]
+        titles = ["Console", "Server status", "Plugins", "Settings", "World", "Players", "Network"]
         for tab, name in zip(self.all_tabs, titles):
             self.tabs.addTab(tab, t(name))
         self.network_tab.set_tunnel(self.tunnel)
@@ -486,10 +487,11 @@ class MainWindow(QMainWindow):
         self.settings.low_resource = dlg.low_resource.isChecked()
         self.settings.save()
         apply_low_resource(self.runner, self.settings.low_resource)
+        if changed_lang:
+            set_language(new_lang)  # before theme.apply: the font depends on the language
         theme.apply(QApplication.instance(), new_theme)
         if changed_lang:
             # rebuild the window in the new language; running servers keep running
-            set_language(new_lang)
             retranslate_tray()
             win = MainWindow(self.runner, self.settings, self.tunnel, self.key)
             win.setGeometry(self.geometry())

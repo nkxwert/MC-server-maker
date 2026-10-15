@@ -6,6 +6,7 @@ from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPalette, QPixm
 from PySide6.QtWidgets import QApplication, QFormLayout
 
 from mc_server_maker.core import paths
+from mc_server_maker.i18n import language
 
 DARK = {
     "bg": "#15171c", "surface": "#1d2027", "surface2": "#252932", "surface3": "#2e333d",
@@ -53,6 +54,14 @@ QToolTip {{ background: {surface3}; color: {text}; border: 1px solid {border}; p
 #Chip {{ background: {surface3}; border-radius: 10px; padding: 2px 10px; font-size: 9pt; }}
 #Muted {{ color: {muted}; }}
 #Hint {{ color: {muted}; font-size: 9.5pt; }}
+#Help {{
+    background: transparent; color: {muted}; border: 1px solid {border}; border-radius: 9px;
+    min-width: 16px; max-width: 16px; min-height: 16px; max-height: 16px; padding: 0;
+    font-size: 8.5pt; font-weight: 700;
+}}
+#Help:hover, #Help:checked {{ color: {accent}; border-color: {accent}; }}
+#HelpPopup {{ background: {surface3}; border: 1px solid {border}; border-radius: 8px; }}
+#HelpPopup QLabel {{ background: transparent; }}
 #Warn {{ color: {warn}; font-weight: 600; }}
 #Big {{ font-size: 15pt; font-weight: 700; }}
 
@@ -173,7 +182,10 @@ def apply(app: QApplication, mode: str = "dark") -> None:
     C.update(colors)
     app.setStyle("Fusion")
     font = QFont()
-    font.setFamilies(["Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Noto Sans CJK KR", "sans-serif"])
+    korean = ["Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Noto Sans CJK KR"]
+    # Korean UI: a Korean font first so Hangul and Latin share one consistent look
+    families = korean + ["Segoe UI"] if language() == "ko" else ["Segoe UI"] + korean
+    font.setFamilies(families + ["sans-serif"])
     font.setPointSizeF(10.5)
     app.setFont(font)
     pal = QPalette()

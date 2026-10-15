@@ -37,6 +37,14 @@ class ServerError(Exception):
     pass
 
 
+# Friendlier than vanilla for a small server among friends.
+NEW_SERVER_DEFAULTS = {
+    "spawn-protection": 0,  # everyone can build at spawn
+    "chat-spam-threshold-seconds": 0,  # don't kick for chatting fast (26.2+; older versions ignore it)
+    "command-spam-threshold-seconds": 0,
+}
+
+
 @dataclass
 class ServerMeta:
     name: str
@@ -188,7 +196,7 @@ def resolve_java(meta: ServerMeta) -> str:
         return meta.java_path
     found = javamod.find_java(meta.java_major, strict=False)
     if not found:
-        raise ServerError(t("Java {v} not found. Reinstall it from the Update tab.", v=meta.java_major))
+        raise ServerError(t("Java {v} not found. Reinstall it in the World tab (Server version).", v=meta.java_major))
     meta.java_path = found.path
     meta.save()
     return found.path
@@ -290,6 +298,8 @@ def create_server(opts: CreateOptions, task: Optional[Task] = None) -> ServerMet
         props.set("level-name", "world")
         props.set("level-seed", opts.world.seed.strip() if opts.world.mode == "seed" else "")
         props.set("level-type", level_type_value(opts.world.level_type, v))
+        for key, value in NEW_SERVER_DEFAULTS.items():
+            props.set(key, value)
         props.save()
 
         if opts.world.mode == "import":

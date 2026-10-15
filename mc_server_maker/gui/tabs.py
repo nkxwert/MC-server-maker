@@ -1,4 +1,4 @@
-"""Server tabs: Console / Status / Settings / World / Players / Network / Update."""
+"""Server tabs: Console / Status / Settings / World (with version updates) / Players / Network."""
 
 import os
 import re
@@ -59,7 +59,15 @@ from mc_server_maker.gui import theme
 from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
 from mc_server_maker.gui.runner import ServerRunner
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
-from mc_server_maker.gui.widgets import MotdPreview, amp_to_section, color_help, convert_icon, section_to_amp
+from mc_server_maker.gui.widgets import (
+    HelpButton,
+    MotdPreview,
+    amp_to_section,
+    color_help,
+    convert_icon,
+    section_to_amp,
+    with_help,
+)
 from mc_server_maker.gui.workers import TaskDialog, run_async
 from mc_server_maker.i18n import t
 
@@ -549,8 +557,9 @@ class SettingsTab(ServerTab):
         self.motd = QPlainTextEdit()
         self.motd.setFixedHeight(56)
         self.motd.textChanged.connect(self._update_preview)
-        form.addRow(t("Description\n(MOTD, 2 lines)"), self.motd)
-        form.addRow("", hint(color_help()))
+        form.addRow(with_help(t("Description"), t(
+            "Shown under the server name in the multiplayer list (MOTD). Up to 2 lines.") + "\n\n" + color_help()),
+            self.motd)
         icon_row = QHBoxLayout()
         pick = QPushButton(t("Choose image..."))
         pick.clicked.connect(self._pick_icon)
@@ -558,8 +567,8 @@ class SettingsTab(ServerTab):
         remove.clicked.connect(self._remove_icon)
         icon_row.addWidget(pick)
         icon_row.addWidget(remove)
-        icon_row.addWidget(hint(t("Any image; resized to 64×64 automatically.")), 1)
-        form.addRow(t("Icon"), icon_row)
+        icon_row.addStretch()
+        form.addRow(with_help(t("Icon"), t("Any image; resized to 64×64 automatically.")), icon_row)
         self.preview = MotdPreview()
         form.addRow(t("Preview"), self.preview)
         layout.addWidget(box)
@@ -577,26 +586,39 @@ class SettingsTab(ServerTab):
             self.difficulty.addItem(t(label), k)
         form.addRow(t("Difficulty"), self.difficulty)
         self.port = QSpinBox(minimum=1, maximum=65535)
-        form.addRow(t("Port"), self.port)
+        form.addRow(with_help(t("Port"), t(
+            "Usually 25565. Change it only to run several servers at the same time.")), self.port)
         self.view_distance = QSpinBox(minimum=2, maximum=32)
-        form.addRow(t("View distance"), self.view_distance)
+        form.addRow(with_help(t("View distance"), t(
+            "How far players can see, in chunks. Higher looks better but uses more memory and CPU.")),
+            self.view_distance)
         self.sim_distance = QSpinBox(minimum=2, maximum=32)
-        form.addRow(t("Simulation distance"), self.sim_distance)
+        form.addRow(with_help(t("Simulation distance"), t(
+            "How far from players the world keeps moving (crops, mobs, redstone), in chunks. Lower is lighter.")),
+            self.sim_distance)
+        self.spawn_protection = QSpinBox(minimum=0, maximum=10000)
+        self.spawn_protection.setSpecialValueText(t("Off"))
+        form.addRow(with_help(t("Spawn protection"), t(
+            "Within this many blocks of the world spawn, only OPs can break or place blocks. "
+            "0 = off, everyone can build. It only works once the server has at least one OP.")),
+            self.spawn_protection)
         self.checks = {}
-        for key, label in (
-            ("online-mode", "Online mode (off = allow non-premium accounts)"),
-            ("pvp", "PvP"),
-            ("hardcore", "Hardcore"),
-            ("white-list", "Whitelist only"),
-            ("allow-flight", "Allow flight (recommended with mods/plugins)"),
-            ("enable-command-block", "Command blocks"),
+        for key, label, help_text in (
+            ("online-mode", "Online mode", "Players must sign in with a real Minecraft account. "
+             "Turn it off to let non-premium accounts join (anyone can then use any name)."),
+            ("pvp", "PvP", ""),
+            ("hardcore", "Hardcore", "One life: players become spectators when they die."),
+            ("white-list", "Whitelist only", "Only players on the whitelist (Players tab) can join."),
+            ("allow-flight", "Allow flight", "Stops the server from kicking players for flying. "
+             "Turn it on if mods or plugins let players fly."),
+            ("enable-command-block", "Command blocks", ""),
         ):
             cb = QCheckBox(t(label))
             self.checks[key] = cb
-            form.addRow("", cb)
+            form.addRow("", with_help(cb, t(help_text)) if help_text else cb)
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64)
-        form.addRow(t("Memory (RAM)"), self.ram)
-        form.addRow("", hint(t("1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")))
+        form.addRow(with_help(t("Memory (RAM)"), t(
+            "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")), self.ram)
         all_props = set_kind(QPushButton(t("Edit all server.properties...")), "ghost")
         all_props.clicked.connect(self._edit_all)
         form.addRow("", all_props)
@@ -606,18 +628,17 @@ class SettingsTab(ServerTab):
         v = QVBoxLayout(box)
         self.memory_saver = QCheckBox(t("Use less memory"))
         self.memory_saver.toggled.connect(self._memory_saver_toggled)
-        v.addWidget(self.memory_saver)
-        v.addWidget(hint(t(
+        v.addWidget(with_help(self.memory_saver, t(
             "Usually saves a third to half of the memory. Sets view distance 6 and simulation distance 4, "
             "unloads spawn chunks and returns unused memory sooner. Far-away farms only run while someone is nearby.")))
         layout.addWidget(box)
 
         self.bedrock_box = QGroupBox(t("Bedrock players (phone / console / Windows)"))
         v = QVBoxLayout(self.bedrock_box)
-        v.addWidget(hint(t("Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account.")))
         self.bedrock_status = QLabel()
         self.bedrock_status.setObjectName("ItemName")
-        v.addWidget(self.bedrock_status)
+        v.addWidget(with_help(self.bedrock_status, t(
+            "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account.")))
         row = QHBoxLayout()
         self.btn_bedrock = set_kind(QPushButton(), "primary")
         self.btn_bedrock.clicked.connect(self._install_bedrock)
@@ -657,6 +678,7 @@ class SettingsTab(ServerTab):
         set_spin(self.port, p.get_int("server-port", 25565))
         set_spin(self.view_distance, p.get_int("view-distance", 10))
         set_spin(self.sim_distance, p.get_int("simulation-distance", 10))
+        set_spin(self.spawn_protection, p.get_int("spawn-protection", 16))
         self.memory_saver.blockSignals(True)
         self.memory_saver.setChecked(self.meta.memory_saver)
         self.memory_saver.blockSignals(False)
@@ -765,6 +787,7 @@ class SettingsTab(ServerTab):
         self.meta.memory_saver = saver
         p.set("view-distance", self.view_distance.value())
         p.set("simulation-distance", self.sim_distance.value())
+        p.set("spawn-protection", self.spawn_protection.value())
         for key, cb in self.checks.items():
             p.set(key, cb.isChecked())
         p.set("enforce-whitelist", self.checks["white-list"].isChecked())
@@ -786,7 +809,7 @@ class WorldTab(ServerTab):
         body = QWidget()
         layout = QVBoxLayout(body)
 
-        self.running_notice = warn_label(t("Stop the server to change the world."))
+        self.running_notice = warn_label(t("Stop the server to change the world or update it."))
         layout.addWidget(self.running_notice)
 
         box = QGroupBox(t("Current world"))
@@ -799,6 +822,9 @@ class WorldTab(ServerTab):
         form.addRow(t("World type"), self.info_type)
         form.addRow(t("Status"), self.info_exists)
         layout.addWidget(box)
+
+        self.upgrade = UpgradeSection(runner, on_changed)
+        layout.addWidget(self.upgrade)
 
         box = QGroupBox(t("New world (current one is backed up)"))
         v = QVBoxLayout(box)
@@ -834,7 +860,6 @@ class WorldTab(ServerTab):
 
         box = QGroupBox(t("Import world"))
         v = QVBoxLayout(box)
-        v.addWidget(hint(t("Singleplayer worlds are in .minecraft/saves. Choose the folder with level.dat, or a zip.")))
         row = QHBoxLayout()
         self.btn_import_dir = QPushButton(t("From folder..."))
         self.btn_import_dir.clicked.connect(self._import_dir)
@@ -842,6 +867,9 @@ class WorldTab(ServerTab):
         self.btn_import_zip.clicked.connect(self._import_zip)
         row.addWidget(self.btn_import_dir)
         row.addWidget(self.btn_import_zip)
+        row.addWidget(HelpButton(t(
+            "Singleplayer worlds are in .minecraft/saves. Choose the folder with level.dat, or a zip.")))
+        row.addStretch()
         v.addLayout(row)
         layout.addWidget(box)
 
@@ -885,6 +913,7 @@ class WorldTab(ServerTab):
         self.running_notice.setVisible(running)
         for w in (self.btn_new, self.btn_import_dir, self.btn_import_zip, self.btn_backup):
             w.setEnabled(not running)
+        self.upgrade.set_server(self.meta)
 
     def _confirm(self, text: str) -> bool:
         return QMessageBox.question(
@@ -1065,15 +1094,14 @@ class NetworkTab(ServerTab):
 
         box = QGroupBox(t("Tunnel (no port forwarding) — playit.gg"))
         v = QVBoxLayout(box)
-        v.addWidget(hint(t(
-            "Free and the easiest option: friends join without opening any ports. "
-            "Adds a little latency (distance to the nearest playit server).")))
         self.tunnel_status = QLabel()
         self.tunnel_status.setWordWrap(True)
         self.tunnel_status.setObjectName("ItemName")
         self.tunnel_status.setTextFormat(Qt.RichText)
         self.tunnel_status.setOpenExternalLinks(True)
-        v.addWidget(self.tunnel_status)
+        v.addWidget(with_help(self.tunnel_status, t(
+            "Free and the easiest option: friends join without opening any ports. "
+            "Adds a little latency (distance to the nearest playit server)."), expand=True))
         self.addr_tunnel = AddressRow(t("Tunnel address"), t("Give this to friends (Java Edition)"))
         v.addWidget(self.addr_tunnel)
         row = QHBoxLayout()
@@ -1097,11 +1125,11 @@ class NetworkTab(ServerTab):
 
         box = QGroupBox(t("Let friends from other homes join"))
         v = QVBoxLayout(box)
-        v.addWidget(hint(t("Your router must forward the server port. Most routers can do it automatically (UPnP).")))
         self.port_status = QLabel()
         self.port_status.setWordWrap(True)
         self.port_status.setObjectName("ItemName")
-        v.addWidget(self.port_status)
+        v.addWidget(with_help(self.port_status, t(
+            "Your router must forward the server port. Most routers can do it automatically (UPnP)."), expand=True))
         row = QHBoxLayout()
         self.btn_open = set_kind(QPushButton(t("Open port automatically (UPnP)")), "primary")
         self.btn_open.clicked.connect(self._open_port)
@@ -1668,8 +1696,9 @@ class JoinCheckBox(QGroupBox):
         self.btn = QPushButton(t("Check now"))
         self.btn.clicked.connect(self.run)
         row.addWidget(self.btn)
+        row.addWidget(HelpButton(t(
+            "Internet checks are done from outside by mcsrvstat.us and can lag a few minutes behind.")))
         v.addLayout(row)
-        v.addWidget(hint(t("Internet checks are done from outside by mcsrvstat.us and can lag a few minutes behind.")))
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.run)
         self._busy = False
@@ -1798,7 +1827,10 @@ class StatusTab(ServerTab):
         for i, tile in enumerate((self.cpu, self.mem, self.down, self.up, self.ping, self.disk)):
             grid.addWidget(tile, i // 3, i % 3)
         layout.addLayout(grid)
-        layout.addWidget(hint(t("Download/upload are for the whole PC. Ping is measured from this PC to each player (some networks block it).")))
+        about = with_help(t("About these numbers"), t(
+            "Download/upload are for the whole PC. Ping is measured from this PC to each player (some networks block it)."))
+        about.layout().itemAt(0).widget().setObjectName("Hint")
+        layout.addWidget(about)
         layout.addStretch()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1925,63 +1957,57 @@ class StatusTab(ServerTab):
         run_async(work, done, fail)
 
 
-# ==================================================================== update
+# ============================================================ server version
 
 
-class UpgradeTab(ServerTab):
+class UpgradeSection(ServerTab):
+    """Server version and updates. Lives inside the World tab, which shows the 'stop first' notice."""
+
     def __init__(self, runner, on_changed):
         super().__init__(runner, on_changed)
-        body = QWidget()
-        layout = QVBoxLayout(body)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        self.running_notice = warn_label(t("Stop the server to update it."))
-        layout.addWidget(self.running_notice)
-
-        box = QGroupBox(t("Current"))
+        box = QGroupBox(t("Server version"))
         form = form_layout(box)
         self.cur_version = QLabel()
+        self.cur_version.setObjectName("ItemName")
+        form.addRow(t("Current"), self.cur_version)
+        java_row = QHBoxLayout()
         self.cur_java = QLabel()
         self.cur_java.setWordWrap(True)
-        form.addRow(t("Version"), self.cur_version)
-        form.addRow("Java", self.cur_java)
-        layout.addWidget(box)
-
-        box = QGroupBox(t("Update version"))
-        form = form_layout(box)
+        java_row.addWidget(self.cur_java, 1)
+        self.btn_java = set_kind(QPushButton(t("Reinstall Java")), "ghost")
+        self.btn_java.clicked.connect(self._fix_java)
+        java_row.addWidget(self.btn_java)
+        form.addRow("Java", java_row)
         self.version = QComboBox()
-        form.addRow(t("New version"), self.version)
+        form.addRow(t("Update to"), self.version)
         self.version_status = hint("")
         form.addRow("", self.version_status)
         self.unstable = QCheckBox(t("Show snapshots"))
         self.unstable.toggled.connect(self._reload)
-        form.addRow("", self.unstable)
-        self.allow_downgrade = QCheckBox(t("Show older versions (may break the world)"))
+        form.addRow("", with_help(self.unstable, t("Test versions of upcoming updates. They can be unstable.")))
+        self.allow_downgrade = QCheckBox(t("Show older versions"))
         self.allow_downgrade.toggled.connect(self._reload)
-        form.addRow("", self.allow_downgrade)
+        form.addRow("", with_help(self.allow_downgrade, t(
+            "Going back to an older version can break the world. Keep the backup option on.")))
         self.backup = QCheckBox(t("Back up the whole server first (recommended)"))
         self.backup.setChecked(True)
         form.addRow("", self.backup)
         self.auto_java = QCheckBox(t("Install the right Java automatically"))
         self.auto_java.setChecked(True)
         form.addRow("", self.auto_java)
-        form.addRow("", hint(t("Check that your plugins/mods support the new version.")))
+        row = QHBoxLayout()
         self.btn_upgrade = set_kind(QPushButton(t("Update")), "primary")
-        self.btn_upgrade.setMinimumHeight(38)
+        self.btn_upgrade.setMinimumHeight(36)
         self.btn_upgrade.clicked.connect(self._upgrade)
-        form.addRow(self.btn_upgrade)
+        row.addWidget(self.btn_upgrade)
+        row.addWidget(HelpButton(t("Check that your plugins/mods support the new version.")))
+        row.addStretch()
+        form.addRow("", row)
         layout.addWidget(box)
 
-        row = QHBoxLayout()
-        self.btn_java = set_kind(QPushButton(t("Re-detect / reinstall Java")), "ghost")
-        self.btn_java.clicked.connect(self._fix_java)
-        row.addWidget(self.btn_java)
-        row.addStretch()
-        layout.addLayout(row)
-        layout.addStretch()
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(_scroll(body))
         self.loader = VersionLoader(self.version, self.version_status)
         self._loaded_for = None
 
@@ -1992,7 +2018,6 @@ class UpgradeTab(ServerTab):
         self.cur_version.setText(f"{m.software_name} {m.mc_version}" + (f"  (build {m.build})" if m.build else ""))
         self.cur_java.setText(f"Java {m.java_major} — {m.java_path}")
         running = self.running
-        self.running_notice.setVisible(running)
         self.btn_upgrade.setEnabled(not running)
         self.btn_java.setEnabled(not running)
         if self._loaded_for != (m.folder, m.software, m.mc_version):
