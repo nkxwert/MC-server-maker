@@ -163,15 +163,17 @@ def app_icon() -> QIcon:
     return icon
 
 
-def icon_pixmap(path, size: int) -> QPixmap:
-    """An image shrunk smoothly to `size` (logical px), sharp on 125-200% display scaling."""
+def icon_pixmap(path, size: int, smooth: bool = True) -> QPixmap:
+    """An image scaled to `size` (logical px), sharp on 125-200% display scaling.
+
+    smooth=False keeps hard pixel edges, like Minecraft draws server icons."""
     app = QGuiApplication.instance()
     ratio = max(1.0, app.devicePixelRatio() if app else 1.0)
     pix = QPixmap(str(path))
     if pix.isNull():
         return pix
     px = round(size * ratio)
-    pix = pix.scaled(px, px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    pix = pix.scaled(px, px, Qt.KeepAspectRatio, Qt.SmoothTransformation if smooth else Qt.FastTransformation)
     pix.setDevicePixelRatio(ratio)
     return pix
 

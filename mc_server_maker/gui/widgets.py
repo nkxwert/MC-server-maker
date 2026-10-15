@@ -5,8 +5,9 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QCursor, QGuiApplication, QImage, QPixmap
+from PySide6.QtGui import QCursor, QGuiApplication, QImage
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
+from mc_server_maker.core import paths
 from mc_server_maker.gui import theme
 from mc_server_maker.i18n import t
 
@@ -154,12 +155,10 @@ class MotdPreview(QFrame):
     def update_preview(self, title: str, motd_section: str, icon_path: Path = None):
         self.title.setText(html.escape(title))
         self.motd.setText(motd_to_html(motd_section) or "&nbsp;")
-        if icon_path and Path(icon_path).exists():
-            self.icon.setPixmap(theme.icon_pixmap(icon_path, 64))
-            self.icon.setText("")
-        else:
-            self.icon.setPixmap(QPixmap())
-            self.icon.setText("<span style='color:#888'>" + t("No icon") + "</span>")
+        # without an icon, Minecraft shows its default one, so the preview does too
+        has_icon = bool(icon_path) and Path(icon_path).exists()
+        source = icon_path if has_icon else paths.resource("unknown-server.png")
+        self.icon.setPixmap(theme.icon_pixmap(source, 64, smooth=False))
 
 
 def convert_icon(src: str, dest: Path) -> None:

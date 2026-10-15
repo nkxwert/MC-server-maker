@@ -3,6 +3,12 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.9.1
+### en
+- The server preview shows Minecraft's default server icon instead of "No icon" when you haven't picked one, just like in the game's server list.
+### ko
+- 아이콘을 고르지 않았을 때 미리보기에 "아이콘 없음" 대신, 게임 서버 목록처럼 마인크래프트 기본 서버 아이콘을 보여줘요.
+
 ## 1.9.0
 ### en
 - **Server version moved into the World tab**: updating the server version and reinstalling Java are now in World → *Server version*.

@@ -308,7 +308,6 @@ KO = {
         "&l굵게 &o기울임 &n밑줄 &m취소선 &r초기화",
     "Can't open that image. Choose a PNG/JPG/BMP/GIF file.": "이미지를 열 수 없습니다. PNG/JPG/BMP/GIF 파일을 골라 주세요.",
     "Could not save the icon.": "아이콘 저장에 실패했습니다.",
-    "No icon": "아이콘 없음",
     "Working...": "작업 중...",
     "Done.": "완료되었습니다.",
     "Failed.": "실패했습니다.",
