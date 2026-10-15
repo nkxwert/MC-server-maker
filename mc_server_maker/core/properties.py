@@ -122,7 +122,7 @@ class Properties:
 
     def get_int(self, key: str, default: int = 0) -> int:
         try:
-            return int(self.values.get(key, default))
+            return int(str(self.values.get(key, default)).strip())
         except (TypeError, ValueError):
             return default
 

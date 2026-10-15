@@ -485,4 +485,8 @@ KO = {
     "Updated to v{v}": "v{v}(으)로 업데이트되었습니다",
     "No internet: premium players can't sign in until the connection is back. (Turning online mode off lets LAN players in, but their inventories won't carry over.)":
         "인터넷 연결 없음: 연결될 때까지 정품 플레이어가 로그인할 수 없습니다. (정품 인증을 끄면 같은 와이파이 플레이어는 들어올 수 있지만, 인벤토리·진행 상황이 이어지지 않아요.)",
+    "Some settings of '{name}' couldn't be loaded ({tabs}). Check its server.properties.":
+        "'{name}' 서버의 일부 설정을 불러오지 못했습니다 ({tabs}). server.properties를 확인해 주세요.",
+    "Something went wrong, but {app} keeps running.": "문제가 생겼지만 {app}은(는) 계속 실행됩니다.",
+    "These need a whole number between -2147483648 and 2147483647:": "다음 값은 -2147483648 ~ 2147483647 사이의 정수여야 합니다:",
 }

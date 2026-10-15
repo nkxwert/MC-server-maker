@@ -76,6 +76,19 @@ def hint(text: str) -> QLabel:
     return label
 
 
+def set_spin(spin: QSpinBox, value) -> None:
+    """Put a value into a number box, clamped to its range.
+
+    QSpinBox only holds 32-bit numbers; an out-of-range value from server.properties
+    (e.g. max-players=99999999999) used to raise OverflowError and crash the app.
+    """
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = spin.minimum()
+    spin.setValue(max(spin.minimum(), min(spin.maximum(), value)))
+
+
 def warn_label(text: str) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
@@ -492,6 +505,23 @@ class PropertiesDialog(QDialog):
             self.table.setRowHidden(r, text not in hay)
 
     def _save(self):
+        # numbers Minecraft reads as 32-bit ints must fit, or the server (and older app versions) choke
+        bad = []
+        for r in range(self.table.rowCount()):
+            key = self.table.item(r, 0).text()
+            info = property_catalog.BY_KEY.get(key)
+            value = self._value(r).strip()
+            if info and info.default.lstrip("-").isdigit() and value:
+                try:
+                    ok = -(2**31) <= int(value) <= 2**31 - 1
+                except ValueError:
+                    ok = False
+                if not ok:
+                    bad.append(f"{key} = {value}")
+        if bad:
+            QMessageBox.warning(self, t("All server.properties"),
+                                t("These need a whole number between -2147483648 and 2147483647:") + "\n" + "\n".join(bad))
+            return
         for r in range(self.table.rowCount()):
             key = self.table.item(r, 0).text()
             value = self._value(r)
@@ -619,14 +649,14 @@ class SettingsTab(ServerTab):
         p = self.meta.properties()
         self.name.setText(self.meta.name)
         self.motd.setPlainText(section_to_amp(p.get("motd", "A Minecraft Server")))
-        self.max_players.setValue(p.get_int("max-players", 20))
+        set_spin(self.max_players, p.get_int("max-players", 20))
         gm = srv.parse_choice(p.get("gamemode"), srv.GAMEMODES, "survival")
         self.gamemode.setCurrentIndex(self.gamemode.findData(gm))
         diff = srv.parse_choice(p.get("difficulty"), srv.DIFFICULTIES, "easy")
         self.difficulty.setCurrentIndex(self.difficulty.findData(diff))
-        self.port.setValue(p.get_int("server-port", 25565))
-        self.view_distance.setValue(p.get_int("view-distance", 10))
-        self.sim_distance.setValue(p.get_int("simulation-distance", 10))
+        set_spin(self.port, p.get_int("server-port", 25565))
+        set_spin(self.view_distance, p.get_int("view-distance", 10))
+        set_spin(self.sim_distance, p.get_int("simulation-distance", 10))
         self.memory_saver.blockSignals(True)
         self.memory_saver.setChecked(self.meta.memory_saver)
         self.memory_saver.blockSignals(False)
@@ -634,7 +664,7 @@ class SettingsTab(ServerTab):
         defaults = {"online-mode": True, "pvp": True}
         for key, cb in self.checks.items():
             cb.setChecked(p.get_bool(key, defaults.get(key, False)))
-        self.ram.setValue(max(1, self.meta.ram_mb // 1024))
+        set_spin(self.ram, max(1, self.meta.ram_mb // 1024))
         self._update_preview()
         self.on_state()
 
@@ -664,12 +694,12 @@ class SettingsTab(ServerTab):
     def _memory_saver_toggled(self, on: bool):
         if on:
             self._distances_before = (self.view_distance.value(), self.sim_distance.value())
-            self.view_distance.setValue(srv.MEMORY_SAVER_DISTANCES["view-distance"])
-            self.sim_distance.setValue(srv.MEMORY_SAVER_DISTANCES["simulation-distance"])
+            set_spin(self.view_distance, srv.MEMORY_SAVER_DISTANCES["view-distance"])
+            set_spin(self.sim_distance, srv.MEMORY_SAVER_DISTANCES["simulation-distance"])
         else:
             saved = self.meta.saved_distances if self.meta and self.meta.saved_distances else {}
-            self.view_distance.setValue(int(saved.get("view-distance", self._distances_before[0])))
-            self.sim_distance.setValue(int(saved.get("simulation-distance", self._distances_before[1])))
+            set_spin(self.view_distance, saved.get("view-distance", self._distances_before[0]))
+            set_spin(self.sim_distance, saved.get("simulation-distance", self._distances_before[1]))
 
     def _update_preview(self):
         if not self.meta:

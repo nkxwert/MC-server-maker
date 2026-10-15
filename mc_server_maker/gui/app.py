@@ -2,6 +2,7 @@
 
 import sys
 import time
+import traceback
 from typing import List, Optional
 
 from PySide6.QtCore import QFile, QSize, Qt, QTimer, QUrl
@@ -427,8 +428,17 @@ class MainWindow(QMainWindow):
         if label:
             self.tabs.setTabText(idx, t(label))
         self._update_header()
+        failed = []
         for tab in self.all_tabs:
-            tab.set_server(self.meta)
+            try:
+                tab.set_server(self.meta)
+            except Exception:  # noqa: BLE001 - keep the other tabs usable
+                traceback.print_exc()
+                failed.append(self.tabs.tabText(self.tabs.indexOf(tab)))
+        if failed:
+            QTimer.singleShot(0, lambda: QMessageBox.warning(self, APP_NAME, t(
+                "Some settings of '{name}' couldn't be loaded ({tabs}). Check its server.properties.",
+                name=self.meta.name if self.meta else "", tabs=", ".join(failed))))
 
     def _update_header(self):
         m = self.meta
@@ -793,6 +803,20 @@ def retranslate_tray():
     menu.addAction(t("Stop servers and quit"), lambda: quit_app())
 
 
+def _excepthook(exc_type, exc, tb):
+    """Show unexpected errors instead of crashing the whole app."""
+    text = "".join(traceback.format_exception(exc_type, exc, tb))
+    sys.__stderr__ and sys.__stderr__.write(text)
+    if QApplication.instance() is None:
+        return
+    box = QMessageBox(current_window())
+    box.setIcon(QMessageBox.Warning)
+    box.setWindowTitle(APP_NAME)
+    box.setText(t("Something went wrong, but {app} keeps running.", app=APP_NAME))
+    box.setDetailedText(text)
+    box.exec()
+
+
 def main():
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     if sys.platform == "win32":
@@ -808,6 +832,7 @@ def main():
     except OSError as e:
         moved = []
         print("data migration failed:", e)
+    sys.excepthook = _excepthook
     settings = AppSettings.load()
     set_language(settings.language)
     app = QApplication(sys.argv)

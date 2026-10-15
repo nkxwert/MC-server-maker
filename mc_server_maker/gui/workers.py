@@ -22,7 +22,7 @@ _running = set()  # keep running threads alive (not garbage-collected)
 
 class Worker(QObject):
     log = Signal(str)
-    progress = Signal(int, int)
+    progress = Signal(object, object)  # byte counts can exceed 32-bit int (files > 2 GB)
     done = Signal(object)
     failed = Signal(str)
     finished = Signal()
@@ -72,7 +72,7 @@ class _Bridge(QObject):
         if self.cb[2]:
             self.cb[2](msg)
 
-    @Slot(int, int)
+    @Slot(object, object)
     def progress(self, done, total):
         if self.cb[3]:
             self.cb[3](done, total)
