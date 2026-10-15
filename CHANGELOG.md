@@ -3,6 +3,12 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.12.4
+### en
+- Network tab: your Wi-Fi IP, internet IP, Bedrock and tunnel addresses are hidden (•••) until you click the 👁 button next to them — handy when streaming or sharing your screen. *Copy* still copies the real address.
+### ko
+- 네트워크 탭: 와이파이 IP, 인터넷 IP, 베드락·터널 주소를 기본으로 가려요(•••). 옆의 👁 버튼을 누르면 보여요. 방송이나 화면 공유할 때 좋아요. *복사*는 그대로 실제 주소를 복사해요.
+
 ## 1.12.3
 ### en
 Bug fixes from a full review:

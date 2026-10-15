@@ -566,4 +566,7 @@ KO = {
     "{file} can't be read ({err}). Fix or delete it, then try again.": "{file} 파일을 읽을 수 없어요 ({err}). 고치거나 지운 뒤 다시 시도해 주세요.",
     "Couldn't change {file}. Stop the server, then try again.": "{file} 파일을 바꾸지 못했어요. 서버를 끈 뒤 다시 시도해 주세요.",
     "The version list isn't loaded. Check your internet connection.": "버전 목록을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.",
+    "Show address": "주소 보기",
+    "Hide address": "주소 숨기기",
+    "the 'Same Wi-Fi' address above": "위의 '같은 와이파이' 주소",
 }

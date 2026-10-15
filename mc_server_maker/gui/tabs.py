@@ -1107,9 +1107,20 @@ class PlayersTab(ServerTab):
 # =================================================================== network
 
 
+def mask_address(text: str) -> str:
+    """'203.0.113.5:25570' -> '•••.•.•••.•:25570' (the port isn't private)."""
+    m = re.fullmatch(r"([^:]*?)(\s*:\s*\d{1,5})?", text)  # no match for IPv6: mask it all
+    host, port = (m.group(1), m.group(2) or "") if m else (text, "")
+    return re.sub(r"[^.]", "•", host) + port
+
+
 class AddressRow(QWidget):
-    def __init__(self, title: str, sub: str):
+    def __init__(self, title: str, sub: str, private: bool = False):
         super().__init__()
+        self._text = "-"
+        self._real = False  # a real address (not "-" or "Checking...")
+        self._private = private
+        self._shown = not private  # private addresses start hidden (screen sharing, streaming)
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 2, 0, 2)
         col = QVBoxLayout()
@@ -1126,15 +1137,35 @@ class AddressRow(QWidget):
         self.copy = QPushButton(t("Copy"))
         self.copy.clicked.connect(self._copy)
         row.addWidget(self.copy)
+        if private:
+            self.eye = set_kind(QPushButton(), "ghost")
+            self.eye.setFixedWidth(40)
+            self.eye.setStyleSheet("font-size: 14pt; padding: 2px;")
+            self.eye.clicked.connect(self._toggle_shown)
+            row.addWidget(self.eye)
+            self._render()
 
     def _copy(self):
-        QGuiApplication.clipboard().setText(self.value.text())
+        QGuiApplication.clipboard().setText(self._text)  # always the real address, even while hidden
         self.copy.setText(t("Copied ✓"))
         QTimer.singleShot(1200, lambda: self.copy.setText(t("Copy")))
 
+    def _toggle_shown(self):
+        self._shown = not self._shown
+        self._render()
+
+    def _render(self):
+        hide = self._private and not self._shown and self._real
+        self.value.setText(mask_address(self._text) if hide else self._text)
+        self.value.setTextInteractionFlags(Qt.NoTextInteraction if hide else Qt.TextSelectableByMouse)
+        if self._private:
+            self.eye.setText("👁" if not self._shown else "🙈")
+            self.eye.setToolTip(t("Show address") if not self._shown else t("Hide address"))
+
     def set(self, text: str, enabled: bool = True):
-        self.value.setText(text)
+        self._text, self._real = text, enabled and text not in ("", "-")
         self.copy.setEnabled(enabled)
+        self._render()
 
 
 class NetworkTab(ServerTab):
@@ -1154,9 +1185,10 @@ class NetworkTab(ServerTab):
         box = QGroupBox(t("Addresses"))
         v = QVBoxLayout(box)
         self.addr_local = AddressRow(t("This PC"), t("Playing on this computer"))
-        self.addr_lan = AddressRow(t("Same Wi-Fi"), t("People in the same home"))
-        self.addr_public = AddressRow(t("Internet"), t("Friends in other homes"))
-        self.addr_bedrock = AddressRow(t("Bedrock (Internet)"), t("Phone / console players: address + port"))
+        self.addr_lan = AddressRow(t("Same Wi-Fi"), t("People in the same home"), private=True)
+        self.addr_public = AddressRow(t("Internet"), t("Friends in other homes"), private=True)
+        self.addr_bedrock = AddressRow(t("Bedrock (Internet)"), t("Phone / console players: address + port"),
+                                       private=True)
         for w in (self.addr_local, self.addr_lan, self.addr_public, self.addr_bedrock):
             v.addWidget(w)
         layout.addWidget(box)
@@ -1171,7 +1203,7 @@ class NetworkTab(ServerTab):
         v.addWidget(with_help(self.tunnel_status, t(
             "Free and the easiest option: friends join without opening any ports. "
             "Adds a little latency (distance to the nearest playit server)."), expand=True))
-        self.addr_tunnel = AddressRow(t("Tunnel address"), t("Give this to friends (Java Edition)"))
+        self.addr_tunnel = AddressRow(t("Tunnel address"), t("Give this to friends (Java Edition)"), private=True)
         v.addWidget(self.addr_tunnel)
         row = QHBoxLayout()
         self.btn_tunnel = set_kind(QPushButton(), "primary")
@@ -1279,7 +1311,7 @@ class NetworkTab(ServerTab):
             "<li>Give friends the <b>Internet</b> address above.</li></ol>"
             "<p>Can't forward ports (carrier NAT, dorm or office Wi-Fi, hotspot)? A free tunnel such as "
             "<a href='https://playit.gg'>playit.gg</a> works without it.</p>",
-            router=router, ports=ports, lan=lan,
+            router=router, ports=ports, lan=t("the 'Same Wi-Fi' address above"),  # not the IP itself (privacy)
         ))
 
     def _show_public(self, ip: str):
@@ -1307,7 +1339,7 @@ class NetworkTab(ServerTab):
             if res.cgnat:
                 self.port_status.setText("🟡 " + t(
                     "Port opened, but the router's internet IP ({ip}) is private. You are probably behind "
-                    "carrier NAT, so friends may not get in. See playit.gg below.", ip=res.router_ip))
+                    "carrier NAT, so friends may not get in. See playit.gg below.", ip=mask_address(res.router_ip)))
             else:
                 self.port_status.setText("🟢 " + t("Port {port} is open! Friends can join with the Internet address.", port=res.port))
             self.refresh()
