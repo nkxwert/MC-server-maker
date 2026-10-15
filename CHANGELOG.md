@@ -3,6 +3,12 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.12.5
+### en
+- Hidden addresses in the Network tab are now blurred instead of replaced with •••. Click 👁 to show them.
+### ko
+- 네트워크 탭에서 가린 주소를 ••• 대신 흐리게(블러) 처리해요. 👁을 누르면 보여요.
+
 ## 1.12.4
 ### en
 - Network tab: your Wi-Fi IP, internet IP, Bedrock and tunnel addresses are hidden (•••) until you click the 👁 button next to them — handy when streaming or sharing your screen. *Copy* still copies the real address.

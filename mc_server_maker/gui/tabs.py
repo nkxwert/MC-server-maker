@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFrame,
+    QGraphicsBlurEffect,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -1156,7 +1157,14 @@ class AddressRow(QWidget):
 
     def _render(self):
         hide = self._private and not self._shown and self._real
-        self.value.setText(mask_address(self._text) if hide else self._text)
+        self.value.setText(self._text)
+        if hide:  # blurred, not replaced: the layout stays the same and it looks tidy
+            blur = QGraphicsBlurEffect(self.value)
+            blur.setBlurRadius(24)  # strong enough that the digits can't be read, even zoomed in
+            blur.setBlurHints(QGraphicsBlurEffect.QualityHint)
+            self.value.setGraphicsEffect(blur)
+        else:
+            self.value.setGraphicsEffect(None)
         self.value.setTextInteractionFlags(Qt.NoTextInteraction if hide else Qt.TextSelectableByMouse)
         if self._private:
             self.eye.setText("👁" if not self._shown else "🙈")
