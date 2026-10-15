@@ -173,6 +173,36 @@ class MemorySaverTest(unittest.TestCase):
         self.assertEqual(srv.ServerMeta.load(self.dir).name, "m")
 
 
+class OfflineSessionTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.meta = srv.ServerMeta(name="o", software="vanilla", mc_version="1.21.4", folder=self.dir)
+        props = self.meta.properties()
+        props.set("online-mode", True)
+        props.save()
+        self.meta.save()
+
+    def test_offline_run_is_undone(self):
+        srv.begin_offline_session(self.meta)
+        self.assertFalse(self.meta.properties().get_bool("online-mode", True))
+        self.assertTrue(srv.ServerMeta.load(self.dir).offline_session)
+        # a stale copy (e.g. loaded before the run) still restores it
+        stale = srv.ServerMeta.load(self.dir)
+        stale.offline_session = False
+        self.assertTrue(srv.end_offline_session(stale))
+        self.assertTrue(self.meta.properties().get_bool("online-mode", False))
+        self.assertFalse(srv.ServerMeta.load(self.dir).offline_session)
+        self.assertFalse(srv.end_offline_session(self.meta))
+
+    def test_untouched_when_not_offline(self):
+        props = self.meta.properties()
+        props.set("online-mode", False)  # the user's own choice
+        props.save()
+        self.assertFalse(srv.end_offline_session(self.meta))
+        self.assertFalse(self.meta.properties().get_bool("online-mode", True))
+
+
 class JoinCheckTest(unittest.TestCase):
     def test_server_list_ping(self):
         import json

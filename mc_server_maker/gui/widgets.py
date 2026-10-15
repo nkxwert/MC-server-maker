@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+from mc_server_maker.gui import theme
 from mc_server_maker.i18n import t
 
 COLORS = {
@@ -103,7 +104,7 @@ class MotdPreview(QFrame):
         self.title.setText(html.escape(title))
         self.motd.setText(motd_to_html(motd_section) or "&nbsp;")
         if icon_path and Path(icon_path).exists():
-            self.icon.setPixmap(QPixmap(str(icon_path)))
+            self.icon.setPixmap(theme.icon_pixmap(icon_path, 64))
             self.icon.setText("")
         else:
             self.icon.setPixmap(QPixmap())

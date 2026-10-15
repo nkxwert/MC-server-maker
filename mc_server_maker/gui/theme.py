@@ -2,7 +2,7 @@
 
 from PySide6 import QtSvg  # noqa: F401 - bundles the SVG plugin used for check marks
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPalette
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPalette, QPixmap
 from PySide6.QtWidgets import QApplication, QFormLayout
 
 from mc_server_maker.core import paths
@@ -146,7 +146,25 @@ QProgressBar::chunk {{ background: {accent}; border-radius: 4px; }}
 
 
 def app_icon() -> QIcon:
-    return QIcon(str(paths.resource("icon.png")))
+    """Window / taskbar / tray icon, pre-shrunk smoothly so small sizes don't look jagged."""
+    src = QPixmap(str(paths.resource("icon.png")))
+    icon = QIcon()
+    for size in (16, 20, 24, 32, 40, 48, 64, 128, 256):
+        icon.addPixmap(src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    return icon
+
+
+def icon_pixmap(path, size: int) -> QPixmap:
+    """An image shrunk smoothly to `size` (logical px), sharp on 125-200% display scaling."""
+    app = QGuiApplication.instance()
+    ratio = max(1.0, app.devicePixelRatio() if app else 1.0)
+    pix = QPixmap(str(path))
+    if pix.isNull():
+        return pix
+    px = round(size * ratio)
+    pix = pix.scaled(px, px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    pix.setDevicePixelRatio(ratio)
+    return pix
 
 
 def apply(app: QApplication, mode: str = "dark") -> None:

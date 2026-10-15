@@ -54,7 +54,7 @@ def is_public(ip: str) -> bool:
 
 def has_internet(timeout: float = 2.0) -> bool:
     """Can we reach Mojang's login servers? (Needed for online-mode sign-in.)"""
-    for host in ("sessionserver.mojang.com", "api.github.com"):
+    for host in ("sessionserver.mojang.com", "api.minecraftservices.com"):
         try:
             with socket.create_connection((host, 443), timeout=timeout):
                 return True

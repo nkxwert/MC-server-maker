@@ -70,8 +70,7 @@ def state_text(state: str):
 
 def server_icon(meta: srv.ServerMeta, size: int) -> QPixmap:
     path = meta.folder / "server-icon.png"
-    pix = QPixmap(str(path)) if path.exists() else QPixmap(str(paths.resource("default-server.png")))
-    return pix.scaled(size, size, Qt.KeepAspectRatio, Qt.FastTransformation)
+    return theme.icon_pixmap(path if path.exists() else paths.resource("icon.png"), size)
 
 
 class ServerItem(QWidget):
@@ -213,7 +212,7 @@ class MainWindow(QMainWindow):
         sv.setSpacing(10)
         brand = QHBoxLayout()
         logo = QLabel()
-        logo.setPixmap(QPixmap(str(paths.resource("icon.png"))).scaled(34, 34, Qt.KeepAspectRatio, Qt.FastTransformation))
+        logo.setPixmap(theme.icon_pixmap(paths.resource("icon.png"), 34))
         brand.addWidget(logo)
         titles = QVBoxLayout()
         titles.setSpacing(0)
@@ -346,7 +345,7 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(page)
         v.addStretch()
         icon = QLabel()
-        icon.setPixmap(QPixmap(str(paths.resource("icon.png"))).scaled(88, 88, Qt.KeepAspectRatio, Qt.FastTransformation))
+        icon.setPixmap(theme.icon_pixmap(paths.resource("icon.png"), 88))
         icon.setAlignment(Qt.AlignCenter)
         v.addWidget(icon)
         title = QLabel(t("Create your first Minecraft server"))
@@ -385,6 +384,8 @@ class MainWindow(QMainWindow):
         self.list.clear()
         row = 0
         for i, m in enumerate(self.servers):
+            if not self.runner.is_running(str(m.folder)):
+                srv.end_offline_session(m)  # the app closed during an offline run
             self._add_item(m)
             if str(m.folder) == keep:
                 row = i
@@ -459,6 +460,12 @@ class MainWindow(QMainWindow):
         self.btn_kill.setEnabled(running)
 
     def _on_state_changed(self, key: str, state: str):
+        if state == STOPPED:
+            for m in self.servers:
+                if str(m.folder) == key and srv.end_offline_session(m):
+                    self.runner.system_line(key, t("Online mode is back on."))
+                    if key == self.key:
+                        self.settings_tab.set_server(self.meta)  # show the restored setting
         for i, m in enumerate(self.servers):
             if str(m.folder) == key:
                 self._add_item(m, i)
@@ -581,23 +588,65 @@ class MainWindow(QMainWindow):
             )
 
     def start_server(self):
-        if not self.meta:
+        if not self.meta or self.runner.is_running(self.key):
             return
         meta = self.meta
-        key = self.key
+        srv.end_offline_session(meta)  # left over if the app closed while an offline run was going
+        if not meta.properties().get_bool("online-mode", True):
+            self._launch(meta)
+            return
+        # Online mode needs Mojang's sign-in servers. Without internet nobody could join
+        # ("Authentication servers are down"), so offer an offline run first.
+        self.btn_start.setEnabled(False)
+
+        def checked(has_net):
+            if self.meta is meta:
+                self.btn_start.setEnabled(not self.runner.is_running(self.key))
+            if not has_net:
+                choice = self._ask_offline(meta)
+                if choice is None:
+                    return
+                if choice:
+                    srv.begin_offline_session(meta)
+            self._launch(meta)
+
+        run_async(lambda task: network.has_internet(), checked, lambda m: checked(True))
+
+    def _ask_offline(self, meta: srv.ServerMeta):
+        """No internet: True = start in offline mode, False = start as is, None = cancel."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(t("No internet"))
+        box.setText(t("There's no internet connection, so Minecraft can't check accounts. "
+                      "Players would see \"Authentication servers are down\" and couldn't join '{name}'.",
+                      name=meta.name))
+        box.setInformativeText(t(
+            "Start in offline mode to play on this PC or the same Wi-Fi without internet. "
+            "Online mode turns back on when the server stops.\n\n"
+            "In offline mode players get separate inventories and OP rights from online play."))
+        offline = box.addButton(t("Start in offline mode"), QMessageBox.AcceptRole)
+        box.addButton(t("Start anyway"), QMessageBox.DestructiveRole)
+        cancel = box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(offline)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is cancel:
+            return None
+        return clicked is offline
+
+    def _launch(self, meta: srv.ServerMeta):
+        key = str(meta.folder)
         try:
             self.runner.start(meta)
         except srv.ServerError as e:
+            srv.end_offline_session(meta)
             QMessageBox.warning(self, t("Start"), str(e))
             return
-        self.tabs.setCurrentWidget(self.console_tab)
-        if meta.properties().get_bool("online-mode", True):
-            def offline(has_net):
-                if not has_net:
-                    self.runner.system_line(key, t(
-                        "No internet: premium players can't sign in until the connection is back. "
-                        "(Turning online mode off lets LAN players in, but their inventories won't carry over.)"))
-            run_async(lambda task: network.has_internet(), offline)
+        if self.meta is meta:
+            self.tabs.setCurrentWidget(self.console_tab)
+        if meta.offline_session:
+            self.runner.system_line(key, t(
+                "Offline mode for this run: players join without signing in. Online mode turns back on when the server stops."))
         if meta.tunnel and not self.tunnel.is_active():
             self.runner.system_line(key, t("Starting the playit.gg tunnel..."))
             self.tunnel.start()

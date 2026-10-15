@@ -52,6 +52,7 @@ class ServerMeta:
     tunnel: bool = False  # start the playit.gg tunnel together with the server
     memory_saver: bool = False  # shorter view/simulation distance, no spawn chunks, eager heap shrinking
     saved_distances: dict = field(default_factory=dict)  # distances before memory saver, to restore
+    offline_session: bool = False  # online-mode was turned off for one run without internet; turn back on after
     folder: Path = field(default=None, compare=False)
 
     def save(self) -> None:
@@ -559,3 +560,29 @@ def duplicate_server(meta: ServerMeta, new_name: str, task: Optional[Task] = Non
         raise
     task.log(t("Done."))
     return copy
+
+
+def begin_offline_session(meta: ServerMeta) -> None:
+    """Let players join without Mojang sign-in for this run (no internet). Undone by end_offline_session."""
+    props = meta.properties()
+    props.set("online-mode", False)
+    props.save()
+    meta.offline_session = True
+    meta.save()
+
+
+def end_offline_session(meta: ServerMeta) -> bool:
+    """Turn online mode back on after an offline run. Returns True if something was restored."""
+    try:  # the saved file decides; this copy may be older or newer than it
+        pending = ServerMeta.load(meta.folder).offline_session
+    except (OSError, ValueError):
+        pending = meta.offline_session
+    if not pending:
+        meta.offline_session = False
+        return False
+    props = meta.properties()
+    props.set("online-mode", True)
+    props.save()
+    meta.offline_session = False
+    meta.save()
+    return True

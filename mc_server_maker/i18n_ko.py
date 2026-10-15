@@ -483,10 +483,18 @@ KO = {
     "The downloaded file looks broken. Please try again.": "받은 파일이 손상된 것 같아요. 다시 시도해 주세요.",
     "What's new": "새로운 기능",
     "Updated to v{v}": "v{v}(으)로 업데이트되었습니다",
-    "No internet: premium players can't sign in until the connection is back. (Turning online mode off lets LAN players in, but their inventories won't carry over.)":
-        "인터넷 연결 없음: 연결될 때까지 정품 플레이어가 로그인할 수 없습니다. (정품 인증을 끄면 같은 와이파이 플레이어는 들어올 수 있지만, 인벤토리·진행 상황이 이어지지 않아요.)",
     "Some settings of '{name}' couldn't be loaded ({tabs}). Check its server.properties.":
         "'{name}' 서버의 일부 설정을 불러오지 못했습니다 ({tabs}). server.properties를 확인해 주세요.",
     "Something went wrong, but {app} keeps running.": "문제가 생겼지만 {app}은(는) 계속 실행됩니다.",
     "These need a whole number between -2147483648 and 2147483647:": "다음 값은 -2147483648 ~ 2147483647 사이의 정수여야 합니다:",
+    "No internet": "인터넷 없음",
+    "There's no internet connection, so Minecraft can't check accounts. Players would see \"Authentication servers are down\" and couldn't join '{name}'.":
+        "인터넷에 연결되어 있지 않아 마인크래프트 계정을 확인할 수 없습니다. 이대로 시작하면 플레이어에게 \"인증 서버에 현재 연결할 수 없습니다\"가 나오고 '{name}'에 접속할 수 없습니다.",
+    "Start in offline mode to play on this PC or the same Wi-Fi without internet. Online mode turns back on when the server stops.\n\nIn offline mode players get separate inventories and OP rights from online play.":
+        "오프라인 모드로 시작하면 인터넷 없이도 이 PC나 같은 와이파이에서 접속할 수 있습니다. 서버를 끄면 정품 인증(온라인 모드)이 다시 켜집니다.\n\n오프라인 모드에서는 인벤토리와 OP 권한이 온라인 때와 따로 관리됩니다.",
+    "Start in offline mode": "오프라인 모드로 시작",
+    "Start anyway": "그대로 시작",
+    "Offline mode for this run: players join without signing in. Online mode turns back on when the server stops.":
+        "이번 실행은 오프라인 모드입니다. 로그인 없이 접속할 수 있으며, 서버를 끄면 정품 인증이 다시 켜집니다.",
+    "Online mode is back on.": "정품 인증(온라인 모드)을 다시 켰습니다.",
 }
