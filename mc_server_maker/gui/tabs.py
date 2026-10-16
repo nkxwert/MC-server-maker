@@ -157,14 +157,14 @@ class ServerTab(QWidget):
 # =================================================================== console
 
 _CONSOLE_RULES = [
-    (re.compile(r"^»» "), "accent", True),
-    (re.compile(r"^> "), "info", True),
+    (re.compile(r"^»» "), "info", True),
+    (re.compile(r"^> "), "accent", True),
     (re.compile(r"ERROR|SEVERE|Exception|^\s+at "), "danger", False),
     (re.compile(r"WARN"), "warn", False),
-    (re.compile(r"joined the game"), "accent", False),
+    (re.compile(r"joined the game"), "ok", False),
     (re.compile(r"left the game"), "warn", False),
     (re.compile(r": <[^>]+> "), "#ffffff", True),  # chat
-    (re.compile(r"Done \("), "accent", True),
+    (re.compile(r"Done \("), "ok", True),
 ]
 
 
@@ -345,7 +345,7 @@ class ConsoleTab(ServerTab):
         side_w = QWidget()
         side_w.setLayout(side)
         side.setContentsMargins(0, 0, 0, 0)
-        side_w.setFixedWidth(132)
+        side_w.setFixedWidth(150)  # fits "00:00:00" and long totals
         outer.addWidget(side_w)
 
         # Lines are drawn in batches (a few times per second) instead of one by one,
@@ -1816,7 +1816,7 @@ class CheckRow(QWidget):
 
     def set(self, state: str, detail: str):
         """state: ok / fail / wait / off"""
-        icon, color = {"ok": ("●", theme.C["accent"]), "fail": ("●", theme.C["danger"]),
+        icon, color = {"ok": ("●", theme.C["ok"]), "fail": ("●", theme.C["danger"]),
                        "wait": ("◌", theme.C["warn"]), "off": ("○", theme.C["muted"])}[state]
         self.icon.setText(icon)
         self.icon.setStyleSheet(f"color: {color}; font-size: 12pt;")

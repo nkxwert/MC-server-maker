@@ -3,6 +3,14 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.16.0
+### en
+- New colours taken from the Bartizan logo: the blue of the logo is the main colour, and greys lean slightly blue. Green now only means "running / reachable".
+- Cleaner look: rounder cards, quieter section titles and borders, blue selection highlights.
+### ko
+- Bartizan 로고에서 가져온 새 색상: 로고의 파란색을 대표 색으로 쓰고, 회색도 살짝 푸른 톤으로 맞췄어요. 초록색은 이제 "실행 중 / 접속 가능"만 뜻해요.
+- 더 깔끔한 디자인: 둥근 카드, 차분한 제목과 테두리, 파란 선택 표시.
+
 ## 1.15.0
 ### en
 - **Switch server software**: Settings → World → *Server version* → *Software* turns an existing server into Paper, Purpur, Vanilla, Fabric, NeoForge or Forge. The world and settings stay, a full backup is made first, and the Nether/End are moved where the new software expects them.

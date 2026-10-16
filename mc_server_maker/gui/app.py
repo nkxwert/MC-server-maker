@@ -65,7 +65,7 @@ def state_text(state: str):
     return {
         STOPPED: (t("Stopped"), theme.C["muted"]),
         STARTING: (t("Starting..."), theme.C["warn"]),
-        RUNNING: (t("Running"), theme.C["accent"]),
+        RUNNING: (t("Running"), theme.C["ok"]),  # green = on, separate from the blue accent
         STOPPING: (t("Stopping..."), theme.C["warn"]),
     }[state]
 

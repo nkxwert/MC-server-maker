@@ -8,19 +8,22 @@ from PySide6.QtWidgets import QApplication, QFormLayout
 from mc_server_maker.core import paths
 from mc_server_maker.i18n import language
 
+# Colours come from the logo: the electric-blue crack (accent), the deep-blue outline and the
+# pale-blue cube faces. Neutrals lean slightly blue so the app reads as one family.
+# "ok" (green) is kept apart from the accent: it means "running / reachable".
 DARK = {
-    "bg": "#15171c", "surface": "#1d2027", "surface2": "#252932", "surface3": "#2e333d",
-    "hover": "#383e4a", "border": "#343a46", "text": "#eceef1", "muted": "#a3abb8",
-    "disabled": "#737b88", "accent": "#4cc764", "accent_hover": "#5fd877", "accent_text": "#0b1a10",
-    "accent_soft": "#1f3b27", "danger": "#f0605a", "danger_soft": "#3a1f1f", "warn": "#e3b341",
-    "info": "#58a6ff", "scroll": "#3b414d", "console_bg": "#0d0f12", "console_text": "#b9c0cb",
+    "bg": "#0f131b", "surface": "#161b25", "surface2": "#1c2330", "surface3": "#242d3d",
+    "hover": "#2d384b", "border": "#262f40", "text": "#e9eef7", "muted": "#9aa6ba",
+    "disabled": "#6c7890", "accent": "#3d7bff", "accent_hover": "#5a90ff", "accent_text": "#ffffff",
+    "accent_soft": "#18284a", "danger": "#f0605a", "danger_soft": "#3a1f24", "warn": "#e8b54a",
+    "ok": "#3ecf7a", "info": "#7fb2ff", "scroll": "#2f3a4e", "console_bg": "#0a0d13", "console_text": "#b8c2d3",
 }
 LIGHT = {
-    "bg": "#f4f5f7", "surface": "#ffffff", "surface2": "#f0f2f5", "surface3": "#e6e9ee",
-    "hover": "#dde1e7", "border": "#d6dae1", "text": "#16191e", "muted": "#596170",
-    "disabled": "#8a909b", "accent": "#2e9e48", "accent_hover": "#27893e", "accent_text": "#ffffff",
-    "accent_soft": "#e3f4e7", "danger": "#d1453b", "danger_soft": "#fbe9e7", "warn": "#a86b00",
-    "info": "#1f6feb", "scroll": "#c3c8d0", "console_bg": "#0d0f12", "console_text": "#b9c0cb",
+    "bg": "#f2f5fa", "surface": "#ffffff", "surface2": "#eef2f8", "surface3": "#e2e8f2",
+    "hover": "#d7dfeb", "border": "#d9e0eb", "text": "#111827", "muted": "#566279",
+    "disabled": "#8b95a7", "accent": "#1f5be0", "accent_hover": "#184cc0", "accent_text": "#ffffff",
+    "accent_soft": "#e3ecff", "danger": "#d1453b", "danger_soft": "#fbe9e7", "warn": "#a86b00",
+    "ok": "#1f9d55", "info": "#1f5be0", "scroll": "#c5cedc", "console_bg": "#0a0d13", "console_text": "#b8c2d3",
 }
 THEMES = {"dark": DARK, "light": LIGHT}
 
@@ -40,18 +43,18 @@ QToolTip {{ background: {surface3}; color: {text}; border: 1px solid {border}; p
 #AppSubtitle {{ color: {muted}; font-size: 9pt; }}
 #SectionLabel {{ color: {muted}; font-size: 9pt; font-weight: 700; }}
 #ServerList {{ background: transparent; border: none; padding: 0; }}
-#ServerList::item {{ border-radius: 8px; margin: 2px 0; padding: 0; }}
+#ServerList::item {{ border-radius: 10px; margin: 2px 0; padding: 0; }}
 #ServerList::item:hover {{ background: {surface2}; }}
-#ServerList::item:selected {{ background: {surface3}; }}
+#ServerList::item:selected {{ background: {accent_soft}; }}
 #ItemName {{ font-weight: 600; }}
 #ItemSub {{ color: {muted}; font-size: 9.5pt; }}
 
 #MoreButton {{ background: transparent; border: none; color: {muted}; font-size: 13pt; padding: 0 4px; border-radius: 4px; }}
 #MoreButton:hover {{ background: {hover}; color: {text}; }}
-#Card {{ background: {surface}; border: 1px solid {border}; border-radius: 8px; }}
+#Card {{ background: {surface}; border: 1px solid {border}; border-radius: 12px; }}
 #Header {{ background: {surface}; border-bottom: 1px solid {border}; }}
 #ServerName {{ font-size: 16pt; font-weight: 700; }}
-#Chip {{ background: {surface3}; border-radius: 10px; padding: 2px 10px; font-size: 9pt; }}
+#Chip {{ background: {surface2}; border: 1px solid {border}; border-radius: 10px; padding: 2px 10px; font-size: 9pt; }}
 #Muted {{ color: {muted}; }}
 #Hint {{ color: {muted}; font-size: 9.5pt; }}
 #Help {{
@@ -66,16 +69,16 @@ QToolTip {{ background: {surface3}; color: {text}; border: 1px solid {border}; p
 #Big {{ font-size: 15pt; font-weight: 700; }}
 
 QGroupBox {{
-    background: {surface}; border: 1px solid {border}; border-radius: 10px;
-    margin-top: 30px; padding: 14px 14px 12px 14px;
+    background: {surface}; border: 1px solid {border}; border-radius: 12px;
+    margin-top: 30px; padding: 16px 16px 14px 16px;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
-    left: 2px; top: 4px; padding: 0; color: {text}; font-weight: 700; font-size: 11pt;
+    left: 4px; top: 4px; padding: 0; color: {muted}; font-weight: 700; font-size: 10pt;
 }}
 
 QPushButton {{
-    background: {surface3}; border: 1px solid {border}; border-radius: 7px; padding: 7px 14px;
+    background: {surface2}; border: 1px solid {border}; border-radius: 8px; padding: 7px 14px;
 }}
 QPushButton:hover {{ background: {hover}; }}
 QPushButton:disabled {{ color: {disabled}; background: {surface2}; border-color: {surface3}; }}
@@ -94,14 +97,14 @@ QPushButton[kind="segment"]:hover {{ color: {text}; }}
 QPushButton[kind="segment"]:checked {{ background: {accent_soft}; border-color: {accent}; color: {text}; font-weight: 700; }}
 
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
-    background: {bg}; border: 1px solid {border}; border-radius: 6px; padding: 5px 8px;
+    background: {bg}; border: 1px solid {border}; border-radius: 8px; padding: 5px 9px;
     selection-background-color: {accent}; selection-color: {accent_text};
 }}
 QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus {{ border-color: {accent}; }}
 QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {{ color: {disabled}; background: {surface}; }}
 QComboBox::drop-down {{ border: none; width: 22px; }}
 QComboBox QAbstractItemView {{
-    background: {surface2}; border: 1px solid {border}; selection-background-color: {surface3};
+    background: {surface2}; border: 1px solid {border}; selection-background-color: {accent_soft};
     selection-color: {text}; padding: 4px;
 }}
 QSpinBox::up-button, QSpinBox::down-button {{ width: 16px; border: none; background: transparent; }}
@@ -130,16 +133,17 @@ QTabBar::tab {{
 }}
 QTabBar::tab:hover {{ color: {text}; }}
 QTabBar::tab:selected {{ color: {text}; border-bottom: 2px solid {accent}; }}
+QTabBar::tab:selected:hover {{ color: {text}; }}
 
 QListWidget, QTableWidget {{ background: {bg}; border: 1px solid {border}; border-radius: 6px; padding: 4px; }}
 QListWidget::item {{ padding: 5px 6px; border-radius: 4px; }}
-QListWidget::item:selected, QTableWidget::item:selected {{ background: {surface3}; color: {text}; }}
+QListWidget::item:selected, QTableWidget::item:selected {{ background: {accent_soft}; color: {text}; }}
 QTableWidget {{ gridline-color: {border}; }}
 QHeaderView::section {{ background: {surface2}; color: {muted}; border: none; padding: 5px 8px; font-weight: 600; }}
 
 QScrollArea {{ border: none; background: transparent; }}
 QScrollArea > QWidget > QWidget {{ background: transparent; }}
-QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
+QScrollBar:vertical {{ background: transparent; width: 9px; margin: 2px; }}
 QScrollBar::handle:vertical {{ background: {scroll}; border-radius: 4px; min-height: 30px; }}
 QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
 QScrollBar::handle:horizontal {{ background: {scroll}; border-radius: 4px; min-width: 30px; }}
@@ -150,7 +154,7 @@ QProgressBar {{ background: {surface2}; border: none; border-radius: 4px; height
 QProgressBar::chunk {{ background: {accent}; border-radius: 4px; }}
 
 #Console {{
-    background: {console_bg}; color: {console_text}; border: 1px solid {border}; border-radius: 8px;
+    background: {console_bg}; color: {console_text}; border: 1px solid {border}; border-radius: 12px;
     padding: 8px; font-family: {mono}; font-size: 10pt;
 }}
 #ConsoleInput {{ font-family: {mono}; padding: 8px 10px; }}
