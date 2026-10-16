@@ -705,4 +705,9 @@ KO = {
         "월드 폴더 이름(level-name = '{name}')이 서버 안의 안전한 폴더가 아니에요. 'server.properties 전체 편집'에서 'world' 같은 이름으로 바꿔 주세요.",
     "Bartizan is already running. Look for its icon in the taskbar tray (next to the clock).":
         "Bartizan이 이미 실행 중이에요. 작업 표시줄 오른쪽(시계 옆) 아이콘을 찾아보세요.",
+    "The server is still starting. It stops as soon as it's ready.": "서버가 아직 켜지는 중이에요. 다 켜지면 바로 멈춰요.",
+    "Asking the server to stop again...": "서버에 다시 중지를 요청했어요...",
+    "Stopping: saving the world...": "중지하는 중: 월드를 저장하고 있어요...",
+    "The server is still running a minute after Stop. A big world can take a while to save.\n\nForce stop now? Changes since the last save can be lost.":
+        "중지를 누른 지 1분이 지났는데 서버가 아직 켜져 있어요. 월드가 크면 저장에 시간이 걸릴 수 있어요.\n\n지금 강제 종료할까요? 마지막 저장 이후의 변경은 사라질 수 있어요.",
 }

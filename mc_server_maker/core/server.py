@@ -476,7 +476,7 @@ def level_name(meta: ServerMeta) -> str:
     level = (meta.properties().get("level-name") or "world").strip() or "world"
     root = meta.folder.resolve()
     target = (meta.folder / level).resolve()
-    bad = (Path(level).is_absolute() or target == root or not target.is_relative_to(root)
+    bad = (Path(level).is_absolute() or ":" in level or target == root or not target.is_relative_to(root)
            or any(part in ("", ".", "..") for part in level.replace("\\", "/").split("/"))
            or target.name in (BACKUP_DIR, "plugins", "mods", "config", "libraries", "logs"))
     if bad:

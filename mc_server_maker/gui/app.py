@@ -202,6 +202,7 @@ class MainWindow(QMainWindow):
         self._replaced = False
         self.runner.state_changed.connect(self._on_state_changed)
         self.runner.process_started.connect(self._process_started)
+        self.runner.stop_slow.connect(self._stop_slow)
         self.servers: List[srv.ServerMeta] = []
         self.meta: Optional[srv.ServerMeta] = None
 
@@ -499,7 +500,8 @@ class MainWindow(QMainWindow):
             + html.escape(t("Memory {n} GB", n=m.ram_mb // 1024)))
         running = self.runner.is_running(self.key)
         self.btn_start.setEnabled(not running and self.key not in _starting)
-        self.btn_stop.setEnabled(running and state != STOPPING)
+        self.btn_stop.setEnabled(running)  # while stopping too: pressing again re-sends "stop"
+        self.btn_stop.setText(t("Stopping...") if state == STOPPING else t("Stop"))
         self.btn_stop_more.setEnabled(running)
         self.act_kill.setEnabled(running)
 
@@ -826,6 +828,15 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.addons_tab)
             self.addons_tab.add_files(files)
 
+    def _stop_slow(self, key: str):
+        if key != self.key or not self.isVisible() or _quitting["now"]:
+            return
+        if QMessageBox.question(self, t("Stop"), t(
+                "The server is still running a minute after Stop. A big world can take a while to save.\n\n"
+                "Force stop now? Changes since the last save can be lost.")) == QMessageBox.Yes:
+            if self.runner.is_running(key):
+                self.runner.kill(key)
+
     def _kill(self):
         if QMessageBox.question(
             self, t("Kill"), t("Force stop without saving? The world may be damaged.")
@@ -869,6 +880,7 @@ class MainWindow(QMainWindow):
     def _detach(self):
         self.runner.state_changed.disconnect(self._on_state_changed)
         self.runner.process_started.disconnect(self._process_started)
+        self.runner.stop_slow.disconnect(self._stop_slow)
         self.setAttribute(Qt.WA_DeleteOnClose)
         if self in _windows:
             _windows.remove(self)

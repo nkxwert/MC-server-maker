@@ -3,6 +3,14 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.22.1
+### en
+- Stop is never a dead button any more: pressing it while the server is still starting or already stopping sends "stop" again, the console says what's happening ("saving the world..."), and if the server is still running a minute later you're offered a force stop.
+- Also includes everything from 1.22.0 below.
+### ko
+- 중지 버튼이 먹히지 않던 문제: 서버가 아직 켜지는 중이거나 이미 멈추는 중일 때 눌러도 "stop"을 다시 보내요. 콘솔에 지금 상황("월드를 저장하고 있어요...")을 보여주고, 1분이 지나도 안 꺼지면 강제 종료할지 물어봐요.
+- 아래 1.22.0의 변경 사항도 모두 들어 있어요.
+
 ## 1.22.0
 ### en
 - New: **Copy diagnostic info** in the Network tab checks the router, double NAT, firewall, tunnel and ports, and copies a summary to paste into a chat (internet addresses are partly hidden).

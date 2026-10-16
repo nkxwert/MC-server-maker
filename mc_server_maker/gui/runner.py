@@ -31,6 +31,7 @@ class ServerRunner(QObject):
     state_changed = Signal(str, str)  # (server folder, state)
     players_changed = Signal(str)  # (server folder)
     process_started = Signal(str)  # (server folder) Java really runs (not just "asked to start")
+    stop_slow = Signal(str)  # (server folder) still running a while after Stop
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -244,9 +245,28 @@ class ServerRunner(QObject):
         self.procs[key].write((command + "\n").encode("utf-8"))
         return True
 
+    STOP_PATIENCE_MS = 60_000  # big worlds take a while to save; after this, offer a force stop
+
     def stop(self, key: str) -> None:
-        if self.send(key, "stop"):
-            self._set_state(key, STOPPING)
+        """Ask the server to save and stop. Pressing it again re-sends "stop" (it is never ignored)."""
+        if not self.is_running(key):
+            return
+        state = self.state(key)
+        if state == STARTING:
+            # Minecraft reads the console only once it's up: the command waits, it isn't lost
+            self.system_line(key, t("The server is still starting. It stops as soon as it's ready."))
+        elif state == STOPPING:
+            self.system_line(key, t("Asking the server to stop again..."))
+        else:
+            self.system_line(key, t("Stopping: saving the world..."))
+        self.send(key, "stop")
+        self._set_state(key, STOPPING)
+        proc = self.procs.get(key)
+        QTimer.singleShot(self.STOP_PATIENCE_MS, lambda: self._check_stopped(key, proc))
+
+    def _check_stopped(self, key: str, proc) -> None:
+        if self.procs.get(key) is proc and self.is_running(key) and self.state(key) == STOPPING:
+            self.stop_slow.emit(key)
 
     def kill(self, key: str) -> None:
         if self.is_running(key):
