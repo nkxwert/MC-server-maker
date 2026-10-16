@@ -934,7 +934,11 @@ def _single_instance(app: QApplication) -> bool:
     import hashlib
 
     from PySide6.QtCore import QLockFile
-    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+    try:  # only for "show the window of the copy that's already running"
+        from PySide6.QtNetwork import QLocalServer, QLocalSocket
+    except ImportError:  # a build without QtNetwork must still start
+        QLocalServer = QLocalSocket = None
 
     paths.BASE_DIR.mkdir(parents=True, exist_ok=True)
     name = "bartizan-" + hashlib.sha1(str(paths.BASE_DIR).encode("utf-8")).hexdigest()[:12]
@@ -943,6 +947,8 @@ def _single_instance(app: QApplication) -> bool:
     # right after a self-update the old copy is still closing: give it time
     wait_ms = 20000 if os.environ.pop("BARTIZAN_RESTART", "") else 300
     if not lock.tryLock(wait_ms):
+        if QLocalSocket is None:
+            return False
         sock = QLocalSocket()
         sock.connectToServer(name)
         if sock.waitForConnected(1500):
@@ -950,6 +956,9 @@ def _single_instance(app: QApplication) -> bool:
             sock.waitForBytesWritten(1000)
             sock.disconnectFromServer()
         return False
+    if QLocalServer is None:
+        app._instance = (lock,)
+        return True
     QLocalServer.removeServer(name)
     server = QLocalServer(app)
 
@@ -1044,6 +1053,9 @@ def main():
         QTimer.singleShot(4000, lambda: current_window() and current_window().check_updates(manual=False))
     if moved:
         QMessageBox.information(win, APP_NAME, t("Your servers were moved to:\n{path}", path=paths.BASE_DIR))
+    if os.environ.get("BARTIZAN_SELFTEST"):
+        # the build check: the app really started (window shown), then quits with code 0
+        QTimer.singleShot(5000, lambda: (wait_all(), os._exit(0 if win.isVisible() else 3)))
     code = app.exec()
     if any_running():
         # a network lookup is still blocked in a thread; destroying it would abort the process

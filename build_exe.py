@@ -15,7 +15,8 @@ NAME = "Bartizan"
 
 # 쓰지 않는 Qt 모듈은 빼서 파일 크기를 줄인다
 EXCLUDES = [
-    "PySide6.QtNetwork", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtQuickWidgets",
+    # (QtNetwork stays: QLocalServer keeps the app to a single running copy)
+    "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtQuickWidgets",
     "PySide6.QtPdf", "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtOpenGL",
     "PySide6.QtOpenGLWidgets", "PySide6.QtDBus", "PySide6.QtConcurrent", "PySide6.QtXml",
     "PySide6.QtDesigner", "PySide6.QtHelp", "PySide6.QtPrintSupport",

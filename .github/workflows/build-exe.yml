@@ -37,10 +37,13 @@ jobs:
       - name: Check EXE starts
         shell: pwsh
         run: |
+          # self-test mode: the app opens its window and exits with 0 after a few seconds.
+          # A startup error shows a dialog instead (never exits) or exits non-zero.
+          $env:BARTIZAN_SELFTEST = "1"
+          $env:MCSM_HOME = "$env:RUNNER_TEMP\bartizan-selftest"
           $p = Start-Process -FilePath "dist\Bartizan.exe" -PassThru
-          Start-Sleep -Seconds 15
-          if ($p.HasExited) { Write-Error "EXE exited early with code $($p.ExitCode)"; exit 1 }
-          Stop-Process -Id $p.Id -Force
+          if (-not $p.WaitForExit(90000)) { Stop-Process -Id $p.Id -Force; Write-Error "EXE did not finish starting (startup error?)"; exit 1 }
+          if ($p.ExitCode -ne 0) { Write-Error "EXE self-test failed with code $($p.ExitCode)"; exit 1 }
           Get-Item dist\Bartizan.exe | Select-Object Name, @{n="MB";e={[math]::Round($_.Length/1MB,1)}}
 
       - name: Upload EXE

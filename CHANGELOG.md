@@ -3,6 +3,14 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.18.1
+### en
+- Fixed: the EXE didn't start ("No module named 'PySide6.QtNetwork'"). The build left out a Qt part the app needs; it's included again, and the app now starts even without it.
+- The release build is now checked by actually starting the app, so this can't slip through again.
+### ko
+- 수정: EXE가 실행되지 않던 문제 ("No module named 'PySide6.QtNetwork'"). 빌드에서 앱에 필요한 Qt 모듈이 빠져 있었어요. 다시 넣었고, 혹시 빠져도 앱은 켜지게 했어요.
+- 이제 배포 전에 앱을 실제로 켜 보고 확인해서, 같은 문제가 다시 생기지 않아요.
+
 ## 1.18.0
 ### en
 **Windows Firewall**
