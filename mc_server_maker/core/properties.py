@@ -4,6 +4,7 @@ Follows Java .properties rules. Non-ASCII characters (Korean, '§', ...) are wri
 \\uXXXX so every Minecraft version reads them correctly.
 """
 
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -82,6 +83,7 @@ class Properties:
         self.lines: List[str] = []
         self.values: Dict[str, str] = {}
         self._index: Dict[str, int] = {}
+        self._encoding = "utf-8"
         if self.path.exists():
             self._load()
         else:
@@ -93,6 +95,7 @@ class Properties:
             text = raw.decode("utf-8-sig")  # -sig: a BOM must not become part of the first key
         except UnicodeDecodeError:
             text = raw.decode("latin-1")
+            self._encoding = "latin-1"  # write it back the same way, or non-ASCII text turns to garbage
         # join lines continued with a trailing backslash
         logical: List[str] = []
         buf = ""
@@ -142,4 +145,7 @@ class Properties:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text("\n".join(self.lines) + "\n", encoding="utf-8")
+        # through a temp file: a crash mid-write must not leave an empty server.properties
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text("\n".join(self.lines) + "\n", encoding=self._encoding, errors="replace")
+        os.replace(tmp, self.path)

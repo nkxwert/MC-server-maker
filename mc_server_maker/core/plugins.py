@@ -55,13 +55,18 @@ def install_bedrock(meta, task: Optional[Task] = None) -> None:
         url = GEYSER_API.format(project=project)
         info = net.get_json(url)
         dl = info["downloads"][PLATFORM]
-        name = dl.get("name") or f"{project}-{PLATFORM}.jar"
-        # remove other versions of the same plugin first
-        for old in plugins.glob("*.jar"):
-            if _is_ours(old.name, project) and old.name != name:
-                old.unlink(missing_ok=True)
+        name = Path(str(dl.get("name") or "")).name  # never a path from the server's answer
+        if not name.lower().endswith(".jar"):
+            name = f"{project}-{PLATFORM}.jar"
         task.log(t("Installing {name} (build {build})...", name=project.capitalize(), build=info.get("build", "?")))
+        # download first: if it fails, the working old version stays
         net.download(f"{url}/downloads/{PLATFORM}", plugins / name, task, sha256=dl.get("sha256"))
+        for old in plugins.glob("*.jar"):  # then remove other versions of the same plugin
+            if _is_ours(old.name, project) and old.name != name:
+                try:
+                    old.unlink()
+                except OSError as e:  # locked while the server runs (Windows)
+                    task.log(t("Couldn't remove the old {file}: {err}", file=old.name, err=e))
 
 
 def remove_bedrock(meta) -> None:

@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
 from mc_server_maker.core import modrinth, net
 from mc_server_maker.gui import theme
 from mc_server_maker.gui.theme import fit_to_screen, set_kind
-from mc_server_maker.gui.widgets import HelpButton
 from mc_server_maker.gui.workers import TaskDialog, run_async
 from mc_server_maker.i18n import t
 from mc_server_maker.gui.anim import FadeInDialog
@@ -61,12 +60,12 @@ class ResultCard(QFrame):
         self.setObjectName("Card")
         self.hit = hit
         row = QHBoxLayout(self)
-        row.setContentsMargins(12, 10, 12, 10)
+        row.setContentsMargins(0, 10, 0, 10)
         row.setSpacing(12)
         self.icon = QLabel()
         self.icon.setFixedSize(ICON, ICON)
         self.icon.setAlignment(Qt.AlignCenter)
-        self.icon.setStyleSheet(f"background: {theme.C['surface3']}; border-radius: 8px;")
+        self.icon.setStyleSheet(f"background: {theme.C['surface2']}; border-radius: 6px;")
         row.addWidget(self.icon, 0, Qt.AlignTop)
 
         col = QVBoxLayout()
@@ -82,11 +81,11 @@ class ResultCard(QFrame):
         if len(text) > 120:
             desc.setToolTip(text)
         col.addWidget(desc)
-        bits = [f"⬇ {short_number(hit.downloads)}"]
+        bits = [t("{n} downloads", n=short_number(hit.downloads))]
         if hit.author:
             bits.append(t("by {author}", author=hit.author))
         if mods and hit.client_side == "required":
-            bits.append("👥 " + t("Players need it too"))
+            bits.append(t("Players need it too"))
         info = _muted(" · ".join(bits))
         if mods and hit.client_side == "required":
             info.setToolTip(t("Everyone who joins must install this mod in their own Minecraft as well."))
@@ -94,11 +93,11 @@ class ResultCard(QFrame):
         row.addLayout(col, 1)
 
         buttons = QVBoxLayout()
-        self.btn = set_kind(QPushButton(t("Install")), "primary")
+        self.btn = QPushButton(t("Install"))
         self.btn.setMinimumWidth(96)
         self.btn.clicked.connect(lambda: on_install(self))
         buttons.addWidget(self.btn)
-        page = set_kind(QPushButton(t("Details ↗")), "ghost")
+        page = set_kind(QPushButton(t("Details")), "ghost")
         page.setMinimumWidth(96)
         page.setToolTip(hit.page_url)
         page.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(hit.page_url)))
@@ -107,8 +106,8 @@ class ResultCard(QFrame):
         row.addLayout(buttons)
 
     def set_installed(self, installed: bool):
-        self.btn.setText("✓ " + t("Installed") if installed else t("Install"))
-        set_kind(self.btn, "ghost" if installed else "primary")
+        self.btn.setText(t("Installed") if installed else t("Install"))
+        set_kind(self.btn, "ghost" if installed else "")
         self.btn.setEnabled(not installed)
 
     def set_icon(self, pix: QPixmap):
@@ -129,6 +128,7 @@ class ModrinthBrowser(QWidget):
         self._loaded_for = None
         self._installed: Dict[str, object] = {}
         self._just_installed = set()  # installed here; kept even if Modrinth's lookup lags behind
+        self._installed_for = None  # the server the "Installed" marks were looked up for
         self._icons: Dict[str, QPixmap] = {}
         self.cards: List[ResultCard] = []
 
@@ -149,10 +149,10 @@ class ModrinthBrowser(QWidget):
         v.addLayout(row)
         row = QHBoxLayout()
         self.filter_label = _muted("")
-        row.addWidget(self.filter_label, 1)
-        row.addWidget(HelpButton(t(
+        self.filter_label.setToolTip(t(
             "Results come from Modrinth and only show versions made for this server's software and "
-            "Minecraft version. Required add-ons (like Fabric API) are installed automatically.")))
+            "Minecraft version. Required add-ons (like Fabric API) are installed automatically."))
+        row.addWidget(self.filter_label, 1)
         v.addLayout(row)
 
         # a scroll area (not a list widget) so cards always fit the width and wrap their text
@@ -218,9 +218,11 @@ class ModrinthBrowser(QWidget):
                 card.deleteLater()
             self.cards = []
             self.area.verticalScrollBar().setValue(0)
-            self._just_installed.clear()
-            self._installed = {}  # never show another server's "Installed" marks meanwhile
-            self._refresh_installed()
+            if self._installed_for != self._loaded_for:  # hashing every jar once, not per search
+                self._installed_for = self._loaded_for
+                self._just_installed.clear()
+                self._installed = {}  # never show another server's "Installed" marks meanwhile
+                self._refresh_installed()
         self._req += 1
         req = self._req
         offset = self._offset
@@ -249,6 +251,10 @@ class ModrinthBrowser(QWidget):
                 self.status.show()
 
         run_async(lambda task: modrinth.search(meta, query, sort, offset), done, fail)
+
+    def invalidate_installed(self):
+        """Jars were added, removed or replaced: look the marks up again on the next search."""
+        self._installed_for = None
 
     def _refresh_installed(self):
         meta = self.meta

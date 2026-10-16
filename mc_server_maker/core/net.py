@@ -110,24 +110,26 @@ def download(
         if expected
     }
     task.log(t("Downloading: {url}", url=url))
-    with _open(url) as resp, open(tmp, "wb") as f:
-        total = int(resp.headers.get("Content-Length") or 0)
-        done = 0
-        while True:
-            task.check()
-            try:
-                chunk = resp.read(256 * 1024)
-            except (OSError, http.client.HTTPException) as e:
-                f.close()
-                tmp.unlink(missing_ok=True)
-                raise NetError(t("Connection failed ({reason}): {url}", reason=e, url=url)) from e
-            if not chunk:
-                break
-            f.write(chunk)
-            for h, _ in hashers.values():
-                h.update(chunk)
-            done += len(chunk)
-            task.progress(done, total)
+    try:
+        with _open(url) as resp, open(tmp, "wb") as f:
+            total = int(resp.headers.get("Content-Length") or 0)
+            done = 0
+            while True:
+                task.check()
+                try:
+                    chunk = resp.read(256 * 1024)
+                except (OSError, http.client.HTTPException) as e:
+                    raise NetError(t("Connection failed ({reason}): {url}", reason=e, url=url)) from e
+                if not chunk:
+                    break
+                f.write(chunk)
+                for h, _ in hashers.values():
+                    h.update(chunk)
+                done += len(chunk)
+                task.progress(done, total)
+    except BaseException:  # cancelled, disk full, connection lost: no half file left behind
+        tmp.unlink(missing_ok=True)
+        raise
     if total and done != total:  # the connection closed early: never keep a cut-off file
         tmp.unlink(missing_ok=True)
         raise NetError(t("The download was cut off. Please try again: {file}", file=dest.name))

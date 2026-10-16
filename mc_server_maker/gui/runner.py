@@ -20,7 +20,7 @@ JOIN_RE = re.compile(_PREFIX + r"([A-Za-z0-9_.]{1,16}) joined the game\s*$")
 LEFT_RE = re.compile(_PREFIX + r"([A-Za-z0-9_.]{1,16}) left the game\s*$")
 DONE_RE = re.compile(r'Done \([\d.,]+s\)! For help, type')
 # "Steve[/203.0.113.5:51234] logged in with entity id ..." (IPv6: "[/[::1]:51234]")
-LOGIN_RE = re.compile(r"([A-Za-z0-9_.]{1,16})\[/\[?([0-9a-fA-F.:]+?)\]?:\d+\] logged in")
+LOGIN_RE = re.compile(_PREFIX + r"([A-Za-z0-9_.]{1,16})\[/\[?([0-9a-fA-F.:]+?)\]?:\d+\] logged in")
 MAX_LINES = 5000
 
 STOPPED, STARTING, RUNNING, STOPPING = "stopped", "starting", "running", "stopping"
@@ -157,9 +157,12 @@ class ServerRunner(QObject):
     def _read(self, key: str, proc: QProcess):
         decoder = self._decoders.setdefault(key, codecs.getincrementaldecoder("utf-8")(errors="replace"))
         data = decoder.decode(bytes(proc.readAllStandardOutput()))
-        text = self._partial.get(key, "") + data.replace("\r\n", "\n").replace("\r", "")
-        *lines, self._partial[key] = text.split("\n")
+        text = self._partial.get(key, "") + data.replace("\r\n", "\n")
+        *lines, rest = text.split("\n")
+        # a lone "\r" redraws the line (progress output): keep only the last version of it
+        self._partial[key] = rest.rstrip("\r").rsplit("\r", 1)[-1][-8192:] + ("\r" if rest.endswith("\r") else "")
         for ln in lines:
+            ln = ln.rstrip("\r").rsplit("\r", 1)[-1]
             self._emit_line(key, ANSI_RE.sub("", ln))  # on whole lines: escape codes can be split too
 
     # ---------------------------------------------------------------- control
@@ -170,6 +173,9 @@ class ServerRunner(QObject):
             return
         cmd = srv.launch_command(meta)  # ServerError if Java is missing
         srv.write_start_scripts(meta)
+        old = self.procs.get(key)
+        if old is not None:  # the finished process of the previous run
+            old.deleteLater()
         proc = QProcess(self)
         proc.setProgram(cmd[0])
         proc.setArguments(cmd[1:])
@@ -206,7 +212,7 @@ class ServerRunner(QObject):
     def _finished(self, key: str, code: int):
         rest = self._partial.pop(key, "")
         if rest:
-            self._emit_line(key, ANSI_RE.sub("", rest))
+            self._emit_line(key, ANSI_RE.sub("", rest.rstrip("\r")))
         self._count_uptime(key)
         self._counted_until.pop(key, None)
         self._last_autosave.pop(key, None)
@@ -219,7 +225,10 @@ class ServerRunner(QObject):
         if err == QProcess.FailedToStart:
             self._counted_until.pop(key, None)
             self.system_line(key, t("Could not start the server: {err}", err=proc.errorString()))
-            self._set_state(key, STOPPED)
+            # always tell the window, even when the state was already "stopped" (Windows fails
+            # inside start()), so offline mode is switched back and the buttons are right
+            self.status[key] = STOPPED
+            self.state_changed.emit(key, STOPPED)
 
     def send(self, key: str, command: str) -> bool:
         if not self.is_running(key):
@@ -243,6 +252,8 @@ class ServerRunner(QObject):
         """Drop everything kept for a deleted server, so a new one in the same folder starts clean."""
         if self.is_running(key):
             return
+        if self.procs.get(key) is not None:
+            self.procs[key].deleteLater()
         for store in (self.logs, self.players, self.player_ips, self.started_at, self._counted_until,
                       self._totals, self.metas, self._partial, self._decoders, self.status, self.procs):
             store.pop(key, None)
@@ -251,6 +262,12 @@ class ServerRunner(QObject):
         for key in list(self.procs):
             if self.is_running(key):
                 self.send(key, "stop")
-        for proc in self.procs.values():
-            if proc.state() != QProcess.NotRunning and not proc.waitForFinished(timeout_ms):
+        # one shared deadline: several hung servers don't add up to minutes of waiting
+        deadline = time.monotonic() + timeout_ms / 1000
+        for proc in list(self.procs.values()):
+            if proc.state() == QProcess.NotRunning:
+                continue
+            left = max(0, int((deadline - time.monotonic()) * 1000))
+            if not proc.waitForFinished(left):
                 proc.kill()
+                proc.waitForFinished(3000)

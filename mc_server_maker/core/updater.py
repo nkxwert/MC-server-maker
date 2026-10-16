@@ -136,7 +136,10 @@ def download(info: UpdateInfo, task: Optional[Task] = None) -> Path:
         raise UpdateError(t("This release has no EXE to download."))
     expected = None
     if info.sha256_url:
-        expected = net.get_text(info.sha256_url).split()[0].strip().lower()
+        parts = net.get_text(info.sha256_url).split()
+        expected = parts[0].strip().lower() if parts else ""
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise UpdateError(t("The update's checksum file is broken. Please try again later."))
     dest = Path(sys.executable).with_name(EXE_NAME + ".new")
     net.download(info.exe_url, dest, task, sha256=expected)
     if dest.stat().st_size < 1_000_000:

@@ -3,6 +3,56 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.17.0
+### en
+**Design**
+- Cleaner, calmer look: sections are a title over a thin line instead of boxes, neutral greys, smaller corners, no emoji.
+- The logo blue is kept for the main buttons, the selected tab and server, and switches. The **Stop** button is now red.
+- The header shows one quiet line: "● Running · Paper 1.21.4 · Memory 2 GB".
+- Fewer (?) buttons: most explanations are now a short gray line under the setting.
+- Switching tabs, servers or pages now blends the old screen into the new one instead of fading in from dark.
+
+**Faster**
+- The console no longer redraws its whole log when you come back to it or save settings, and handles log floods much faster.
+- Live numbers, graphs and join checks pause while the window is minimized.
+- Plugin/mod switches and the Modrinth search no longer re-read every installed jar each time.
+
+**Fixes**
+- Unsaved Settings edits and the Status graphs are kept when the window reloads (rename, app settings...).
+- Saving Settings no longer changes untouched memory values (e.g. 1.5 GB).
+- A failed world import no longer deletes the current world; backups work with very old file dates.
+- A software switch that fails halfway no longer leaves a server that can't start; mod world types are kept on updates.
+- Server duplicates keep plugin data folders; settings files keep their text encoding and are written safely.
+- Cancelled downloads leave no half files; Geyser updates keep the old version if the download fails.
+- The playit.gg tunnel can't start twice or after you stopped it during the download.
+- Ports opened automatically (UPnP) are closed again when the server stops.
+- Quitting or shutting Windows down with servers running stops them with a save; several hung servers no longer freeze the app for minutes.
+- Other small fixes (chat can't fake a player's IP, Start button after the offline prompt, snapshot/release-candidate ordering...).
+### ko
+**디자인**
+- 더 깔끔하고 차분하게: 상자 대신 제목과 얇은 선으로 구역을 나누고, 중립 회색과 작은 모서리를 쓰고, 이모지를 뺐어요.
+- 로고 파란색은 주요 버튼, 선택된 탭과 서버, 스위치에만 써요. **중지** 버튼은 빨간색이 됐어요.
+- 위쪽에 "● 실행 중 · Paper 1.21.4 · 메모리 2 GB" 한 줄로 보여줘요.
+- (?) 버튼을 줄였어요. 대부분의 설명은 설정 아래 회색 글 한 줄로 바뀌었어요.
+- 탭·서버·화면을 바꿀 때 어두워졌다 나타나지 않고, 이전 화면에서 새 화면으로 자연스럽게 겹쳐 넘어가요.
+
+**더 빨라졌어요**
+- 콘솔로 돌아오거나 설정을 저장할 때 로그 전체를 다시 그리지 않고, 로그가 쏟아질 때도 훨씬 빨라요.
+- 창을 최소화하면 실시간 수치, 그래프, 접속 확인을 멈춰요.
+- 플러그인/모드 켜기·끄기와 Modrinth 검색이 매번 모든 jar를 다시 읽지 않아요.
+
+**버그 수정**
+- 창이 새로 고쳐져도(이름 바꾸기, 앱 설정 등) 저장 안 한 설정과 서버 상태 그래프가 그대로 남아요.
+- 설정을 저장해도 건드리지 않은 메모리 값(예: 1.5GB)은 바뀌지 않아요.
+- 월드 불러오기가 실패해도 지금 월드가 지워지지 않아요. 아주 오래된 날짜의 파일이 있어도 백업돼요.
+- 구동기 바꾸기가 중간에 실패해도 서버가 안 켜지는 일이 없어요. 업데이트할 때 모드 월드 유형이 유지돼요.
+- 서버 복제 시 플러그인 데이터 폴더가 빠지지 않아요. 설정 파일은 원래 인코딩을 유지하고 안전하게 저장돼요.
+- 다운로드를 취소해도 반쪽 파일이 남지 않아요. Geyser 업데이트 다운로드가 실패하면 예전 버전이 남아 있어요.
+- playit.gg 터널이 두 번 켜지거나, 다운로드 중에 중지했는데 켜지는 문제를 고쳤어요.
+- 자동으로 연 포트(UPnP)는 서버가 꺼지면 다시 닫아요.
+- 서버가 켜진 채로 종료하거나 Windows를 끄면 저장 후 서버를 꺼요. 응답 없는 서버가 여러 개여도 앱이 몇 분씩 멈추지 않아요.
+- 그 밖의 작은 수정 (채팅으로 플레이어 IP를 속일 수 없게, 오프라인 안내 후 시작 버튼, 스냅샷/RC 버전 순서 등).
+
 ## 1.16.0
 ### en
 - New colours taken from the Bartizan logo: the blue of the logo is the main colour, and greys lean slightly blue. Green now only means "running / reachable".

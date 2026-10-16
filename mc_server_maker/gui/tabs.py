@@ -1,5 +1,6 @@
 """Server tabs: Console / Status / Settings / World (with version updates) / Players / Network."""
 
+import html
 import os
 import re
 import time
@@ -64,13 +65,14 @@ from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
 from mc_server_maker.gui.runner import ServerRunner
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import (
-    HelpButton,
     MotdPreview,
     amp_to_section,
     color_help,
     convert_icon,
     section_to_amp,
+    set_status,
     with_help,
+    with_note,
 )
 from mc_server_maker.gui.workers import TaskDialog, run_async
 from mc_server_maker.i18n import t
@@ -104,6 +106,16 @@ def set_spin(spin: QSpinBox, value) -> None:
     spin.setValue(max(spin.minimum(), min(spin.maximum(), value)))
 
 
+def left_aligned(widget: QWidget) -> QWidget:
+    """Keep a button its natural width inside a form row (rows stretch their fields)."""
+    box = QWidget()
+    row = QHBoxLayout(box)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.addWidget(widget)
+    row.addStretch()
+    return box
+
+
 def warn_label(text: str) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
@@ -112,7 +124,7 @@ def warn_label(text: str) -> QLabel:
 
 
 def _scroll(widget: QWidget) -> QScrollArea:
-    widget.layout().setContentsMargins(16, 8, 16, 16)
+    widget.layout().setContentsMargins(24, 10, 24, 24)
     widget.layout().setSpacing(10)
     area = QScrollArea()
     area.setWidgetResizable(True)
@@ -158,7 +170,7 @@ class ServerTab(QWidget):
 
 _CONSOLE_RULES = [
     (re.compile(r"^»» "), "info", True),
-    (re.compile(r"^> "), "accent", True),
+    (re.compile(r"^> "), "text", True),
     (re.compile(r"ERROR|SEVERE|Exception|^\s+at "), "danger", False),
     (re.compile(r"WARN"), "warn", False),
     (re.compile(r"joined the game"), "ok", False),
@@ -289,8 +301,8 @@ class ConsoleTab(ServerTab):
     def __init__(self, runner, on_changed):
         super().__init__(runner, on_changed)
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(16, 12, 16, 16)
-        outer.setSpacing(12)
+        outer.setContentsMargins(24, 16, 24, 16)
+        outer.setSpacing(20)
 
         left = QVBoxLayout()
         left.setSpacing(8)
@@ -300,7 +312,7 @@ class ConsoleTab(ServerTab):
         left.addWidget(self.view, 1)
 
         row = QHBoxLayout()
-        self.input = HistoryLineEdit(placeholderText=t("Type a command and press Enter (↑↓ history)"))
+        self.input = HistoryLineEdit(placeholderText=t("Type a command and press Enter"))
         self.input.setObjectName("ConsoleInput")
         self.input.returnPressed.connect(self._send)
         self.save_btn = QPushButton(t("Save world"))
@@ -315,26 +327,35 @@ class ConsoleTab(ServerTab):
         outer.addLayout(left, 1)
 
         side = QVBoxLayout()
-        side.setSpacing(8)
+        side.setSpacing(0)
         box = QGroupBox(t("Online"))
+        box.setObjectName("Stat")
         v = QVBoxLayout(box)
+        v.setContentsMargins(0, 0, 0, 0)
         self.player_count = QLabel("0")
         self.player_count.setObjectName("Big")
         v.addWidget(self.player_count)
-        self.more_btn = set_kind(QPushButton(t("More...")), "ghost")
+        self.more_btn = set_kind(QPushButton(t("Show list")), "link")
+        self.more_btn.setCursor(Qt.PointingHandCursor)
         self.more_btn.clicked.connect(self._show_players)
-        v.addWidget(self.more_btn)
+        v.addWidget(self.more_btn, 0, Qt.AlignLeft)
         v.addStretch()
-        side.addWidget(box, 1)  # the three boxes split the height into exact thirds
+        side.addWidget(box, 1)  # the three parts split the height into exact thirds
+        side.addWidget(self._rule())
         box = QGroupBox(t("Uptime"))
+        box.setObjectName("Stat")
         v = QVBoxLayout(box)
+        v.setContentsMargins(0, 12, 0, 0)
         self.uptime = QLabel("-")
         self.uptime.setObjectName("Big")
         v.addWidget(self.uptime)
         v.addStretch()
         side.addWidget(box, 1)
+        side.addWidget(self._rule())
         box = QGroupBox(t("Total uptime"))
+        box.setObjectName("Stat")
         v = QVBoxLayout(box)
+        v.setContentsMargins(0, 12, 0, 0)
         self.total_uptime = QLabel("-")
         self.total_uptime.setObjectName("Big")
         self.total_uptime.setWordWrap(True)
@@ -350,8 +371,10 @@ class ConsoleTab(ServerTab):
 
         # Lines are drawn in batches (a few times per second) instead of one by one,
         # and not at all while the console is hidden: keeps the app light.
-        self._pending = []
-        self._dirty = False
+        self._pending: deque = deque(maxlen=self.view.maximumBlockCount())
+        self._dirty = False  # the whole log must be redrawn (another server, cleared...)
+        self._missed = 0  # lines that arrived while hidden: only these are added on return
+        self._paused = False  # window minimized
         self._flush_timer = QTimer(self)
         self._flush_timer.setSingleShot(True)
         self._flush_timer.timeout.connect(self._flush)
@@ -360,21 +383,73 @@ class ConsoleTab(ServerTab):
         runner.line.connect(self._on_line)
         runner.players_changed.connect(self._on_players)
 
+    @staticmethod
+    def _rule() -> QFrame:
+        rule = QFrame()
+        rule.setObjectName("Rule")
+        return rule
+
     @property
     def controls(self):
         return [self.input, self.save_btn]
 
+    def set_server(self, meta) -> None:
+        if self.meta is not None and meta.folder == self.meta.folder and not self._dirty:
+            self.meta = meta  # same server reloaded (Save, rename...): the log on screen is still right
+            self.on_state()
+        else:
+            super().set_server(meta)
+
+    def _live(self) -> bool:
+        return self.isVisible() and not self._paused
+
     def refresh(self):
         self._pending.clear()
-        self._dirty = False
-        self.view.clear()
+        self._missed = 0
         self.view.setPlaceholderText(t("The server is off. Press Start to see its log here."))
-        if self.meta:
-            cursor = QTextCursor(self.view.document())
-            for ln in self.runner.log_lines(self.key)[-self.view.maximumBlockCount():]:
-                self._insert(cursor, ln)
-        self.view.moveCursor(QTextCursor.End)
+        if not self._live():
+            self._dirty = True  # redraw once it's on screen again; hidden work is wasted work
+            self.view.clear()
+        else:
+            self._dirty = False
+            self._redraw(self.runner.log_lines(self.key) if self.meta else [], clear=True)
         self.on_state()
+
+    def _redraw(self, lines, clear: bool):
+        """Add many lines in one go (one edit, one repaint) instead of one by one."""
+        lines = list(lines)[-self.view.maximumBlockCount():]
+        bar = self.view.verticalScrollBar()
+        at_bottom = clear or bar.value() >= bar.maximum() - 4
+        self.view.setUpdatesEnabled(False)
+        try:
+            if clear:
+                self.view.clear()
+            cursor = QTextCursor(self.view.document())
+            cursor.beginEditBlock()
+            for ln in lines:
+                self._insert(cursor, ln)
+            cursor.endEditBlock()
+        finally:
+            self.view.setUpdatesEnabled(True)
+        if at_bottom:
+            bar.setValue(bar.maximum())
+
+    def _catch_up(self):
+        if self._dirty or self._missed >= self.view.maximumBlockCount():
+            self.refresh()
+        elif self._missed:
+            log = self.runner.log_lines(self.key)
+            self._redraw(log[-self._missed:], clear=False)
+        self._missed = 0
+
+    def set_paused(self, paused: bool):
+        self._paused = paused
+        if paused:
+            self._uptime_timer.stop()
+        elif self.isVisible():
+            self._catch_up()
+            self._uptime_timer.start(1000)
+            self._tick()
 
     def on_state(self):
         # update buttons only; don't redraw the log
@@ -385,8 +460,9 @@ class ConsoleTab(ServerTab):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if self._dirty:
-            self.refresh()  # catch up on what arrived while hidden
+        if self._paused:
+            return
+        self._catch_up()  # add what arrived while hidden
         self._uptime_timer.start(1000)
         self._tick()
 
@@ -403,8 +479,8 @@ class ConsoleTab(ServerTab):
     def _on_line(self, key: str, line: str):
         if key != self.key:
             return
-        if not self.isVisible():
-            self._dirty = True
+        if not self._live():
+            self._missed += 1
             return
         self._pending.append(line)
         if not self._flush_timer.isActive():
@@ -413,16 +489,9 @@ class ConsoleTab(ServerTab):
     def _flush(self):
         if not self._pending:
             return
-        bar = self.view.verticalScrollBar()
-        at_bottom = bar.value() >= bar.maximum() - 4
-        cursor = QTextCursor(self.view.document())
-        cursor.beginEditBlock()
-        for ln in self._pending:
-            self._insert(cursor, ln)
-        cursor.endEditBlock()
+        # a flood bigger than the console replaces it (older lines would be trimmed right away)
+        self._redraw(self._pending, clear=len(self._pending) >= self._pending.maxlen)
         self._pending.clear()
-        if at_bottom:
-            bar.setValue(bar.maximum())
 
     def _on_players(self, key: str):
         if key != self.key:
@@ -444,6 +513,7 @@ class ConsoleTab(ServerTab):
     def _clear(self):
         self.runner.clear_log(self.key)
         self._pending.clear()
+        self._missed = 0
         self.view.clear()
 
     def _send(self):
@@ -582,16 +652,16 @@ class SettingsTab(ServerTab):
         layout.addWidget(self.notice)
 
         box = QGroupBox(t("Name · description · icon"))
+        box.setProperty("first", True)
         form = form_layout(box)
         self.name = QLineEdit()
         form.addRow(t("Name"), self.name)
         self.motd = QPlainTextEdit()
         self.motd.setFixedHeight(56)
         self.motd.textChanged.connect(self._update_preview)
-        form.addRow(t("Description"), self.motd)
-        # no (?) here: the colour codes show when hovering over the box
-        self.motd.setToolTip(t("Shown under the server name in the multiplayer list (MOTD). Up to 2 lines.")
-                             + "\n\n" + color_help())
+        form.addRow(t("Description"), with_note(self.motd, t(
+            "Shown under the server name in the multiplayer list (MOTD). Up to 2 lines.")))
+        self.motd.setToolTip(color_help())  # the colour codes show when hovering over the box
         icon_row = QHBoxLayout()
         pick = QPushButton(t("Choose image..."))
         pick.clicked.connect(self._pick_icon)
@@ -600,7 +670,11 @@ class SettingsTab(ServerTab):
         icon_row.addWidget(pick)
         icon_row.addWidget(remove)
         icon_row.addStretch()
-        form.addRow(with_help(t("Icon"), t("Any image; resized to 64×64 automatically.")), icon_row)
+        icon_w = QWidget()
+        icon_w.setLayout(icon_row)
+        icon_row.setContentsMargins(0, 0, 0, 0)
+        icon_w.setToolTip(t("Any image; resized to 64×64 automatically."))
+        form.addRow(t("Icon"), icon_w)
         self.preview = MotdPreview()
         form.addRow(t("Preview"), self.preview)
         layout.addWidget(box)
@@ -618,8 +692,8 @@ class SettingsTab(ServerTab):
             self.difficulty.addItem(t(label), k)
         form.addRow(t("Difficulty"), self.difficulty)
         self.port = QSpinBox(minimum=1, maximum=65535)
-        form.addRow(with_help(t("Port"), t(
-            "Usually 25565. Change it only to run several servers at the same time.")), self.port)
+        form.addRow(t("Port"), with_note(self.port, t(
+            "Usually 25565. Change it only to run several servers at the same time.")))
         self.view_distance = QSpinBox(minimum=2, maximum=32)
         form.addRow(with_help(t("View distance"), t(
             "How far players can see, in chunks. Higher looks better but uses more memory and CPU.")),
@@ -635,7 +709,11 @@ class SettingsTab(ServerTab):
             "0 = off, everyone can build. It only works once the server has at least one OP.")),
             self.spawn_protection)
         self.checks = {}
-        for key, label, help_text in (
+        rules = QGridLayout()
+        rules.setContentsMargins(0, 0, 0, 0)
+        rules.setHorizontalSpacing(28)
+        rules.setVerticalSpacing(8)
+        for i, (key, label, help_text) in enumerate((
             ("online-mode", "Online mode", "Players must sign in with a real Minecraft account. "
              "Turn it off to let non-premium accounts join (anyone can then use any name)."),
             ("pvp", "PvP", ""),
@@ -644,42 +722,46 @@ class SettingsTab(ServerTab):
             ("allow-flight", "Allow flight", "Stops the server from kicking players for flying. "
              "Turn it on if mods or plugins let players fly."),
             ("enable-command-block", "Command blocks", ""),
-        ):
+        )):
             cb = QCheckBox(t(label))
+            if help_text:
+                cb.setToolTip(t(help_text))
             self.checks[key] = cb
-            form.addRow("", with_help(cb, t(help_text)) if help_text else cb)
+            rules.addWidget(cb, i // 2, i % 2)
+        rules.setColumnStretch(2, 1)
+        rules_w = QWidget()
+        rules_w.setLayout(rules)
+        form.addRow(t("Rules"), rules_w)
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64)
-        form.addRow(with_help(t("Memory (RAM)"), t(
-            "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")), self.ram)
+        form.addRow(t("Memory (RAM)"), with_note(self.ram, t(
+            "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")))
         self.autosave = QComboBox()
         for minutes in AUTOSAVE_CHOICES:
             self.autosave.addItem(t("Off") if not minutes else
                                   t("Every {n} minutes", n=minutes) if minutes < 60 else t("Every hour"), minutes)
-        form.addRow(with_help(t("Auto-save"), t(
+        self.autosave.setToolTip(t(
             "While the server runs, the world is saved at this interval, so less is lost if the PC "
-            "shuts down suddenly. Saving takes a moment on big worlds.")), self.autosave)
-        all_props = set_kind(QPushButton(t("Edit all server.properties...")), "ghost")
-        all_props.clicked.connect(self._edit_all)
-        form.addRow("", all_props)
-        layout.addWidget(box)
-
-        box = QGroupBox(t("Memory saver"))
-        v = QVBoxLayout(box)
+            "shuts down suddenly. Saving takes a moment on big worlds."))
+        form.addRow(t("Auto-save"), self.autosave)
         self.memory_saver = QCheckBox(t("Use less memory"))
         self.memory_saver.toggled.connect(self._memory_saver_toggled)
-        v.addWidget(with_help(self.memory_saver, t(
+        form.addRow("", with_note(self.memory_saver, t(
             "Usually saves a third to half of the memory. Sets view distance 6 and simulation distance 4, "
             "unloads spawn chunks and returns unused memory sooner. Far-away farms only run while someone is nearby.")))
+        all_props = set_kind(QPushButton(t("Edit all server.properties...")), "ghost")
+        all_props.clicked.connect(self._edit_all)
+        form.addRow("", left_aligned(all_props))
         layout.addWidget(box)
 
         self.bedrock_box = QGroupBox(t("Bedrock players (phone / console / Windows)"))
         v = QVBoxLayout(self.bedrock_box)
-        self.bedrock_status = QLabel()
-        self.bedrock_status.setObjectName("ItemName")
-        v.addWidget(with_help(self.bedrock_status, t(
+        v.setSpacing(10)
+        v.addWidget(hint(t(
             "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account.")))
+        self.bedrock_status = QLabel()
+        v.addWidget(self.bedrock_status)
         row = QHBoxLayout()
-        self.btn_bedrock = set_kind(QPushButton(), "primary")
+        self.btn_bedrock = QPushButton()
         self.btn_bedrock.clicked.connect(self._install_bedrock)
         self.btn_bedrock_remove = set_kind(QPushButton(t("Remove")), "danger")
         self.btn_bedrock_remove.clicked.connect(self._remove_bedrock)
@@ -690,14 +772,19 @@ class SettingsTab(ServerTab):
         layout.addWidget(self.bedrock_box)
 
         save = set_kind(QPushButton(t("Save")), "primary")
-        save.setMinimumHeight(38)
+        save.setMinimumSize(120, 36)
         save.clicked.connect(self.save)
-        layout.addWidget(save)
+        layout.addSpacing(6)
+        layout.addWidget(save, 0, Qt.AlignLeft)
 
         # ---- world (its buttons act right away; "Save" above is only for the settings)
-        layout.addSpacing(14)
-        title = QLabel("🌍 " + t("World"))
-        title.setObjectName("Big")
+        layout.addSpacing(28)
+        rule = QFrame()
+        rule.setObjectName("Rule")
+        layout.addWidget(rule)
+        layout.addSpacing(16)
+        title = QLabel(t("World"))
+        title.setObjectName("PageTitle")
         layout.addWidget(title)
         self.world = WorldTab(runner, on_changed, embedded=True)
         layout.addWidget(self.world)
@@ -796,10 +883,10 @@ class SettingsTab(ServerTab):
         if not supported:
             return
         installed = plugins.bedrock_installed(self.meta)
-        self.bedrock_status.setText(
-            ("🟢 " + t("Enabled — Bedrock port {port} (UDP)", port=plugins.bedrock_port(self.meta)))
-            if installed else ("⚪ " + t("Not enabled"))
-        )
+        if installed:
+            set_status(self.bedrock_status, "ok", t("Enabled — Bedrock port {port} (UDP)", port=plugins.bedrock_port(self.meta)))
+        else:
+            set_status(self.bedrock_status, "off", t("Not enabled"))
         self.btn_bedrock.setText(t("Update Geyser") if installed else t("Enable Bedrock join"))
         self.btn_bedrock.setEnabled(not self.running)
         self.btn_bedrock_remove.setVisible(installed)
@@ -840,19 +927,39 @@ class SettingsTab(ServerTab):
         self._update_preview()
         self._icon_changed()
 
+    def set_server(self, meta) -> None:
+        if self.meta is not None and meta.folder == self.meta.folder:
+            self.meta = meta  # the same server reloaded (rename elsewhere, app settings...): keep edits
+            self._reload_keeping_edits()
+        else:
+            super().set_server(meta)
+
+    def _reload_keeping_edits(self):
+        """Re-read the server from disk but keep what the user changed and hasn't saved yet."""
+        loaded = getattr(self, "_loaded", None)
+        edits = {k: v for k, v in self._form_state().items() if loaded is not None and v != loaded.get(k)}
+        self.refresh()
+        if edits:
+            state = self._form_state()
+            state.update(edits)
+            self._apply_form_state(state)
+            self._update_preview()
+
     def _edit_all(self):
         if PropertiesDialog(self, self.meta.properties_path).exec():
-            self.refresh()
+            self._reload_keeping_edits()
 
     def _install_bedrock(self):
         meta = self.meta
         self.run_task(t("Bedrock players"), lambda task: plugins.install_bedrock(meta, task))
         self._refresh_bedrock()
+        self.on_changed()  # the Network and Status tabs show the Bedrock port too
 
     def _remove_bedrock(self):
         if QMessageBox.question(self, t("Bedrock players"), t("Remove Geyser and Floodgate?")) == QMessageBox.Yes:
             plugins.remove_bedrock(self.meta)
             self._refresh_bedrock()
+            self.on_changed()
 
     def save(self):
         if not self.meta:
@@ -888,8 +995,10 @@ class SettingsTab(ServerTab):
             p.set("enforce-whitelist", state["white-list"])
         p.save()
         self.meta.name = name
-        self.meta.ram_mb = self.ram.value() * 1024
-        self.meta.autosave_minutes = int(self.autosave.currentData() or 0)
+        if "_ram" in changed:  # untouched: keep odd values like 1536 MB exactly
+            self.meta.ram_mb = self.ram.value() * 1024
+        if "_autosave" in changed:
+            self.meta.autosave_minutes = int(self.autosave.currentData() or 0)
         self.meta.save()
         srv.write_start_scripts(self.meta)
         self.on_changed()
@@ -911,6 +1020,7 @@ class WorldTab(ServerTab):
         layout.addWidget(self.running_notice)
 
         box = QGroupBox(t("Current world"))
+        box.setProperty("first", True)
         form = form_layout(box)
         self.info_seed = QLabel()
         self.info_seed.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -936,7 +1046,7 @@ class WorldTab(ServerTab):
         v.addWidget(self.rb_seed)
         row = QHBoxLayout()
         self.seed = QLineEdit(placeholderText=t("Seed"))
-        dice = QPushButton("🎲 " + t("Random"))
+        dice = QPushButton(t("Random"))
         dice.clicked.connect(lambda: (self.rb_seed.setChecked(True), self.seed.setText(random_seed())))
         row.addSpacing(24)
         row.addWidget(self.seed, 1)
@@ -949,15 +1059,17 @@ class WorldTab(ServerTab):
             self.level_type.addItem(t(label), k)
         row.addWidget(self.level_type, 1)
         v.addLayout(row)
-        self.btn_new = set_kind(QPushButton(t("Replace with new world")), "primary")
+        self.btn_new = QPushButton(t("Replace with new world"))
         self.btn_new.clicked.connect(self._new_world)
-        v.addWidget(self.btn_new)
+        v.addWidget(self.btn_new, 0, Qt.AlignLeft)
         self.mode_group.idToggled.connect(lambda *_: self.seed.setEnabled(self.rb_seed.isChecked()))
         self.seed.setEnabled(False)
         layout.addWidget(box)
 
         box = QGroupBox(t("Import world"))
         v = QVBoxLayout(box)
+        v.addWidget(hint(t(
+            "Singleplayer worlds are in .minecraft/saves. Choose the folder with level.dat, or a zip.")))
         row = QHBoxLayout()
         self.btn_import_dir = QPushButton(t("From folder..."))
         self.btn_import_dir.clicked.connect(self._import_dir)
@@ -965,8 +1077,6 @@ class WorldTab(ServerTab):
         self.btn_import_zip.clicked.connect(self._import_zip)
         row.addWidget(self.btn_import_dir)
         row.addWidget(self.btn_import_zip)
-        row.addWidget(HelpButton(t(
-            "Singleplayer worlds are in .minecraft/saves. Choose the folder with level.dat, or a zip.")))
         row.addStretch()
         v.addLayout(row)
         layout.addWidget(box)
@@ -1005,7 +1115,11 @@ class WorldTab(ServerTab):
         self.info_seed.setText(seed or t("(random)"))
         lt = srv.parse_level_type(p.get("level-type"))
         self.info_type.setText(t(dict(srv.LEVEL_TYPES)[lt]))
-        self.level_type.setCurrentIndex(self.level_type.findData(lt))
+        if getattr(self, "_shown_for", None) != self.meta.folder:  # another server: start its choices fresh
+            self._shown_for = self.meta.folder
+            self.level_type.setCurrentIndex(self.level_type.findData(lt))
+            self.rb_random.setChecked(True)
+            self.seed.clear()
         exists = (self.meta.folder / level / "level.dat").exists()
         self.info_exists.setText(t("Generated") if exists else t("Not yet (created on first start)"))
         backups = srv.list_backups(self.meta)
@@ -1026,7 +1140,7 @@ class WorldTab(ServerTab):
     def _new_world(self):
         seed = self.seed.text().strip() if self.rb_seed.isChecked() else ""
         if self.rb_seed.isChecked() and not seed:
-            QMessageBox.warning(self, t("New world"), t("Enter a seed or press 🎲."))
+            QMessageBox.warning(self, t("New world"), t("Enter a seed or press Random."))
             return
         if not self._confirm(t("Delete the current world and create a new one?")):
             return
@@ -1092,7 +1206,8 @@ class AddressRow(QWidget):
         self._private = private
         self._shown = not private  # private addresses start hidden (screen sharing, streaming)
         row = QHBoxLayout(self)
-        row.setContentsMargins(0, 2, 0, 2)
+        row.setContentsMargins(0, 4, 0, 4)
+        row.setSpacing(12)
         col = QVBoxLayout()
         col.setSpacing(0)
         title_label = QLabel(title)
@@ -1101,7 +1216,7 @@ class AddressRow(QWidget):
         col.addWidget(hint(sub))
         row.addLayout(col, 1)
         self.value = ClickLabel("-")
-        self.value.setObjectName("Big")
+        self.value.setObjectName("Address")
         self.value.setTextInteractionFlags(Qt.TextSelectableByMouse)
         row.addWidget(self.value)
         self.copy = QPushButton(t("Copy"))
@@ -1114,7 +1229,7 @@ class AddressRow(QWidget):
 
     def _copy(self):
         QGuiApplication.clipboard().setText(self._text)  # always the real address, even while hidden
-        self.copy.setText(t("Copied ✓"))
+        self.copy.setText(t("Copied"))
         QTimer.singleShot(1200, lambda: self.copy.setText(t("Copy")))
 
     def _toggle_shown(self):
@@ -1147,6 +1262,7 @@ class AddressRow(QWidget):
 
 class NetworkTab(ServerTab):
     _public_ip = None  # looked up once per app run
+    _ip_lookup = False  # a lookup is running
     tunnel = None  # TunnelManager, set by the main window
 
     def set_tunnel(self, manager):
@@ -1160,6 +1276,7 @@ class NetworkTab(ServerTab):
         layout = QVBoxLayout(body)
 
         box = QGroupBox(t("Addresses"))
+        box.setProperty("first", True)
         v = QVBoxLayout(box)
         self.addr_local = AddressRow(t("This PC"), t("Playing on this computer"))
         self.addr_lan = AddressRow(t("Same Wi-Fi"), t("People in the same home"), private=True)
@@ -1168,18 +1285,20 @@ class NetworkTab(ServerTab):
                                        private=True)
         for w in (self.addr_local, self.addr_lan, self.addr_public, self.addr_bedrock):
             v.addWidget(w)
+        v.addWidget(hint(t("Blurred addresses show when you click them, and hide again on a second click.")))
         layout.addWidget(box)
 
         box = QGroupBox(t("Tunnel (no port forwarding) — playit.gg"))
         v = QVBoxLayout(box)
+        v.setSpacing(10)
+        v.addWidget(hint(t(
+            "Free and the easiest option: friends join without opening any ports. "
+            "Adds a little latency (distance to the nearest playit server).")))
         self.tunnel_status = QLabel()
         self.tunnel_status.setWordWrap(True)
-        self.tunnel_status.setObjectName("ItemName")
         self.tunnel_status.setTextFormat(Qt.RichText)
         self.tunnel_status.setOpenExternalLinks(True)
-        v.addWidget(with_help(self.tunnel_status, t(
-            "Free and the easiest option: friends join without opening any ports. "
-            "Adds a little latency (distance to the nearest playit server)."), expand=True))
+        v.addWidget(self.tunnel_status)
         self.addr_tunnel = AddressRow(t("Tunnel address"), t("Give this to friends (Java Edition)"), private=True)
         v.addWidget(self.addr_tunnel)
         row = QHBoxLayout()
@@ -1203,13 +1322,14 @@ class NetworkTab(ServerTab):
 
         box = QGroupBox(t("Let friends from other homes join"))
         v = QVBoxLayout(box)
+        v.setSpacing(10)
+        v.addWidget(hint(t(
+            "Your router must forward the server port. Most routers can do it automatically (UPnP).")))
         self.port_status = QLabel()
         self.port_status.setWordWrap(True)
-        self.port_status.setObjectName("ItemName")
-        v.addWidget(with_help(self.port_status, t(
-            "Your router must forward the server port. Most routers can do it automatically (UPnP)."), expand=True))
+        v.addWidget(self.port_status)
         row = QHBoxLayout()
-        self.btn_open = set_kind(QPushButton(t("Open port automatically (UPnP)")), "primary")
+        self.btn_open = QPushButton(t("Open port automatically (UPnP)"))
         self.btn_open.clicked.connect(self._open_port)
         self.btn_close = set_kind(QPushButton(t("Close port")), "ghost")
         self.btn_close.clicked.connect(self._close_port)
@@ -1263,8 +1383,9 @@ class NetworkTab(ServerTab):
         else:
             self.addr_public.set(t("Checking..."), False)
             self.addr_bedrock.set(t("Checking..."), False)
-            run_async(lambda task: network.public_ip(), self._got_public_ip,
-                      lambda msg: self.addr_public.set(t("Unavailable (offline?)"), False))
+            if not NetworkTab._ip_lookup:  # one lookup at a time, however often we refresh
+                NetworkTab._ip_lookup = True
+                run_async(lambda task: network.public_ip(), self._got_public_ip, self._no_public_ip)
         self.auto_upnp.blockSignals(True)
         self.auto_upnp.setChecked(self.meta.upnp)
         self.auto_upnp.blockSignals(False)
@@ -1275,9 +1396,9 @@ class NetworkTab(ServerTab):
         if self.key != getattr(self, "_status_key", None):  # another server: its own port status
             self._status_key = self.key
             self._router_host = None
-            self.port_status.setText("")
+            self.port_status.clear()
         if not self.port_status.text():
-            self.port_status.setText("⚪ " + t("Port not opened yet."))
+            set_status(self.port_status, "off", t("Port not opened yet."))
         ports = f"TCP {self.port}" + "".join(f", UDP {u}" for u in udp)
         router = self._router_host or "192.168.0.1 / 192.168.1.1"
         self.manual.setText(t(
@@ -1297,7 +1418,13 @@ class NetworkTab(ServerTab):
         if udp:
             self.addr_bedrock.set(f"{ip} : {udp[0]}")
 
+    def _no_public_ip(self, _msg: str):
+        NetworkTab._ip_lookup = False
+        for row in (self.addr_public, self.addr_bedrock):
+            row.set(t("Unavailable (offline?)"), False)
+
     def _got_public_ip(self, ip: str):
+        NetworkTab._ip_lookup = False
         NetworkTab._public_ip = ip
         if self.meta:
             self._show_public(ip)
@@ -1305,7 +1432,7 @@ class NetworkTab(ServerTab):
     def _open_port(self):
         port, name, udp = self.port, self.meta.name, plugins.udp_ports(self.meta)
         key = self.key
-        self.port_status.setText("⏳ " + t("Looking for the router..."))
+        set_status(self.port_status, "wait", t("Looking for the router..."))
         self.btn_open.setEnabled(False)
 
         def done(res):
@@ -1314,26 +1441,26 @@ class NetworkTab(ServerTab):
                 return  # the user switched servers meanwhile
             self._router_host = res.router_host
             if res.cgnat:
-                self.port_status.setText("🟡 " + t(
+                set_status(self.port_status, "warn", t(
                     "Port opened, but the router's internet IP ({ip}) is private. You are probably behind "
                     "carrier NAT, so friends may not get in. See playit.gg below.", ip=mask_address(res.router_ip)))
             else:
-                self.port_status.setText("🟢 " + t("Port {port} is open! Friends can join with the Internet address.", port=res.port))
+                set_status(self.port_status, "ok", t("Port {port} is open! Friends can join with the Internet address.", port=res.port))
             self.refresh()
 
         def fail(msg):
             self.btn_open.setEnabled(True)
             if key == self.key:
-                self.port_status.setText("🔴 " + msg)
+                set_status(self.port_status, "fail", msg)
 
         run_async(lambda task: network.open_port(port, f"Minecraft {name}"[:60], udp_ports=udp), done, fail)
 
     def _close_port(self):
         port, udp, key = self.port, plugins.udp_ports(self.meta), self.key
-        self.port_status.setText("⏳ " + t("Closing port..."))
+        set_status(self.port_status, "wait", t("Closing port..."))
         run_async(lambda task: network.close_port(port, udp_ports=udp),
-                  lambda _: key == self.key and self.port_status.setText("⚪ " + t("Port closed.")),
-                  lambda msg: key == self.key and self.port_status.setText("🔴 " + msg))
+                  lambda _: key == self.key and set_status(self.port_status, "off", t("Port closed.")),
+                  lambda msg: key == self.key and set_status(self.port_status, "fail", msg))
 
     # ------------------------------------------------------------ tunnel
 
@@ -1344,25 +1471,26 @@ class NetworkTab(ServerTab):
         from mc_server_maker.gui import tunnel_manager as tmod
 
         port = self.port
+        esc = html.escape
         texts = {
-            tmod.OFF: "⚪ " + t("Tunnel is off."),
-            tmod.INSTALLING: "⏳ " + t("Downloading the playit.gg agent..."),
-            tmod.STARTING: "⏳ " + t("Starting the tunnel..."),
-            tmod.WAITING_CLAIM: "🟡 " + t(
+            tmod.OFF: ("off", esc(t("Tunnel is off."))),
+            tmod.INSTALLING: ("wait", esc(t("Downloading the playit.gg agent..."))),
+            tmod.STARTING: ("wait", esc(t("Starting the tunnel..."))),
+            tmod.WAITING_CLAIM: ("warn", t(
                 "First time only: in the browser page that opened, sign in to playit.gg and approve this PC. "
                 "Then add a tunnel: <b>Minecraft Java</b>, local port <b>{port}</b>. "
                 "(Bedrock players: also add a <b>Minecraft Bedrock</b> tunnel, port <b>19132</b>.)", port=port)
-                + (f" <a href='{tm.claim_url}'>{t('Open the link again')}</a>" if tm.claim_url else ""),
-            tmod.RUNNING: "🟢 " + t("Tunnel is running. Friends can join with the tunnel address."),
-            tmod.ERROR: "🔴 " + (tm.error or t("Tunnel error.")),
+                + (f" <a href='{esc(tm.claim_url)}'>{t('Open the link again')}</a>" if tm.claim_url else "")),
+            tmod.RUNNING: ("ok", esc(t("Tunnel is running. Friends can join with the tunnel address."))),
+            tmod.ERROR: ("fail", esc(tm.error or t("Tunnel error."))),
         }
-        self.tunnel_status.setText(texts.get(tm.state, ""))
-        self.btn_tunnel.setText(t("Stop tunnel") if tm.is_active() else t("Start tunnel"))
-        set_kind(self.btn_tunnel, "ghost" if tm.is_active() else "primary")
-        self.addr_tunnel.set(tm.address or "-", bool(tm.address))
+        state, text = texts.get(tm.state, ("off", ""))
         if port != 25565 and tm.state == tmod.RUNNING:
-            self.tunnel_status.setText(self.tunnel_status.text() + " " + t(
-                "(Make sure the playit tunnel points to local port {port}.)", port=port))
+            text += " " + esc(t("(Make sure the playit tunnel points to local port {port}.)", port=port))
+        set_status(self.tunnel_status, state, text, rich=True)
+        self.btn_tunnel.setText(t("Stop tunnel") if tm.is_active() else t("Start tunnel"))
+        set_kind(self.btn_tunnel, "" if tm.is_active() else "primary")
+        self.addr_tunnel.set(tm.address or "-", bool(tm.address))
 
     def _toggle_tunnel(self):
         if not self.tunnel:
@@ -1465,27 +1593,29 @@ class AddonCard(QFrame):
         self.setObjectName("Card")
         self.addon = addon
         row = QHBoxLayout(self)
-        row.setContentsMargins(12, 8, 12, 8)
+        row.setContentsMargins(0, 10, 0, 10)
+        row.setSpacing(12)
         col = QVBoxLayout()
         col.setSpacing(1)
-        name = QLabel(addon.name + (f"  <span style='color:{theme.C['muted']}'>{addon.version}</span>" if addon.version else ""))
+        name = QLabel(html.escape(addon.name) + (f"&nbsp;&nbsp;<span style='color:{theme.C['muted']}; font-weight:400'>"
+                                                 f"{html.escape(addon.version)}</span>" if addon.version else ""))
         name.setObjectName("ItemName")
         name.setTextFormat(Qt.RichText)
         col.addWidget(name)
         bits = [addon.file_name, stats.human_bytes(addon.size)]
         if addon.authors:
             bits.insert(0, ", ".join(addon.authors[:3]))
-        col.addWidget(hint(" · ".join(bits)))
+        info = hint(" · ".join(bits))
+        info.setWordWrap(False)  # one line, so every row has the same height
+        col.addWidget(info)
         if warning:
-            col.addWidget(warn_label("⚠ " + warning))
+            col.addWidget(warn_label(warning))
         row.addLayout(col, 1)
         self.switch = ToggleSwitch(addon.enabled)
         self.switch.setToolTip(t("On / off"))
         self.switch.toggled.connect(lambda on: on_toggle(self, on))
         row.addWidget(self.switch)
-        remove = set_kind(QPushButton("✕"), "ghost")
-        remove.setToolTip(t("Remove"))
-        remove.setFixedWidth(34)
+        remove = set_kind(QPushButton(t("Remove")), "ghost")
         remove.clicked.connect(lambda: on_remove(self))
         row.addWidget(remove)
         self.setOpacity(addon.enabled)
@@ -1503,7 +1633,7 @@ class DropZone(QFrame):
         v = QVBoxLayout(self)
         v.setContentsMargins(16, 14, 16, 14)
         self.title = QLabel()
-        self.title.setObjectName("ItemName")
+        self.title.setObjectName("Muted")
         self.title.setAlignment(Qt.AlignCenter)
         v.addWidget(self.title)
         row = QHBoxLayout()
@@ -1518,7 +1648,7 @@ class DropZone(QFrame):
     def _set_hover(self, hover: bool):
         border = theme.C["accent"] if hover else theme.C["border"]
         bg = theme.C["accent_soft"] if hover else "transparent"
-        self.setStyleSheet(f"#DropZone {{ border: 2px dashed {border}; border-radius: 10px; background: {bg}; }}")
+        self.setStyleSheet(f"#DropZone {{ border: 1px dashed {border}; border-radius: 6px; background: {bg}; }}")
 
     def dragEnterEvent(self, event):
         if jar_paths(event.mimeData()):
@@ -1549,14 +1679,14 @@ class AddonsTab(ServerTab):
     def __init__(self, runner, on_changed):
         super().__init__(runner, on_changed)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 10, 16, 16)
-        outer.setSpacing(10)
+        outer.setContentsMargins(24, 14, 24, 16)
+        outer.setSpacing(14)
         self.notice = warn_label(t("The server is running. Changes apply after a restart."))
         outer.addWidget(self.notice)
         seg = QHBoxLayout()
-        seg.setSpacing(6)
+        seg.setSpacing(0)
         self.btn_installed = set_kind(QPushButton(t("Installed")), "segment")
-        self.btn_browse = set_kind(QPushButton("🔍 " + t("Find more")), "segment")
+        self.btn_browse = set_kind(QPushButton(t("Find more")), "segment")
         self.pages = QButtonGroup(self)
         for i, b in enumerate((self.btn_installed, self.btn_browse)):
             b.setCheckable(True)
@@ -1580,7 +1710,7 @@ class AddonsTab(ServerTab):
         layout.addWidget(self.drop)
         row = QHBoxLayout()
         self.summary = QLabel()
-        self.summary.setObjectName("ItemName")
+        self.summary.setObjectName("Hint")
         row.addWidget(self.summary)
         row.addStretch()
         self.search = QLineEdit(placeholderText=t("Search..."))
@@ -1596,9 +1726,9 @@ class AddonsTab(ServerTab):
         row.addWidget(open_btn)
         layout.addLayout(row)
         self.list = QListWidget()
-        self.list.setObjectName("ServerList")
+        self.list.setObjectName("AddonList")
         self.list.setSelectionMode(QAbstractItemView.NoSelection)
-        self.list.setSpacing(3)
+        self.list.setSpacing(0)
         layout.addWidget(self.list, 1)
         self.empty = hint("")
         self.empty.setAlignment(Qt.AlignCenter)
@@ -1624,6 +1754,7 @@ class AddonsTab(ServerTab):
             return
         self.drop.title.setText(t("Drag plugin .jar files here") if self.label() == "Plugins" else t("Drag mod .jar files here"))
         self.list.clear()
+        self.browser.invalidate_installed()
         items = addons.list_addons(self.meta)
         for a in items:
             self._add_card(a, addons.compatibility_warning(self.meta, a))
@@ -1685,8 +1816,10 @@ class AddonsTab(ServerTab):
                                                          file=card.addon.file_name) + f"\n{e}")
             return
         card.setOpacity(on)
-        items = addons.list_addons(self.meta)
-        self.summary.setText(t("{n} installed · {on} on", n=len(items), on=sum(1 for a in items if a.enabled)))
+        # count from the cards on screen: re-reading every jar made each switch slow
+        cards = [self.list.itemWidget(self.list.item(i)) for i in range(self.list.count())]
+        cards = [c for c in cards if c is not None]
+        self.summary.setText(t("{n} installed · {on} on", n=len(cards), on=sum(1 for c in cards if c.switch.isChecked())))
 
     def _remove(self, card):
         if QMessageBox.question(self, t("Remove"), t("Delete {name}?", name=card.addon.file_name)) == QMessageBox.Yes:
@@ -1747,12 +1880,12 @@ class Sparkline(QWidget):
             area.lineTo(pt)
         area.lineTo(QPointF(pts[-1].x(), h - 1))
         fill = QColor(theme.C["accent"])
-        fill.setAlpha(40)
+        fill.setAlpha(18)
         p.fillPath(area, fill)
         line = QPainterPath(pts[0])
         for pt in pts[1:]:
             line.lineTo(pt)
-        pen = QPen(QColor(theme.C["accent"]), 2)
+        pen = QPen(QColor(theme.C["accent"]), 1.6)
         pen.setCapStyle(Qt.RoundCap)
         pen.setJoinStyle(Qt.RoundJoin)
         p.setPen(pen)
@@ -1770,10 +1903,18 @@ class Sparkline(QWidget):
             QToolTip.showText(event.globalPosition().toPoint(), f"{self.fmt(self.values[i])} · {when}", self)
 
 
-class StatTile(QGroupBox):
+class StatTile(QFrame):
+    """One cell of the numbers table: small gray title, the value, a note and a tiny chart."""
+
     def __init__(self, title: str, spark: Optional[Sparkline] = None):
-        super().__init__(title)
+        super().__init__()
+        self.setObjectName("Tile")
         v = QVBoxLayout(self)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(2)
+        head = QLabel(title)
+        head.setObjectName("Hint")
+        v.addWidget(head)
         self.value = QLabel("-")
         self.value.setObjectName("Big")
         self.sub = hint("")
@@ -1790,6 +1931,13 @@ class StatTile(QGroupBox):
         self.sub.setText(sub)
 
 
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
 def _rate(v: float) -> str:
     return stats.human_bytes(v) + "/s"
 
@@ -1802,11 +1950,10 @@ class CheckRow(QWidget):
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 3, 0, 3)
         row.setSpacing(10)
-        self.icon = QLabel("○")
-        self.icon.setFixedWidth(18)
+        self.icon = QLabel("●")
+        self.icon.setFixedWidth(12)
         row.addWidget(self.icon)
         self.title = QLabel(title)
-        self.title.setObjectName("ItemName")
         self.title.setMinimumWidth(90)
         self.title.setMaximumWidth(150)
         row.addWidget(self.title)
@@ -1816,10 +1963,9 @@ class CheckRow(QWidget):
 
     def set(self, state: str, detail: str):
         """state: ok / fail / wait / off"""
-        icon, color = {"ok": ("●", theme.C["ok"]), "fail": ("●", theme.C["danger"]),
-                       "wait": ("◌", theme.C["warn"]), "off": ("○", theme.C["muted"])}[state]
-        self.icon.setText(icon)
-        self.icon.setStyleSheet(f"color: {color}; font-size: 12pt;")
+        color = {"ok": theme.C["ok"], "fail": theme.C["danger"], "wait": theme.C["warn"],
+                 "off": theme.C["disabled"]}[state]
+        self.icon.setStyleSheet(f"color: {color}; font-size: 8pt;")
         self.detail.setText(detail)
         self.detail.setStyleSheet(f"color: {theme.C['text'] if state in ('ok', 'fail') else theme.C['muted']};")
 
@@ -1836,6 +1982,7 @@ class JoinCheckBox(QGroupBox):
 
     def __init__(self, tab: "StatusTab"):
         super().__init__(t("Can players join?"))
+        self.setProperty("first", True)
         self.tab = tab
         v = QVBoxLayout(self)
         self.rows = {
@@ -1848,14 +1995,15 @@ class JoinCheckBox(QGroupBox):
         for r in self.rows.values():
             v.addWidget(r)
         row = QHBoxLayout()
-        self.when = hint("")
-        row.addWidget(self.when, 1)
+        row.setContentsMargins(0, 6, 0, 0)
         self.btn = QPushButton(t("Check now"))
         self.btn.clicked.connect(self.run)
         row.addWidget(self.btn)
-        row.addWidget(HelpButton(t(
-            "Internet checks are done from outside by mcsrvstat.us and can lag a few minutes behind.")))
+        self.when = hint("")
+        row.addWidget(self.when, 1)
         v.addLayout(row)
+        v.addWidget(hint(t(
+            "Internet checks are done from outside by mcsrvstat.us and can lag a few minutes behind.")))
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.run)
         self._busy = False
@@ -1871,7 +2019,7 @@ class JoinCheckBox(QGroupBox):
         self.btn.setEnabled(self.tab.running)
 
     def update_timer(self):
-        if self.tab.isVisible() and self.tab.running:
+        if self.tab.isVisible() and self.tab.running and not self.tab._paused:
             if not self.timer.isActive():
                 self.timer.start(self.INTERVAL_MS)
                 self.run()
@@ -1921,7 +2069,7 @@ class JoinCheckBox(QGroupBox):
         def fail(msg):
             self._busy = False
             self.btn.setEnabled(self.tab.running)
-            self.when.setText("⚠ " + msg)
+            self.when.setText(msg)
 
         run_async(work, done, fail)
 
@@ -1970,12 +2118,18 @@ class StatusTab(ServerTab):
         super().__init__(runner, on_changed)
         body = QWidget()
         layout = QVBoxLayout(body)
-        self.notice = hint("")
-        layout.addWidget(self.notice)
         self.join = JoinCheckBox(self)
         layout.addWidget(self.join)
-        grid = QGridLayout()
-        grid.setSpacing(12)
+        usage = QGroupBox(t("Usage"))
+        uv = QVBoxLayout(usage)
+        uv.setSpacing(10)
+        self.notice = hint("")
+        uv.addWidget(self.notice)
+        tiles = QFrame()
+        tiles.setObjectName("Tiles")
+        grid = QGridLayout(tiles)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(1)  # 1 px gaps show the frame colour: thin lines between the cells
         self.cpu = StatTile(t("CPU"), Sparkline(lambda v: f"{v:.0f}%", fixed_max=100))
         self.mem = StatTile(t("Memory"), Sparkline(stats.human_bytes))
         self.down = StatTile(t("Download"), Sparkline(_rate))
@@ -1984,11 +2138,10 @@ class StatusTab(ServerTab):
         self.disk = StatTile(t("Disk"))
         for i, tile in enumerate((self.cpu, self.mem, self.down, self.up, self.ping, self.disk)):
             grid.addWidget(tile, i // 3, i % 3)
-        layout.addLayout(grid)
-        about = with_help(t("About these numbers"), t(
-            "Download/upload are for the whole PC. Ping is measured from this PC to each player (some networks block it)."))
-        about.layout().itemAt(0).widget().setObjectName("Hint")
-        layout.addWidget(about)
+        uv.addWidget(tiles)
+        uv.addWidget(hint(t(
+            "Download/upload are for the whole PC. Ping is measured from this PC to each player (some networks block it).")))
+        layout.addWidget(usage)
         layout.addStretch()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -2000,8 +2153,25 @@ class StatusTab(ServerTab):
         self._monitor_pid = None
         self._n = 0
         self._ping_busy = self._disk_busy = False
+        self._shown_for = None  # the server whose numbers the graphs hold
+        self._disk_for = None
+        self._paused = False
+
+    def set_server(self, meta) -> None:
+        same = self._shown_for == meta.folder
+        self.meta = meta
+        if same:  # a reload of the same server (Save, rename...): keep the graphs
+            self.on_state()
+        else:
+            self.refresh()
+
+    def set_paused(self, paused: bool):
+        self._paused = paused
+        self._update_timer()
 
     def refresh(self):
+        self._shown_for = self.meta.folder if self.meta else None
+        self._disk_for = None
         for tile in (self.cpu, self.mem, self.down, self.up, self.ping):
             tile.spark.clear()
             tile.set("-")
@@ -2021,13 +2191,18 @@ class StatusTab(ServerTab):
         self._update_timer()
         if self.isVisible() and self.runner.state(self.key) == "running":
             self.join.run()  # just finished starting: check now, not a minute later
-        self._disk()
+        if self.isVisible():
+            self._disk()
+        else:
+            self._disk_for = None  # measure when the tab is opened
 
     # sample only while this tab is on screen and the server runs (low-resource)
     def showEvent(self, event):
         super().showEvent(event)
         self._update_timer()
         self._sample()
+        if self._disk_for != self.key:
+            self._disk()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -2036,7 +2211,7 @@ class StatusTab(ServerTab):
 
     def _update_timer(self):
         self.join.update_timer()
-        if self.isVisible() and self.running:
+        if self.isVisible() and self.running and not self._paused:
             if not self.timer.isActive():
                 self.timer.start(self.INTERVAL_MS)
         else:
@@ -2107,10 +2282,21 @@ class StatusTab(ServerTab):
         if not self.meta or self._disk_busy:
             return
         self._disk_busy = True
+        self._disk_for = self.key
         meta = self.meta
 
         def work(task):
-            return stats.folder_size(meta.folder), sum(stats.folder_size(d) for d in srv.world_dirs(meta) if d.exists())
+            # one walk of the folder: the worlds are counted on the way
+            worlds = [d for d in srv.world_dirs(meta) if d.exists()]
+            world_total = 0
+            total = 0
+            for top in meta.folder.iterdir() if meta.folder.exists() else []:
+                size = stats.folder_size(top) if top.is_dir() else _file_size(top)
+                total += size
+                if any(top == w for w in worlds):
+                    world_total += size
+            world_total += sum(stats.folder_size(w) for w in worlds if w.parent != meta.folder)
+            return total, world_total
 
         def done(res):
             self._disk_busy = False
@@ -2155,9 +2341,9 @@ class UpgradeSection(ServerTab):
         for p in PROVIDERS:
             self.software.addItem(p.name, p.id)
         self.software.currentIndexChanged.connect(self._reload)
-        form.addRow(with_help(t("Software"), t(
+        form.addRow(t("Software"), with_note(self.software, t(
             "Pick another software to switch this server to it (for example Paper → Fabric). "
-            "The world and settings stay; a full backup is made first.")), self.software)
+            "The world and settings stay; a full backup is made first.")))
         self.version = QComboBox()
         form.addRow(t("Update to"), self.version)
         self.version_label = form.labelForField(self.version)
@@ -2165,11 +2351,13 @@ class UpgradeSection(ServerTab):
         form.addRow("", self.version_status)
         self.unstable = QCheckBox(t("Show snapshots"))
         self.unstable.toggled.connect(self._reload)
-        form.addRow("", with_help(self.unstable, t("Test versions of upcoming updates. They can be unstable.")))
+        self.unstable.setToolTip(t("Test versions of upcoming updates. They can be unstable."))
+        form.addRow("", self.unstable)
         self.allow_downgrade = QCheckBox(t("Show older versions"))
         self.allow_downgrade.toggled.connect(self._reload)
-        form.addRow("", with_help(self.allow_downgrade, t(
-            "Going back to an older version can break the world. Keep the backup option on.")))
+        self.allow_downgrade.setToolTip(t(
+            "Going back to an older version can break the world. Keep the backup option on."))
+        form.addRow("", self.allow_downgrade)
         self.backup = QCheckBox(t("Back up the whole server first (recommended)"))
         self.backup.setChecked(True)
         form.addRow("", self.backup)
@@ -2177,12 +2365,11 @@ class UpgradeSection(ServerTab):
         self.auto_java.setChecked(True)
         form.addRow("", self.auto_java)
         row = QHBoxLayout()
-        self.btn_upgrade = set_kind(QPushButton(t("Update")), "primary")
-        self.btn_upgrade.setMinimumHeight(36)
+        self.btn_upgrade = QPushButton(t("Update"))
         self.btn_upgrade.clicked.connect(self._upgrade)
         row.addWidget(self.btn_upgrade)
-        row.addWidget(HelpButton(t("Check that your plugins/mods support the new version.")))
-        row.addStretch()
+        row.addSpacing(6)
+        row.addWidget(hint(t("Check that your plugins/mods support the new version.")), 1)
         form.addRow("", row)
         layout.addWidget(box)
 
@@ -2193,11 +2380,16 @@ class UpgradeSection(ServerTab):
         if not self.meta:
             return
         m = self.meta
-        self.cur_version.setText(f"{m.software_name} {m.mc_version}" + (f"  (build {m.build})" if m.build else ""))
+        self.cur_version.setText(f"{m.software_name} {m.mc_version}" + ("  " + t("(build {b})", b=m.build) if m.build else ""))
         self.cur_java.setText(f"Java {m.java_major} — {m.java_path}")
         running = self.running
         self.btn_upgrade.setEnabled(not running)
         self.btn_java.setEnabled(not running)
+        if self._loaded_for is None or self._loaded_for[0] != m.folder:
+            for box, on in ((self.backup, True), (self.auto_java, True), (self.allow_downgrade, False)):
+                box.blockSignals(True)  # another server: the safe defaults again (backup on!)
+                box.setChecked(on)
+                box.blockSignals(False)
         if self._loaded_for is None or self._loaded_for[:3] != (m.folder, m.software, m.mc_version):
             self.software.blockSignals(True)  # a new server (or after a switch): start from its own software
             self.software.setCurrentIndex(max(0, self.software.findData(m.software)))

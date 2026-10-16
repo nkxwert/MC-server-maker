@@ -13,10 +13,15 @@ _version_json_cache: dict = {}
 
 def version_key(v: str) -> tuple:
     """Sort key so that '1.21.1' < '1.21.2-pre1' < '1.21.2' < '26.1'."""
+    weekly = re.fullmatch(r"(\d{2})w(\d{2})([a-z]?)", v.strip().lower())
+    if weekly:  # "25w14a": a snapshot, sorted below every release (never "newer than 1.21")
+        return ((0, int(weekly.group(1)), int(weekly.group(2))), 0, (ord(weekly.group(3) or "a"),))
     main, _, suffix = v.partition("-")
     nums = tuple(int(n) for n in re.findall(r"\d+", main))
     suffix_nums = tuple(int(n) for n in re.findall(r"\d+", suffix))
-    return (nums, 0 if suffix else 1, suffix_nums)
+    low = suffix.lower()
+    kind = 0 if not suffix else 3 if "rc" in low else 2 if "pre" in low else 1  # snapshot < pre < rc
+    return (nums, 0 if suffix else 1, (kind,) + suffix_nums)
 
 
 def is_at_least(v: str, target: str) -> bool:

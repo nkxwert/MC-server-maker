@@ -162,7 +162,7 @@ KO = {
     "Create server": "서버 만들기",
     "Enter a server name.": "서버 이름을 입력해 주세요.",
     "Choose a version. (If the list is empty, check your internet connection.)": "버전을 선택해 주세요. (목록이 안 나오면 인터넷 연결을 확인해 주세요)",
-    "Enter a seed or press 🎲.": "시드를 입력하거나 🎲 버튼을 눌러 주세요.",
+    "Enter a seed or press Random.": "시드를 입력하거나 무작위 버튼을 눌러 주세요.",
     "Check these": "확인해 주세요",
     "{n} versions": "{n}개 버전",
     "No versions available.": "선택할 수 있는 버전이 없습니다.",
@@ -175,7 +175,7 @@ KO = {
     "Save world": "월드 저장",
     "Online": "접속 중",
     "The server is off. Press Start to see its log here.": "서버가 꺼져 있습니다. 시작을 누르면 여기에 로그가 나옵니다.",
-    "Type a command and press Enter (↑↓ history)": "명령어 입력 후 Enter (↑↓ 이전 명령어)",
+    "Type a command and press Enter": "명령어 입력 후 Enter",
     "Send": "보내기",
     "Clear": "지우기",
     "Kick": "추방",
@@ -249,7 +249,7 @@ KO = {
     "Minecraft name:": "마인크래프트 닉네임:",
     # ---- network tab
     "Copy": "복사",
-    "Copied ✓": "복사됨 ✓",
+    "Copied": "복사됨",
     "Addresses": "접속 주소",
     "This PC": "이 PC",
     "Playing on this computer": "이 컴퓨터에서 접속할 때",
@@ -538,7 +538,7 @@ KO = {
     "Relevance": "관련도순",
     "Most downloads": "다운로드 많은 순",
     "Recently updated": "최근 업데이트순",
-    "Details ↗": "자세히 ↗",
+    "Details": "자세히",
     "by {author}": "제작: {author}",
     "Players need it too": "플레이어도 설치 필요",
     "Everyone who joins must install this mod in their own Minecraft as well.": "접속하는 사람도 자기 마인크래프트에 이 모드를 설치해야 해요.",
@@ -591,4 +591,22 @@ KO = {
     "Done! {name} {v} starts with your world next time.": "완료! 다음에 시작하면 {name} {v}(으)로 월드가 열려요.",
     "Moved {folder} into {world}.": "{folder}을(를) {world} 안으로 옮겼어요.",
     "{dim} already exists in {world}; left {folder} as it is.": "{world} 안에 이미 {dim}이(가) 있어서 {folder}은(는) 그대로 뒀어요.",
+    # 1.17 clean design
+    "Memory {n} GB": "메모리 {n} GB",
+    "Rules": "규칙",
+    "Usage": "사용량",
+    "Show list": "목록 보기",
+    "{n} downloads": "다운로드 {n}",
+    "Blurred addresses show when you click them, and hide again on a second click.":
+        "가려진 주소는 누르면 보이고, 한 번 더 누르면 다시 가려져요.",
+    "(build {b})": "(빌드 {b})",
+    "Couldn't move the Nether/End into the world folder: {err}. The backup has them; move them by hand before starting.":
+        "네더/엔드를 월드 폴더로 옮기지 못했어요: {err}. 백업에 들어 있으니 시작하기 전에 직접 옮겨 주세요.",
+    "Couldn't remove the old {file}: {err}": "예전 {file}을(를) 지우지 못했어요: {err}",
+    "That is this server's own world. Choose another world to import.":
+        "이 서버의 현재 월드예요. 불러올 다른 월드를 골라 주세요.",
+    "The update's checksum file is broken. Please try again later.":
+        "업데이트 확인 파일이 손상됐어요. 잠시 후 다시 시도해 주세요.",
+    "Java {v} is in use. Stop the servers using it, then try again. ({err})":
+        "Java {v}를 사용하는 중이에요. 이 Java를 쓰는 서버를 끄고 다시 시도해 주세요. ({err})",
 }

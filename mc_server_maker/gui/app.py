@@ -1,12 +1,13 @@
 """Main window."""
 
+import html
 import os
 import sys
 import time
 import traceback
 from typing import List, Optional
 
-from PySide6.QtCore import QFile, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, QFile, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -53,7 +54,7 @@ from mc_server_maker.gui.tabs import (
 )
 from mc_server_maker.gui.tunnel_manager import TunnelManager
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
-from mc_server_maker.gui.widgets import with_help
+from mc_server_maker.gui.widgets import with_note
 from mc_server_maker.gui.workers import TaskDialog, any_running, run_async, wait_all
 from mc_server_maker.i18n import LANGUAGES, set_language, t
 
@@ -82,11 +83,11 @@ class ServerItem(QWidget):
         super().__init__()
         self.meta = meta
         row = QHBoxLayout(self)
-        row.setContentsMargins(10, 8, 10, 8)
+        row.setContentsMargins(8, 7, 6, 7)
         row.setSpacing(10)
         icon = QLabel()
-        icon.setPixmap(server_icon(meta, 36))
-        icon.setFixedSize(36, 36)
+        icon.setPixmap(server_icon(meta, 32))
+        icon.setFixedSize(32, 32)
         row.addWidget(icon)
         col = QVBoxLayout()
         col.setSpacing(1)
@@ -96,7 +97,7 @@ class ServerItem(QWidget):
         sub.setObjectName("ItemSub")
         # long names end with "…" instead of pushing the ⋯ button out of the sidebar
         for label, text in ((name, meta.name), (sub, f"{meta.software_name} {meta.mc_version}")):
-            label.setText(label.fontMetrics().elidedText(text, Qt.ElideRight, 100))
+            label.setText(label.fontMetrics().elidedText(text, Qt.ElideRight, 112))
             label.setToolTip(text)
         col.addWidget(name)
         col.addWidget(sub)
@@ -104,7 +105,7 @@ class ServerItem(QWidget):
         text, color = state_text(state)
         dot = QLabel("●")
         dot.setToolTip(text)
-        dot.setStyleSheet(f"color: {color}; font-size: 11pt;")
+        dot.setStyleSheet(f"color: {color}; font-size: 8pt;")
         row.addWidget(dot)
         more = QToolButton()
         more.setText("⋯")
@@ -162,7 +163,7 @@ class PreferencesDialog(FadeInDialog):
         form.addRow(t("Language"), self.language)
         self.low_resource = QCheckBox(t("Low-resource mode"))
         self.low_resource.setChecked(settings.low_resource)
-        form.addRow("", with_help(self.low_resource, t(
+        form.addRow("", with_note(self.low_resource, t(
             "Runs servers at lower priority with a smaller memory footprint, "
             "and pauses the app's live updates while its window is hidden.")))
         folder = QLabel(str(paths.BASE_DIR))
@@ -211,32 +212,31 @@ class MainWindow(QMainWindow):
         side = QFrame()
         self.side = side
         side.setObjectName("Sidebar")
-        side.setFixedWidth(212)
+        side.setFixedWidth(220)
         sv = QVBoxLayout(side)
-        sv.setContentsMargins(14, 18, 14, 14)
+        sv.setContentsMargins(12, 16, 12, 10)
         sv.setSpacing(10)
         brand = QHBoxLayout()
+        brand.setContentsMargins(4, 0, 0, 0)
+        brand.setSpacing(8)
         logo = QLabel()
-        logo.setPixmap(theme.icon_pixmap(paths.resource("icon.png"), 34))
+        logo.setPixmap(theme.icon_pixmap(paths.resource("icon.png"), 28))
         brand.addWidget(logo)
-        titles = QVBoxLayout()
-        titles.setSpacing(0)
         title = QLabel(APP_NAME)
         title.setObjectName("AppTitle")
-        subtitle = QLabel(f"v{APP_VERSION}")
+        subtitle = QLabel(APP_VERSION)
         subtitle.setObjectName("AppSubtitle")
-        titles.addWidget(title)
-        titles.addWidget(subtitle)
-        brand.addLayout(titles, 1)
+        brand.addWidget(title)
+        brand.addWidget(subtitle, 1, Qt.AlignBottom)
         sv.addLayout(brand)
-        sv.addSpacing(6)
+        sv.addSpacing(4)
 
-        new_btn = set_kind(QPushButton("＋  " + t("New server")), "primary")
-        new_btn.setMinimumHeight(42)
+        new_btn = set_kind(QPushButton(t("New server")), "primary")
+        new_btn.setMinimumHeight(36)
         new_btn.clicked.connect(self.create_server)
         sv.addWidget(new_btn)
         sv.addSpacing(4)
-        label = QLabel(t("SERVERS"))
+        label = QLabel("  " + t("SERVERS"))
         label.setObjectName("SectionLabel")
         sv.addWidget(label)
         self.list = QListWidget()
@@ -245,17 +245,22 @@ class MainWindow(QMainWindow):
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._list_context_menu)
         sv.addWidget(self.list, 1)
-        row = QHBoxLayout()
-        folder_btn = set_kind(QPushButton("📁 " + t("Folder")), "ghost")
+        foot = QFrame()
+        foot.setObjectName("SideFoot")
+        row = QHBoxLayout(foot)
+        row.setContentsMargins(0, 8, 0, 0)
+        row.setSpacing(4)
+        folder_btn = set_kind(QPushButton(t("Folder")), "ghost")
         folder_btn.setToolTip(str(paths.SERVERS_DIR))
         folder_btn.clicked.connect(lambda: open_path(paths.SERVERS_DIR))
-        prefs_btn = set_kind(QPushButton("⚙ " + t("Settings")), "ghost")
+        prefs_btn = set_kind(QPushButton(t("Settings")), "ghost")
         prefs_btn.clicked.connect(self.open_preferences)
         self.prefs_btn = prefs_btn
         self._show_update_dot()
         row.addWidget(folder_btn)
         row.addWidget(prefs_btn)
-        sv.addLayout(row)
+        row.addStretch()
+        sv.addWidget(foot)
         root_layout.addWidget(side)
 
         # ---- main area
@@ -269,52 +274,47 @@ class MainWindow(QMainWindow):
         header = QFrame()
         header.setObjectName("Header")
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(20, 16, 20, 16)
+        hl.setContentsMargins(24, 16, 24, 12)
         hl.setSpacing(12)
         self.h_icon = QLabel()
-        self.h_icon.setFixedSize(52, 52)
+        self.h_icon.setFixedSize(44, 44)
         hl.addWidget(self.h_icon)
         info = QVBoxLayout()
-        info.setSpacing(6)
+        info.setSpacing(2)
         self.h_name = QLabel()
         self.h_name.setObjectName("ServerName")
         info.addWidget(self.h_name)
-        chips = QHBoxLayout()
-        chips.setSpacing(6)
-        self.chip_state = QLabel()
-        self.chip_state.setObjectName("Chip")
-        self.chip_soft = QLabel()
-        self.chip_soft.setObjectName("Chip")
-        self.chip_ram = QLabel()
-        self.chip_ram.setObjectName("Chip")
-        for c in (self.chip_state, self.chip_soft, self.chip_ram):
-            chips.addWidget(c)
-        chips.addStretch()
-        info.addLayout(chips)
-        # the name/chips area may shrink (text is cut) so narrow screens still fit the buttons
+        # one quiet line: "● Running · Paper 1.21.4 · Memory 2 GB"
+        self.h_meta = QLabel()
+        self.h_meta.setObjectName("Meta")
+        self.h_meta.setTextFormat(Qt.RichText)
+        info.addWidget(self.h_meta)
+        # the name/meta area may shrink (text is cut) so narrow screens still fit the buttons
         info_w = QWidget()
         info_w.setLayout(info)
         info.setContentsMargins(0, 0, 0, 0)
         info_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         info_w.setMinimumWidth(140)
         hl.addWidget(info_w, 1)
-        self.btn_start = set_kind(QPushButton("▶  " + t("Start")), "primary")
-        self.btn_start.setMinimumSize(96, 42)
+        self.btn_start = set_kind(QPushButton(t("Start")), "primary")
+        self.btn_start.setMinimumSize(88, 36)
         self.btn_start.clicked.connect(self.start_server)
-        self.btn_stop = QPushButton("■  " + t("Stop"))
-        self.btn_stop.setMinimumHeight(42)
+        self.btn_stop = set_kind(QPushButton(t("Stop")), "stop")
+        self.btn_stop.setMinimumSize(80, 36)
+        self.btn_stop.setStyleSheet("QPushButton { border-top-right-radius: 0; border-bottom-right-radius: 0; }")
         self.btn_stop.clicked.connect(lambda: self.runner.stop(self.key))
         # ▾ next to Stop: rarely needed "force stop" lives in its menu
-        self.btn_stop_more = QPushButton("▾")
+        self.btn_stop_more = set_kind(QPushButton("▾"), "stop")
         self.btn_stop_more.setToolTip(t("More stop options"))
-        self.btn_stop_more.setFixedSize(30, 42)
+        self.btn_stop_more.setFixedSize(28, 36)
         self.btn_stop_more.setStyleSheet(  # our own ▾ only, not Qt's extra menu arrow
-            "QPushButton { padding: 0; } QPushButton::menu-indicator { image: none; width: 0px; }")
+            "QPushButton { padding: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }"
+            " QPushButton::menu-indicator { image: none; width: 0px; }")
         stop_menu = QMenu(self.btn_stop_more)
-        self.act_kill = stop_menu.addAction("⚠  " + t("Force stop (without saving)"), self._kill)
+        self.act_kill = stop_menu.addAction(t("Force stop (without saving)"), self._kill)
         self.btn_stop_more.setMenu(stop_menu)
         stop_group = QHBoxLayout()
-        stop_group.setSpacing(2)
+        stop_group.setSpacing(1)
         stop_group.addWidget(self.btn_stop)
         stop_group.addWidget(self.btn_stop_more)
         hl.addWidget(self.btn_start)
@@ -334,17 +334,19 @@ class MainWindow(QMainWindow):
         titles = ["Console", "Server status", "Plugins", "Network", "Settings"]  # settings last
         for tab, name in zip(self.all_tabs, titles):
             self.tabs.addTab(tab, t(name))
-        self.tabs.currentChanged.connect(lambda _i: anim.fade_in(self.tabs.currentWidget(), anim.FAST))
+        # clicking a tab blends the old page into the new one (the click comes before the switch)
+        self.tabs.tabBar().tabBarClicked.connect(self._tab_clicked)
         self.network_tab.set_tunnel(self.tunnel)
         self.status_tab.tunnel = self.tunnel
         tab_wrap = QWidget()
         tw = QVBoxLayout(tab_wrap)
-        tw.setContentsMargins(8, 6, 8, 0)
+        tw.setContentsMargins(0, 0, 0, 0)
         tw.addWidget(self.tabs)
         dv.addWidget(tab_wrap, 1)
         self.stack.addWidget(detail)
         root_layout.addWidget(self.stack, 1)
 
+        theme.flatten_groups(self)
         self.reload(select_folder)
 
     def _empty_page(self) -> QWidget:
@@ -363,8 +365,8 @@ class MainWindow(QMainWindow):
         sub.setObjectName("Muted")
         sub.setAlignment(Qt.AlignCenter)
         v.addWidget(sub)
-        btn = set_kind(QPushButton("＋  " + t("New server")), "primary")
-        btn.setFixedSize(QSize(220, 46))
+        btn = set_kind(QPushButton(t("New server")), "primary")
+        btn.setFixedSize(QSize(200, 40))
         btn.clicked.connect(self.create_server)
         row = QHBoxLayout()
         row.addStretch()
@@ -373,7 +375,7 @@ class MainWindow(QMainWindow):
         v.addSpacing(10)
         v.addLayout(row)
         # the sidebar is hidden until the first server exists, so app settings live here too
-        self.empty_prefs = set_kind(QPushButton("⚙ " + t("Settings")), "ghost")
+        self.empty_prefs = set_kind(QPushButton(t("Settings")), "ghost")
         self.empty_prefs.clicked.connect(self.open_preferences)
         row = QHBoxLayout()
         row.addStretch()
@@ -411,16 +413,14 @@ class MainWindow(QMainWindow):
         self.list.blockSignals(False)
         # no servers yet: just the welcome page in the middle, no sidebar
         if self.side.isHidden() == bool(self.servers):  # isHidden: works before the window is shown
-            self.side.setVisible(bool(self.servers))
-            if self.servers:
-                anim.fade_in(self.side)
+            # the first server appears (or the last one is gone): blend the whole window over
+            anim.crossfade(self.centralWidget(), lambda: self.side.setVisible(bool(self.servers)))
         if self.servers:
             self._select(row)
         else:
             self.meta = None
             if self.stack.currentIndex() != 0:
-                self.stack.setCurrentIndex(0)
-                anim.fade_in(self.stack.currentWidget())
+                anim.crossfade(self.stack, lambda: self.stack.setCurrentIndex(0))
 
     def _add_item(self, m: srv.ServerMeta, row: Optional[int] = None):
         widget = ServerItem(m, self.runner.state(str(m.folder)), self.server_menu)
@@ -444,10 +444,10 @@ class MainWindow(QMainWindow):
         if row < 0 or row >= len(self.servers):
             return
         changed = self.meta is None or self.meta.folder != self.servers[row].folder or self.stack.currentIndex() != 1
+        if changed:  # switching servers blends the old one into the new one
+            anim.crossfade(self.stack)
         self.meta = self.servers[row]
         self.stack.setCurrentIndex(1)
-        if changed:  # switching servers fades the new one in
-            anim.fade_in(self.stack.currentWidget(), anim.FAST)
         # Plugins / Mods tab only for software that supports them
         label = addons.kind_label(self.meta)
         idx = self.tabs.indexOf(self.addons_tab)
@@ -456,8 +456,11 @@ class MainWindow(QMainWindow):
         self.tabs.setTabVisible(idx, bool(label))
         if label:
             self.tabs.setTabText(idx, t(label))
-        self._update_header()
         failed = []
+        try:
+            self._update_header()
+        except Exception:  # noqa: BLE001 - a broken field in one server must not leave the tabs on another
+            traceback.print_exc()
         for tab in self.all_tabs:
             try:
                 tab.set_server(self.meta)
@@ -469,19 +472,24 @@ class MainWindow(QMainWindow):
                 "Some settings of '{name}' couldn't be loaded ({tabs}). Check its server.properties.",
                 name=self.meta.name if self.meta else "", tabs=", ".join(failed))))
 
+    def _tab_clicked(self, index: int):
+        if index != self.tabs.currentIndex():
+            anim.crossfade(self.tabs, ms=anim.FAST)
+
     def _update_header(self):
         m = self.meta
         if not m:
             return
         state = self.runner.state(self.key)
         text, color = state_text(state)
-        self.h_icon.setPixmap(server_icon(m, 52))
+        self.h_icon.setPixmap(server_icon(m, 44))
         self.h_name.setText(self.h_name.fontMetrics().elidedText(m.name, Qt.ElideRight, 360))
         self.h_name.setToolTip(m.name)
-        self.chip_state.setText(f"● {text}")
-        self.chip_state.setStyleSheet(f"color: {color};")
-        self.chip_soft.setText(f"{m.software_name} {m.mc_version}")
-        self.chip_ram.setText(f"RAM {m.ram_mb // 1024} GB")
+        sep = f'<span style="color:{theme.C["disabled"]}">&nbsp;·&nbsp;</span>'
+        self.h_meta.setText(
+            f'<span style="color:{color}">●</span>&nbsp;{html.escape(text)}{sep}'
+            f'{html.escape(m.software_name)} {html.escape(m.mc_version)}{sep}'
+            + html.escape(t("Memory {n} GB", n=m.ram_mb // 1024)))
         running = self.runner.is_running(self.key)
         self.btn_start.setEnabled(not running and self.key not in _starting)
         self.btn_stop.setEnabled(running and state != STOPPING)
@@ -495,6 +503,9 @@ class MainWindow(QMainWindow):
                     self.runner.system_line(key, t("Online mode is back on."))
                     if key == self.key:
                         self.settings_tab.set_server(self.meta)  # show the restored setting
+            for m in self.servers:
+                if str(m.folder) == key and m.upnp:
+                    self._close_auto_port(m)
         for i, m in enumerate(self.servers):
             if str(m.folder) == key:
                 self._add_item(m, i)
@@ -536,7 +547,7 @@ class MainWindow(QMainWindow):
         info = _update.get("info")
         for btn in (self.prefs_btn, getattr(self, "empty_prefs", None)):
             if btn:
-                btn.setText("⚙ " + t("Settings") + ("  ●" if info else ""))
+                btn.setText(t("Settings") + ("  ●" if info else ""))
                 btn.setToolTip(t("Update available: v{v}", v=info.version) if info else "")
 
     def check_updates(self, manual: bool = False):
@@ -637,15 +648,16 @@ class MainWindow(QMainWindow):
             _starting.discard(key)
             if not meta.folder.exists():
                 return  # deleted meanwhile
-            if self.meta is meta:
-                self.btn_start.setEnabled(not self.runner.is_running(self.key))
+            win = current_window() or self  # the window may have been rebuilt (language change)
+            if win.key == key:
+                win._update_header()  # re-enable Start (the selected meta may be a newer object)
             if not has_net:
-                choice = self._ask_offline(meta)
+                choice = win._ask_offline(meta)
                 if choice is None:
                     return
                 if choice:
                     srv.begin_offline_session(meta)
-            self._launch(meta)
+            win._launch(meta)
 
         run_async(lambda task: network.has_internet(), checked, lambda m: checked(True))
 
@@ -679,7 +691,10 @@ class MainWindow(QMainWindow):
             srv.end_offline_session(meta)
             QMessageBox.warning(self, t("Start"), str(e))
             return
-        if self.meta is meta:
+        if self.runner.state(key) == STOPPED:  # Java couldn't be started: no tunnel/port for it
+            srv.end_offline_session(meta)
+            return
+        if self.key == key:
             self.tabs.setCurrentWidget(self.console_tab)
         if meta.offline_session:
             self.runner.system_line(key, t(
@@ -703,6 +718,16 @@ class MainWindow(QMainWindow):
                 done,
                 lambda m: self.runner.system_line(key, t("Could not open the port: {err}", err=m.replace("\n", " "))),
             )
+
+    def _close_auto_port(self, meta: srv.ServerMeta):
+        """The router mapping opened at start is removed again when the server stops, so the
+        router doesn't keep forwarding to whatever device gets this PC's address later."""
+        try:
+            port = meta.properties().get_int("server-port", 25565)
+            udp = udp_ports(meta)
+        except OSError:
+            return
+        run_async(lambda task: network.close_port(port, udp_ports=udp), lambda _r: None, lambda _m: None)
 
     # ------------------------------------------------------- server list menu
 
@@ -809,6 +834,13 @@ class MainWindow(QMainWindow):
                 return
         quit_app(self)
         event.accept()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            # minimized: the window stays "visible" to Qt, so pause the live updates by hand
+            for tab in (self.console_tab, self.status_tab):
+                tab.set_paused(self.isMinimized())
 
     def _detach(self):
         self.runner.state_changed.disconnect(self._on_state_changed)
@@ -978,6 +1010,9 @@ def main():
     tunnel = TunnelManager(settings, app)
     win = MainWindow(runner, settings, tunnel)
     _windows.append(win)
+    # Windows logoff/shutdown or any other way out of the event loop: still stop servers with a save
+    app.aboutToQuit.connect(lambda: runner.any_running() and runner.stop_all(20000))
+    app.commitDataRequest.connect(lambda _m: runner.any_running() and runner.stop_all(20000))
     win.show()
     updater.cleanup_old()
     QTimer.singleShot(400, win.show_whats_new_if_updated)

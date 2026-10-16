@@ -1,5 +1,6 @@
 """Runs the playit.gg agent in the background (one per app, shared by all servers)."""
 
+import codecs
 from collections import deque
 from typing import Optional
 
@@ -31,6 +32,8 @@ class TunnelManager(QObject):
         self._opened_claim = False
         self._buf = ""
         self._line = ""
+        self._installing = False  # an agent download is running (only ever one)
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
     # ----------------------------------------------------------------- control
 
@@ -44,10 +47,22 @@ class TunnelManager(QObject):
         self._variant = 0
         if not tunnel.is_installed():
             self._set(INSTALLING)
-            run_async(lambda task: tunnel.install_agent(task), lambda _: self._launch(),
-                      lambda msg: self._fail(msg), on_log=self._append)
+            if not self._installing:  # Start, Stop, Start during a download: still one download
+                self._installing = True
+                run_async(lambda task: tunnel.install_agent(task), self._installed,
+                          self._install_failed, on_log=self._append)
         else:
             self._launch()
+
+    def _installed(self, _result):
+        self._installing = False
+        if self.state == INSTALLING:  # not stopped meanwhile
+            self._launch()
+
+    def _install_failed(self, msg: str):
+        self._installing = False
+        if self.state == INSTALLING:
+            self._fail(msg)
 
     def stop(self):
         proc, self.proc = self.proc, None  # detach first so _finished() ignores it
@@ -96,6 +111,7 @@ class TunnelManager(QObject):
         self.proc = proc
         self._buf = ""
         self._line = ""
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._set(STARTING)
         proc.start()
         # still alive after a few seconds -> this command line works
@@ -116,12 +132,15 @@ class TunnelManager(QObject):
             self._fail(t("The playit.gg agent couldn't start: {err}", err=proc.errorString()))
 
     def _read(self, proc: QProcess):
-        text = ANSI_RE.sub("", bytes(proc.readAllStandardOutput()).decode("utf-8", "replace"))
-        self._buf = (self._buf + text)[-4000:]
-        # only look at whole lines, so an address split across two reads isn't saved half
+        if proc is not self.proc:
+            return
+        # a character or colour code can be split across two reads: decode and clean whole lines only
+        text = self._decoder.decode(bytes(proc.readAllStandardOutput()))
         lines = (self._line + text).replace("\r", "\n").split("\n")
         self._line = lines.pop()[-1000:]
+        lines = [ANSI_RE.sub("", ln) for ln in lines]
         text = "\n".join(lines)
+        self._buf = (self._buf + text + "\n")[-4000:]
         for line in lines:
             if line.strip():
                 self._append(line.rstrip())

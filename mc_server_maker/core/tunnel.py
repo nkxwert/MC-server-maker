@@ -75,7 +75,9 @@ def install_agent(task: Optional[Task] = None) -> Path:
     if not asset:
         raise TunnelError(t("playit.gg has no agent for this system. Install it from playit.gg/download."))
     dest = agent_path()
-    net.download(asset["browser_download_url"], dest, task)
+    digest = str(asset.get("digest") or "")  # GitHub: "sha256:<hex>"
+    net.download(asset["browser_download_url"], dest, task,
+                 sha256=digest.split(":", 1)[1] if digest.startswith("sha256:") else None)
     if os.name != "nt":
         dest.chmod(0o755)
     task.log(t("playit.gg agent {v} installed.", v=release.get("tag_name", "")))

@@ -191,7 +191,16 @@ def install_java(required: int, task: Optional[Task] = None) -> JavaInfo:
     task.log(t("Extracting..."))
     _safe_extract(archive, tmp)
     archive.unlink(missing_ok=True)
-    shutil.rmtree(target, ignore_errors=True)
+    if target.exists():
+        # move the old one aside first: if a running server holds it (Windows), keep it intact
+        old = target.with_name(target.name + ".old")
+        shutil.rmtree(old, ignore_errors=True)
+        try:
+            target.rename(old)
+        except OSError as e:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise JavaError(t("Java {v} is in use. Stop the servers using it, then try again. ({err})", v=major, err=e)) from e
+        shutil.rmtree(old, ignore_errors=True)
     tmp.rename(target)
     exe = _find_exe(target)
     if not exe:

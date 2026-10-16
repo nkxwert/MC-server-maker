@@ -178,5 +178,84 @@ class SwitchSoftwareTest(unittest.TestCase):
         self.assertEqual(Properties(d / "server.properties").get("motd"), "hi")  # settings stay
 
 
+class ReviewFixes117Test(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def test_failed_import_keeps_current_world(self):
+        import zipfile
+        meta = srv.ServerMeta(name="i", software="vanilla", mc_version="1.21.4", folder=self.dir / "srv")
+        meta.folder.mkdir()
+        (meta.folder / "world").mkdir()
+        (meta.folder / "world" / "level.dat").write_bytes(b"mine")
+        bad = self.dir / "bad.zip"
+        with zipfile.ZipFile(bad, "w") as z:
+            z.writestr("world/level.dat", b"x")
+            z.writestr("../../evil.txt", b"x")
+        with self.assertRaises(srv.ServerError):
+            srv.replace_world_with_import(meta, bad, Task())
+        self.assertEqual((meta.folder / "world" / "level.dat").read_bytes(), b"mine")
+        with self.assertRaises(srv.ServerError):  # its own world can't be imported over itself
+            srv.replace_world_with_import(meta, meta.folder / "world", Task())
+
+    def test_backup_with_pre_1980_file(self):
+        import os
+        meta = srv.ServerMeta(name="b", software="vanilla", mc_version="1.21.4", folder=self.dir)
+        (self.dir / "world").mkdir()
+        old = self.dir / "world" / "level.dat"
+        old.write_bytes(b"x")
+        os.utime(old, (0, 0))
+        srv.backup_server(meta, "x", worlds_only=True, task=Task())
+        self.assertEqual(len(srv.list_backups(meta)), 1)
+
+    def test_properties_keep_their_encoding(self):
+        path = self.dir / "server.properties"
+        path.write_bytes("motd=\xc7\xd1\n".encode("latin-1"))  # not UTF-8 (cp949 text)
+        p = Properties(path)
+        p.set("pvp", "true")
+        p.save()
+        self.assertTrue(path.read_bytes().startswith(b"motd=\xc7\xd1\n"))
+
+    def test_custom_level_type_survives_upgrade_check(self):
+        self.assertFalse(srv.is_builtin_level_type("biomesoplenty:biomesoplenty"))
+        self.assertTrue(srv.is_builtin_level_type("minecraft:flat"))
+        self.assertTrue(srv.is_builtin_level_type("DEFAULT"))
+
+    def test_cancelled_download_leaves_no_part(self):
+        class Resp:
+            headers = {"Content-Length": "10"}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self, n): return b"12345"
+        task = Task()
+        calls = {"n": 0}
+        def check():
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise Cancelled()
+        task.check = check
+        with mock.patch.object(net, "_open", return_value=Resp()):
+            with self.assertRaises(Cancelled):
+                net.download("http://x/file", self.dir / "f.bin", task)
+        self.assertEqual(list(self.dir.iterdir()), [])
+
+    def test_duplicate_keeps_plugin_logs(self):
+        meta = srv.ServerMeta(name="d", software="paper", mc_version="1.21.4", folder=self.dir / "a")
+        (meta.folder / "plugins" / "X" / "logs").mkdir(parents=True)
+        (meta.folder / "plugins" / "X" / "logs" / "l.txt").write_text("x")
+        (meta.folder / "logs").mkdir()
+        meta.save()
+        with mock.patch.object(srv.paths, "SERVERS_DIR", self.dir):
+            copy = srv.duplicate_server(meta, "b")
+        self.assertTrue((copy.folder / "plugins" / "X" / "logs" / "l.txt").exists())
+        self.assertFalse((copy.folder / "logs").exists())
+
+    def test_login_line_from_chat_is_ignored(self):
+        from mc_server_maker.gui.runner import LOGIN_RE
+        self.assertIsNotNone(LOGIN_RE.search("[12:00:00 INFO]: Steve[/1.2.3.4:5] logged in with entity id 1"))
+        self.assertIsNone(LOGIN_RE.search("[12:00:00 INFO]: <Steve> Notch[/6.6.6.6:1] logged in"))
+
+
 if __name__ == "__main__":
     unittest.main()

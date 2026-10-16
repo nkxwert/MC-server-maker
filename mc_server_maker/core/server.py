@@ -2,6 +2,7 @@
 
 import json
 import re
+import os
 import shutil
 import tempfile
 import time
@@ -68,14 +69,21 @@ class ServerMeta:
     def save(self) -> None:
         data = asdict(self)
         data.pop("folder")
-        (self.folder / META_FILE).write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        path = self.folder / META_FILE
+        tmp = path.with_name(META_FILE + ".tmp")  # never leave a half-written file after a crash
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, folder: Path) -> "ServerMeta":
         data = json.loads((Path(folder) / META_FILE).read_text(encoding="utf-8"))
         known = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+        for k, f in cls.__dataclass_fields__.items():  # a hand-edited "4096" instead of 4096
+            if k in known and f.type in (int, "int") and not isinstance(known[k], int):
+                try:
+                    known[k] = int(known[k])
+                except (TypeError, ValueError):
+                    known.pop(k)
         return cls(**known, folder=Path(folder))
 
     @property
@@ -188,6 +196,12 @@ def parse_level_type(value: Optional[str]) -> str:
     mapping = {"default": "normal", "largebiomes": "large_biomes"}
     v = mapping.get(v, v)
     return v if v in dict(LEVEL_TYPES) else "normal"
+
+
+def is_builtin_level_type(value: Optional[str]) -> bool:
+    """False for a mod's world type (e.g. "biomesoplenty:biomesoplenty"): those are left alone."""
+    v = (value or "").lower().removeprefix("minecraft:")
+    return v in dict(LEVEL_TYPES) or v in ("default", "largebiomes")
 
 
 # --------------------------------------------------------- launch command
@@ -379,14 +393,9 @@ def upgrade_server(
         if old_jar.name != new_launch.get("jar"):
             old_jar.unlink(missing_ok=True)
 
-    props = meta.properties()
-    if props.get("level-type"):
-        # level-type values changed format in 1.19
-        props.set("level-type", level_type_value(parse_level_type(props.get("level-type")), new_version))
-        props.save()
-
-    if switching and meta.software in SPLIT_DIMENSIONS and software not in SPLIT_DIMENSIONS:
-        _merge_dimensions(meta, task)  # (vanilla -> Paper needs nothing: Paper splits them itself)
+    # the new software is in place: record it right away, so a later step failing can't leave
+    # settings that still launch the old (now removed) jar
+    old_software = meta.software
     meta.software = software
     meta.mc_version = new_version
     meta.build = result.get("build", "")
@@ -395,6 +404,19 @@ def upgrade_server(
     meta.java_path = java.path
     meta.save()
     write_start_scripts(meta)
+
+    props = meta.properties()
+    if is_builtin_level_type(props.get("level-type")):
+        # level-type values changed format in 1.19
+        props.set("level-type", level_type_value(parse_level_type(props.get("level-type")), new_version))
+        props.save()
+
+    if switching and old_software in SPLIT_DIMENSIONS and software not in SPLIT_DIMENSIONS:
+        try:  # (vanilla -> Paper needs nothing: Paper splits them itself)
+            _merge_dimensions(meta, task)
+        except OSError as e:
+            task.log(t("Couldn't move the Nether/End into the world folder: {err}. "
+                       "The backup has them; move them by hand before starting.", err=e))
     from mc_server_maker.core import plugins
 
     if plugins.bedrock_installed(meta) and plugins.supports_bedrock(meta):
@@ -471,7 +493,8 @@ def backup_server(meta: ServerMeta, label: str = "", worlds_only: bool = False, 
     task.log(t("Backing up... ({n} files)", n=len(files)))
     part = dest.with_name(dest.name + ".part")  # renamed only when complete
     try:
-        with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as z:
+        # strict_timestamps=False: a file dated before 1980 (from a jar, a wrong clock) mustn't stop the backup
+        with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as z:
             for i, f in enumerate(files):
                 task.check()
                 if f.name == "session.lock":
@@ -557,13 +580,21 @@ def _remove_worlds(meta: ServerMeta) -> None:
 
 def replace_world_with_import(meta: ServerMeta, src: Path, task: Optional[Task] = None) -> None:
     task = task or Task()
-    find_world_root(src)
+    root = find_world_root(src).resolve()
+    current = [d.resolve() for d in world_dirs(meta)]
+    if any(root == d or root.is_relative_to(d) for d in current):
+        raise ServerError(t("That is this server's own world. Choose another world to import."))
     if any(d.exists() for d in world_dirs(meta)):
         backup_server(meta, "world-before-import", worlds_only=True, task=task)
-    _remove_worlds(meta)
     level = meta.properties().get("level-name") or "world"
     task.log(t("Importing world..."))
-    import_world(meta.folder, src, level)
+    # copy/extract next to the server first; the current world is removed only once that worked
+    with tempfile.TemporaryDirectory(dir=meta.folder, prefix=".import-") as tmp:
+        staging = Path(tmp)
+        import_world(staging, src, level)
+        _remove_worlds(meta)
+        for d in staging.iterdir():
+            shutil.move(str(d), str(meta.folder / d.name))
     task.log(t("World imported!"))
 
 
@@ -626,7 +657,10 @@ def duplicate_server(meta: ServerMeta, new_name: str, task: Optional[Task] = Non
     dest = folder_name_for(new_name)
     task.log(t("Copying to {path}...", path=dest))
     try:
-        shutil.copytree(meta.folder, dest, ignore=lambda _d, names: [n for n in names if n in DUPLICATE_SKIP])
+        # skip backups, logs... only at the top: plugins keep their own "logs"/"cache" folders
+        top = str(meta.folder)
+        shutil.copytree(meta.folder, dest, ignore=lambda d, names: [
+            n for n in names if (n in DUPLICATE_SKIP if os.path.normpath(d) == os.path.normpath(top) else n == "session.lock")])
         copy = ServerMeta.load(dest)
         copy.name = new_name
         copy.created = time.strftime("%Y-%m-%d %H:%M")

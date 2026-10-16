@@ -25,8 +25,9 @@ from PySide6.QtWidgets import (
 from mc_server_maker.core import plugins
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.providers import PROVIDERS
+from mc_server_maker.gui import theme
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
-from mc_server_maker.gui.widgets import amp_to_section, color_help, with_help
+from mc_server_maker.gui.widgets import amp_to_section, color_help, with_help, with_note
 from mc_server_maker.gui.workers import run_async
 from mc_server_maker.i18n import t
 from mc_server_maker.gui.anim import FadeInDialog
@@ -79,7 +80,7 @@ class VersionLoader:
 
         def fail(msg):
             if req == self._request:
-                self.status.setText("⚠ " + t("Could not load versions: {msg}", msg=msg))
+                self.status.setText(t("Could not load versions: {msg}", msg=msg))
 
         run_async(fetch, done, fail)
 
@@ -103,6 +104,7 @@ class CreateServerDialog(FadeInDialog):
 
         # --- 1. software / version
         box = QGroupBox(t("1. Software and version"))
+        box.setProperty("first", True)
         form = form_layout(box)
         self.name = QLineEdit(t("My Server"))
         form.addRow(t("Name"), self.name)
@@ -132,14 +134,15 @@ class CreateServerDialog(FadeInDialog):
         box = QGroupBox(t("2. Runtime"))
         form = form_layout(box)
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64, value=2)
-        form.addRow(with_help(t("Memory (RAM)"), t(
-            "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")), self.ram)
+        form.addRow(t("Memory (RAM)"), with_note(self.ram, t(
+            "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")))
         self.auto_java = QCheckBox(t("Install the right Java automatically"))
         self.auto_java.setChecked(True)
         form.addRow("Java", self.auto_java)
         self.bedrock = QCheckBox(t("Let Bedrock players join"))
-        form.addRow(t("Bedrock"), with_help(self.bedrock, t(
-            "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account.")))
+        self.bedrock.setToolTip(t(
+            "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account."))
+        form.addRow(t("Bedrock"), self.bedrock)
         layout.addWidget(box)
 
         # --- 3. world
@@ -154,11 +157,12 @@ class CreateServerDialog(FadeInDialog):
             self.world_group.addButton(rb, i)
 
         v.addWidget(self.rb_random)
-        v.addWidget(with_help(self.rb_seed, t(
-            "The same seed always makes the same world. Use one from a friend or a seed website.")))
+        self.rb_seed.setToolTip(t(
+            "The same seed always makes the same world. Use one from a friend or a seed website."))
+        v.addWidget(self.rb_seed)
         seed_row = QHBoxLayout()
         self.seed = QLineEdit(placeholderText=t("Seed (numbers or text)"))
-        self.seed_dice = QPushButton("🎲 " + t("Random"))
+        self.seed_dice = QPushButton(t("Random"))
         self.seed_dice.clicked.connect(lambda: self.seed.setText(random_seed()))
         seed_row.addSpacing(24)
         seed_row.addWidget(self.seed, 1)
@@ -211,9 +215,10 @@ class CreateServerDialog(FadeInDialog):
         form.addRow(t("Port"), self.port)
         self.online_mode = QCheckBox(t("Online mode"))
         self.online_mode.setChecked(True)
-        form.addRow("", with_help(self.online_mode, t(
+        self.online_mode.setToolTip(t(
             "Players must sign in with a real Minecraft account. "
-            "Turn it off to let non-premium accounts join (anyone can then use any name).")))
+            "Turn it off to let non-premium accounts join (anyone can then use any name)."))
+        form.addRow("", self.online_mode)
         self.pvp = QCheckBox("PvP")
         self.pvp.setChecked(True)
         form.addRow("", self.pvp)
@@ -244,6 +249,7 @@ class CreateServerDialog(FadeInDialog):
         self.world_group.idToggled.connect(self._world_mode_changed)
         self._software_changed()
         self._world_mode_changed()
+        theme.flatten_groups(self)
 
     # ------------------------------------------------------------------
 
@@ -288,7 +294,7 @@ class CreateServerDialog(FadeInDialog):
         if not version:
             problems.append(t("Choose a version. (If the list is empty, check your internet connection.)"))
         if mode == "seed" and not self.seed.text().strip():
-            problems.append(t("Enter a seed or press 🎲."))
+            problems.append(t("Enter a seed or press Random."))
         if mode == "import":
             try:
                 srv.find_world_root(self.import_path.text().strip())

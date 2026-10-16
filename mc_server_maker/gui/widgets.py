@@ -68,6 +68,33 @@ def with_help(widget, text: str, expand: bool = False) -> QWidget:
     return box
 
 
+def with_note(widget, text: str) -> QWidget:
+    """`widget` with a short gray explanation under it (instead of a (?) to click)."""
+    box = QWidget()
+    col = QVBoxLayout(box)
+    col.setContentsMargins(0, 0, 0, 0)
+    col.setSpacing(4)
+    col.addWidget(widget)
+    note = QLabel(text)
+    note.setObjectName("Hint")
+    note.setWordWrap(True)
+    col.addWidget(note)
+    return box
+
+
+STATUS_COLORS = {"ok": "ok", "wait": "warn", "warn": "warn", "fail": "danger", "off": "disabled"}
+
+
+def set_status(label: QLabel, state: str, text: str, rich: bool = False) -> None:
+    """Status text with a small coloured dot in front: ok / wait / warn / fail / off.
+
+    rich=True: `text` is already HTML (bold words, links)."""
+    label.setTextFormat(Qt.RichText)
+    color = theme.C[STATUS_COLORS.get(state, "disabled")]
+    label.setText(f'<span style="color:{color}">●</span>&nbsp; {text if rich else html.escape(text)}')
+    label.setProperty("status_text", text)
+
+
 def color_help() -> str:
     return t("Colors: &0 black &1 dark blue &2 green &3 teal &4 red &5 purple &6 gold &7 gray "
              "&8 dark gray &9 blue &a lime &b aqua &c light red &d pink &e yellow &f white · "
