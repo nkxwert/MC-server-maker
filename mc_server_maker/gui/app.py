@@ -1023,6 +1023,10 @@ def _hard_exit(code: int) -> None:
             import ctypes
 
             kernel32 = ctypes.windll.kernel32
+            # 64-bit handle: without these types ctypes cuts the pseudo-handle (-1) to 32 bits
+            # and the call silently fails
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel32.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
             kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code & 0xFFFFFFFF)
         except (AttributeError, OSError):
             pass
