@@ -35,6 +35,7 @@ class TunnelManager(QObject):
         self._installing = False  # an agent download is running (only ever one)
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self.tunnels = None  # the account's tunnels from playit's API (None: not known yet)
+        self.server_port = None  # the selected server's port: pick the tunnel that points to it
         self._polling = False
         self._poll = QTimer(self)  # ask playit for the tunnel address while the agent runs
         self._poll.timeout.connect(self._poll_tunnels)
@@ -79,8 +80,10 @@ class TunnelManager(QObject):
     def open_dashboard(self):
         QDesktopServices.openUrl(QUrl(tunnel.DASHBOARD))
 
-    def set_address(self, address: str):
+    def set_address(self, address: str, manual: bool = False):
+        """manual=True: typed by the user; then the address from playit's API doesn't replace it."""
         self.address = address.strip()
+        self.settings.tunnel_address_manual = bool(manual and self.address)
         self.settings.tunnel_address = self.address
         self.settings.save()
         self.changed.emit()
@@ -106,8 +109,10 @@ class TunnelManager(QObject):
             if proc is not self.proc:
                 return  # stopped or restarted meanwhile
             self.tunnels = tunnels
-            addr = tunnel.java_address(tunnels)
-            if addr and addr != self.address:
+            addr = tunnel.java_address(tunnels, self.server_port)
+            known = {x.address for x in tunnels}
+            manual = getattr(self.settings, "tunnel_address_manual", False) and self.address
+            if addr and addr != self.address and not (manual and self.address in known):
                 self.set_address(addr)
             if self.state in (STARTING, WAITING_CLAIM):
                 self._set(RUNNING)

@@ -3,6 +3,20 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.22.0
+### en
+- New: **Copy diagnostic info** in the Network tab checks the router, double NAT, firewall, tunnel and ports, and copies a summary to paste into a chat (internet addresses are partly hidden).
+- Fixed: Bartizan could silently refuse to start when the Documents folder is synced with OneDrive between two PCs (the "already running" lock came from the other PC). If another copy really is running, it now says so.
+- Fixed: a world folder name (level-name) like "." or ".." made "New world" or "Import world" delete the server folder, or every server, including backups. Such names are now refused.
+- Fixed: quitting while the "No internet" question was open started the server anyway.
+- Tunnel: with several tunnels, the one for this server's port is shown, and an address you typed in is kept.
+### ko
+- 새 기능: 네트워크 탭의 **진단 정보 복사**가 공유기, 이중 NAT, 방화벽, 터널, 포트를 확인하고 결과를 복사해요. 채팅에 붙여넣어 보내면 돼요 (인터넷 주소는 일부 가려져요).
+- 수정: 문서 폴더를 OneDrive로 두 PC에서 동기화하면 Bartizan이 아무 말 없이 실행되지 않던 문제 (다른 PC의 "실행 중" 표시를 보고 멈췄어요). 정말 이미 실행 중이면 그렇다고 알려줘요.
+- 수정: 월드 폴더 이름(level-name)이 "."이나 ".." 같으면 "새 월드"나 "월드 불러오기"가 서버 폴더(또는 모든 서버)를 백업까지 지울 수 있던 문제. 이런 이름은 이제 거부해요.
+- 수정: "인터넷 없음" 질문이 떠 있을 때 앱을 종료하면 서버가 켜지던 문제.
+- 터널: 터널이 여러 개면 이 서버 포트에 맞는 주소를 보여주고, 직접 입력한 주소는 덮어쓰지 않아요.
+
 ## 1.21.0
 ### en
 - Manual port forwarding ("If automatic doesn't work") now finds your router for you: its real address (the default gateway), its brand and model when it tells us, and where its settings page actually answers (some only work on https or a port like :8080 / :8899).

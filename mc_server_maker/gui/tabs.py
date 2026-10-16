@@ -1746,6 +1746,8 @@ class NetworkTab(ServerTab):
         self.auto_tunnel.blockSignals(True)
         self.auto_tunnel.setChecked(self.meta.tunnel)
         self.auto_tunnel.blockSignals(False)
+        if self.tunnel:
+            self.tunnel.server_port = self.port  # several tunnels: show the one for this server
         self._refresh_tunnel()
         if self.key != getattr(self, "_status_key", None):  # another server: its own port status
             self._status_key = self.key
@@ -1855,7 +1857,7 @@ class NetworkTab(ServerTab):
         text, ok = QInputDialog.getText(self, t("Tunnel address"), t("Address from the playit.gg dashboard:"),
                                         text=self.tunnel.address)
         if ok:
-            self.tunnel.set_address(text)
+            self.tunnel.set_address(text, manual=True)
 
     def _show_tunnel_log(self):
         if not self.tunnel:

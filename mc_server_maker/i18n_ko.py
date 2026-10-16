@@ -703,4 +703,6 @@ KO = {
     "Server": "서버",
     "The world folder name (level-name = '{name}') isn't a safe folder inside the server. Change it in All server.properties, e.g. to 'world'.":
         "월드 폴더 이름(level-name = '{name}')이 서버 안의 안전한 폴더가 아니에요. 'server.properties 전체 편집'에서 'world' 같은 이름으로 바꿔 주세요.",
+    "Bartizan is already running. Look for its icon in the taskbar tray (next to the clock).":
+        "Bartizan이 이미 실행 중이에요. 작업 표시줄 오른쪽(시계 옆) 아이콘을 찾아보세요.",
 }

@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import traceback
+from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import QEvent, QFile, QSize, Qt, QTimer, QUrl
@@ -686,7 +687,7 @@ class MainWindow(QMainWindow):
         box.setDefaultButton(offline)
         box.exec()
         clicked = box.clickedButton()
-        if clicked is cancel:
+        if clicked is None or clicked is cancel:  # closed by quitting the app: don't start anything
             return None
         return clicked is offline
 
@@ -940,22 +941,33 @@ def _single_instance(app: QApplication) -> bool:
     except ImportError:  # a build without QtNetwork must still start
         QLocalServer = QLocalSocket = None
 
+    import tempfile
+
     paths.BASE_DIR.mkdir(parents=True, exist_ok=True)
     name = "bartizan-" + hashlib.sha1(str(paths.BASE_DIR).encode("utf-8")).hexdigest()[:12]
-    lock = QLockFile(str(paths.BASE_DIR / ".bartizan.lock"))
+    # the lock lives in this PC's temp folder, not in Documents: Documents is often synced by
+    # OneDrive, and a lock copied from another PC can never be checked, so Bartizan wouldn't start
+    lock = QLockFile(str(Path(tempfile.gettempdir()) / f"{name}.lock"))
     lock.setStaleLockTime(0)  # a dead owner is still detected
     # right after a self-update the old copy is still closing: give it time
     wait_ms = 20000 if os.environ.pop("BARTIZAN_RESTART", "") else 300
     if not lock.tryLock(wait_ms):
-        if QLocalSocket is None:
+        if QLocalSocket is not None:
+            sock = QLocalSocket()
+            sock.connectToServer(name)
+            if sock.waitForConnected(1500):  # the running copy shows its window
+                sock.write(b"show")
+                sock.waitForBytesWritten(1000)
+                sock.disconnectFromServer()
+                return False
+        if lock.error() == QLockFile.LockFailedError:
+            # another copy holds the lock but doesn't answer (still starting, or stuck): say so
+            QMessageBox.information(None, APP_NAME, t(
+                "Bartizan is already running. Look for its icon in the taskbar tray (next to the clock)."))
             return False
-        sock = QLocalSocket()
-        sock.connectToServer(name)
-        if sock.waitForConnected(1500):
-            sock.write(b"show")
-            sock.waitForBytesWritten(1000)
-            sock.disconnectFromServer()
-        return False
+        # the lock file can't be written at all (e.g. a security setting): run anyway, unguarded
+        app._instance = (lock,)
+        return True
     if QLocalServer is None:
         app._instance = (lock,)
         return True

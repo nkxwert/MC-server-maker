@@ -13,6 +13,7 @@ class AppSettings:
     language: str = "en"  # en | ko
     low_resource: bool = True  # lower server priority, smaller memory footprint, quiet UI
     tunnel_address: str = ""  # last known playit.gg address
+    tunnel_address_manual: bool = False  # typed by the user: the API's address doesn't replace it
     last_update_check: str = ""  # YYYY-MM-DD of the last automatic check
     notified_version: str = ""  # newest version we already told the user about
     last_run_version: str = ""  # to show "What's new" once after an update
