@@ -3,6 +3,18 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.21.0
+### en
+- Manual port forwarding ("If automatic doesn't work") now finds your router for you: its real address (the default gateway), its brand and model when it tells us, and where its settings page actually answers (some only work on https or a port like :8080 / :8899).
+- "Open the router page" opens that address directly, and the steps show the menu for common routers (ipTIME, KT, SK broadband, LG U+, ASUS, TP-Link, NETGEAR).
+- Warns when there's another router or the provider's modem in front (double NAT / carrier NAT), where forwarding on this router alone can't work.
+- "Check the port from outside" confirms that friends can reach the server after you set it up.
+### ko
+- 직접 포트포워딩("자동으로 안 될 때")에서 공유기를 자동으로 찾아줘요: 실제 공유기 주소(기본 게이트웨이), 알 수 있으면 제조사와 모델, 그리고 설정 페이지가 실제로 응답하는 주소(https나 :8080, :8899 같은 포트로만 열리는 기기도 있어요).
+- "공유기 설정 페이지 열기"가 그 주소를 바로 열고, 흔한 공유기(ipTIME, KT, SK브로드밴드, LG U+, ASUS, TP-Link, NETGEAR)는 메뉴 위치도 알려줘요.
+- 앞에 다른 공유기나 통신사 모뎀이 있어서(이중 NAT / CGNAT) 이 공유기만으로는 포트포워딩이 안 되는 경우를 알려줘요.
+- "바깥에서 포트 확인"으로 설정 후 친구가 실제로 들어올 수 있는지 확인할 수 있어요.
+
 ## 1.20.0
 ### en
 - Tunnel: the tunnel address now fills in by itself. The playit agent doesn't print it, so Bartizan asks playit.gg for this PC's tunnels. If there's no Minecraft Java tunnel yet, the Network tab says how to add one.

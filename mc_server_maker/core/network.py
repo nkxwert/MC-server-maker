@@ -7,6 +7,7 @@ It does nothing if UPnP is turned off in the router settings.
 import http.client
 import ipaddress
 import os
+import re
 import socket
 import urllib.error
 import urllib.request
@@ -54,6 +55,12 @@ def local_ip_for(host: str) -> str:
             return s.getsockname()[0]
     except OSError:
         return lan_ip()
+
+
+def mask_ip(ip: str) -> str:
+    """'100.64.12.34' -> '100.64.x.x': enough to see it's private, not enough to identify anyone."""
+    parts = ip.split(".")
+    return ".".join(parts[:2] + ["x", "x"]) if len(parts) == 4 else ip
 
 
 def is_public(ip: str) -> bool:
@@ -296,6 +303,168 @@ def close_port(port: int, gateway: Optional[Gateway] = None, udp_ports: Sequence
             gw.delete_port(udp, "UDP")
         except UPnPError:
             pass
+
+
+# ------------------------------------------------- manual port forwarding help
+
+ADMIN_PORTS = (80, 443, 8080, 8443, 8899, 8000, 8008, 8888, 81, 8081)  # router admin pages
+
+
+def _default_gateway_windows() -> List[tuple]:
+    import subprocess
+
+    try:
+        out = subprocess.run(["route", "print", "-4", "0.0.0.0"], capture_output=True, timeout=10,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return parse_route_print(out.decode("ascii", "ignore"))  # the numbers are ASCII in every Windows language
+
+
+def parse_route_print(text: str) -> List[tuple]:
+    """(gateway, interface, metric) of the default routes in `route print` output."""
+    return [(m.group(1), m.group(2), int(m.group(3))) for m in re.finditer(
+        r"^\s*0\.0\.0\.0\s+0\.0\.0\.0\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+)",
+        text, re.MULTILINE)]
+
+
+def _default_gateway_linux() -> List[tuple]:
+    rows = []
+    try:
+        with open("/proc/net/route", encoding="ascii") as f:
+            for line in f.readlines()[1:]:
+                parts = line.split()
+                if len(parts) > 6 and parts[1] == "00000000" and int(parts[3], 16) & 2:
+                    gw = socket.inet_ntoa(int(parts[2], 16).to_bytes(4, "little"))
+                    rows.append((gw, "", int(parts[6])))
+    except (OSError, ValueError):
+        pass
+    return rows
+
+
+def default_gateway() -> str:
+    """The router this PC sends internet traffic to (the "default gateway" in ipconfig)."""
+    rows = _default_gateway_windows() if os.name == "nt" else _default_gateway_linux()
+    lan = lan_ip()
+    # with a VPN or several adapters there are several routes: prefer the one on our LAN adapter
+    rows.sort(key=lambda r: (bool(r[1]) and r[1] != lan, r[2]))
+    for gw, _iface, _metric in rows:
+        if gw and not gw.startswith("0."):
+            return gw
+    return ""
+
+
+def _port_open(host: str, port: int, timeout: float) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def admin_pages(host: str, timeout: float = 0.8) -> List[str]:
+    """Web addresses where the router answers. Some only answer on https or on a port
+    like :8080 / :8899, which is why typing just the IP shows nothing."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(len(ADMIN_PORTS)) as pool:
+        open_ports = list(pool.map(lambda p: p if _port_open(host, p, timeout) else 0, ADMIN_PORTS))
+    urls = []
+    for p in (p for p in open_ports if p):
+        scheme = "https" if p in (443, 8443) else "http"
+        default = (scheme == "https" and p == 443) or (scheme == "http" and p == 80)
+        urls.append(f"{scheme}://{host}" + ("" if default else f":{p}"))
+    return urls
+
+
+@dataclass
+class RouterCheck:
+    gateway: str = ""  # default gateway IP
+    lan_ip: str = ""  # this PC
+    admin_urls: List[str] = None  # where the router's web page answers
+    brand: str = ""  # manufacturer / model, from UPnP if the router tells us
+    upnp_admin: str = ""  # admin page the router announces itself (presentationURL)
+    wan_ip: str = ""  # the router's own internet address (UPnP), "" if unknown
+    public_ip: str = ""  # this connection's address as the internet sees it
+    double_nat: bool = False  # the router's internet side is private: another router / carrier NAT
+
+    @property
+    def guide_key(self) -> str:
+        return router_guide_key(self.brand, self.gateway)
+
+
+def _router_description(location: str) -> Dict[str, str]:
+    try:
+        with _LOCAL.open(location, timeout=5) as resp:
+            root = ET.fromstring(resp.read())
+    except (urllib.error.URLError, OSError, ET.ParseError, http.client.HTTPException, ValueError):
+        return {}
+    info: Dict[str, str] = {}
+    for el in root.iter():
+        name = _local(el.tag)
+        if name in ("manufacturer", "modelName", "modelNumber", "friendlyName", "presentationURL") and name not in info:
+            info[name] = (el.text or "").strip()
+    if info.get("presentationURL"):
+        info["presentationURL"] = urljoin(location, info["presentationURL"])
+    return info
+
+
+def check_router() -> RouterCheck:
+    """Everything needed to forward a port by hand (or to see that it can't work)."""
+    res = RouterCheck(gateway=default_gateway(), admin_urls=[])
+    res.lan_ip = local_ip_for(res.gateway) if res.gateway else lan_ip()
+    for loc in discover(2.0):
+        gw = gateway_from_location(loc)
+        info = _router_description(loc)
+        if gw and res.gateway and gw.host != res.gateway:
+            continue  # a UPnP device that isn't our router (e.g. a second, inner router)
+        if info and not res.brand:
+            res.brand = " ".join(x for x in (info.get("manufacturer", ""), info.get("modelName", "")) if x).strip() \
+                or info.get("friendlyName", "")
+            res.upnp_admin = info.get("presentationURL", "")
+        if gw:
+            try:
+                res.wan_ip = gw.external_ip()
+            except UPnPError:
+                pass
+            if not res.gateway:
+                res.gateway = gw.host
+            break
+    if res.gateway:
+        res.admin_urls = admin_pages(res.gateway)
+    try:
+        res.public_ip = public_ip()
+    except net.NetError:
+        pass
+    if res.wan_ip:
+        # private WAN address, or a different one than the internet sees: something sits in front
+        res.double_nat = not is_public(res.wan_ip) or bool(res.public_ip and res.public_ip != res.wan_ip)
+    return res
+
+
+# Where the port forwarding page usually is, by router family (matched on the brand the router
+# reports, or its usual address). Wording is kept general: menus differ between firmware versions.
+_GUIDE_MATCH = (
+    ("iptime", ("iptime", "efm"), ("192.168.0.1",)),
+    ("kt", ("kt ", "kt_", "giga wifi", "gigawifi", "olleh"), ("172.30.1.254",)),
+    ("skb", ("sk broadband", "skbb", "sk_"), ("192.168.45.1",)),
+    ("lgu", ("lg u+", "lgu", "lg uplus", "dacom"), ("192.168.219.1",)),
+    ("asus", ("asus",), ()),
+    ("tplink", ("tp-link", "tplink", "deco"), ("192.168.0.1",)),
+    ("netgear", ("netgear",), ()),
+    ("mesh_app", ("google", "nest wifi", "eero", "xiaomi", "mi router", "velop"), ()),
+)
+
+
+def router_guide_key(brand: str, gateway: str) -> str:
+    low = f" {brand.lower()} "
+    for key, words, _ips in _GUIDE_MATCH:
+        if any(w in low for w in words):
+            return key
+    for key, _words, ips in _GUIDE_MATCH:
+        if gateway in ips and key != "tplink":  # 192.168.0.1 alone means ipTIME more often
+            return key
+    return ""
 
 
 # ---------------------------------------------------------------- firewall

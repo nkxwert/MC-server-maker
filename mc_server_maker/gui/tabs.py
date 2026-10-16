@@ -1442,12 +1442,43 @@ class NetworkTab(ServerTab):
         self.btn_manual.setStyleSheet("QPushButton { padding-left: 0; text-align: left; }")
         self.btn_manual.toggled.connect(self._show_manual)
         v.addWidget(self.btn_manual, 0, Qt.AlignLeft)
+        self.manual_box = QWidget()
+        mv = QVBoxLayout(self.manual_box)
+        mv.setContentsMargins(0, 0, 0, 0)
+        mv.setSpacing(10)
+        # 1) find the router: its address, brand, and where its web page really answers
+        self.router_status = QLabel()
+        self.router_status.setWordWrap(True)
+        self.router_status.setTextFormat(Qt.RichText)
+        mv.addWidget(self.router_status)
+        row = QHBoxLayout()
+        self.btn_admin = set_kind(QPushButton(t("Open the router page")), "primary")
+        self.btn_admin.clicked.connect(self._open_admin)
+        self.btn_router = QPushButton(t("Find the router again"))
+        self.btn_router.clicked.connect(self._check_router)
+        row.addWidget(self.btn_admin)
+        row.addWidget(self.btn_router)
+        row.addStretch()
+        mv.addLayout(row)
+        # 2) the steps, with this router's menu when known
         self.manual = QLabel()
         self.manual.setWordWrap(True)
         self.manual.setTextFormat(Qt.RichText)
         self.manual.setOpenExternalLinks(True)
         self.manual.setTextInteractionFlags(Qt.TextBrowserInteraction)
-        v.addWidget(self.manual)
+        mv.addWidget(self.manual)
+        # 3) check from outside that it worked
+        row = QHBoxLayout()
+        self.btn_check_port = QPushButton(t("Check the port from outside"))
+        self.btn_check_port.clicked.connect(self._check_port)
+        row.addWidget(self.btn_check_port)
+        self.port_check_status = QLabel()
+        self.port_check_status.setWordWrap(True)
+        row.addWidget(self.port_check_status, 1)
+        mv.addLayout(row)
+        v.addWidget(self.manual_box)
+        self._router = None  # network.RouterCheck
+        self._router_busy = False
         self._show_manual(False)
         layout.addWidget(box)
         layout.addStretch()
@@ -1455,7 +1486,6 @@ class NetworkTab(ServerTab):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(_scroll(body))
-        self._router_host = ""
 
     def forget_server(self) -> None:
         super().forget_server()
@@ -1465,9 +1495,134 @@ class NetworkTab(ServerTab):
     def _show_manual(self, on: bool):
         self.btn_manual.setText(t("If automatic doesn't work") + ("  ▴" if on else "  ▾"))
         if on and anim.enabled():
-            anim.crossfade(self.manual.parentWidget(), lambda: self.manual.setVisible(True), ms=anim.FAST)
+            anim.crossfade(self.manual_box.parentWidget(), lambda: self.manual_box.setVisible(True), ms=anim.FAST)
         else:
-            self.manual.setVisible(on)
+            self.manual_box.setVisible(on)
+        if on and self._router is None:
+            self._check_router()  # the first time it's opened: find the router right away
+
+    # ------------------------------------------------------- manual forwarding
+
+    def _check_router(self):
+        if self._router_busy:
+            return
+        self._router_busy = True
+        self.btn_router.setEnabled(False)
+        self.btn_admin.setEnabled(False)
+        set_status(self.router_status, "wait", t("Looking for the router..."))
+
+        def done(res):
+            self._router_busy = False
+            self._router = res
+            self.btn_router.setEnabled(True)
+            self._render_router()
+            self._render_manual()
+
+        def fail(msg):
+            self._router_busy = False
+            self.btn_router.setEnabled(True)
+            set_status(self.router_status, "fail", msg)
+
+        run_async(lambda task: network.check_router(), done, fail)
+
+    def _render_router(self):
+        r = self._router
+        if r is None:
+            return
+        esc = html.escape
+        if not r.gateway:
+            set_status(self.router_status, "fail", t(
+                "No router found. Is this PC connected by Wi-Fi or cable to a home router?"))
+            self.btn_admin.setEnabled(False)
+            return
+        name = esc(r.brand) if r.brand else esc(t("Router"))
+        lines = [t("{name} at <b>{ip}</b>", name=name, ip=esc(r.gateway))]
+        admin = r.upnp_admin or (r.admin_urls[0] if r.admin_urls else "")
+        if r.admin_urls:
+            lines.append(t("Its settings page answers at {urls}.", urls=", ".join(
+                f"<a href='{esc(u)}'>{esc(u)}</a>" for u in r.admin_urls)))
+        elif not r.upnp_admin:
+            lines.append(t(
+                "It has no web settings page on the usual ports. Some routers (mesh Wi-Fi, some internet "
+                "provider models) are set up only with their phone app: look for Port forwarding there."))
+        state = "ok"
+        if r.double_nat:
+            state = "warn"
+            lines.append(t(
+                "<b>There's another router in front of this one</b> (its internet address is {wan}). "
+                "Forward the port on that device too, first to this router's address, or use the tunnel. "
+                "If it's your internet provider's network (carrier NAT), forwarding can't work: use the tunnel.",
+                wan=esc(network.mask_ip(r.wan_ip))))
+        set_status(self.router_status, state, "<br>".join(lines), rich=True)
+        self.btn_admin.setEnabled(bool(admin))
+        self.btn_admin.setToolTip(admin)
+
+    def _open_admin(self):
+        r = self._router
+        url = r and (r.upnp_admin or (r.admin_urls[0] if r.admin_urls else ""))
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
+
+    def _render_manual(self):
+        if not self.meta:
+            return
+        udp = plugins.udp_ports(self.meta)
+        ports = f"TCP {self.port}" + "".join(f", UDP {u}" for u in udp)
+        r = self._router
+        guides = {
+            "iptime": t("ipTIME: Admin tools → Advanced setup → NAT/Router management → Port forward setup"),
+            "kt": t("KT: Device settings → Traffic management → Port forwarding"),
+            "skb": t("SK broadband: Advanced setup → NAT → Port forwarding"),
+            "lgu": t("LG U+: Network settings → NAT settings → Port forwarding"),
+            "asus": t("ASUS: WAN → Virtual Server / Port Forwarding"),
+            "tplink": t("TP-Link: Advanced → NAT Forwarding → Virtual Servers"),
+            "netgear": t("NETGEAR: Advanced → Advanced Setup → Port Forwarding / Port Triggering"),
+            "mesh_app": t("This kind of router is set up in its phone app: look for Port forwarding (Advanced networking)."),
+        }
+        where = guides.get(r.guide_key if r else "", "") or t("Port Forwarding (also called NAT, Virtual Server or Port mapping)")
+        self.manual.setText(t(
+            "<ol style='margin-left:-20px'>"
+            "<li>Press <b>Open the router page</b> and sign in. The password is often on a sticker under the router.</li>"
+            "<li>Go to: <b>{where}</b>.</li>"
+            "<li>Add a rule: internal IP = this PC (<b>{lan}</b>), ports <b>{ports}</b> (the same number outside and inside).</li>"
+            "<li>Save, start the server, then press <b>Check the port from outside</b>.</li></ol>"
+            "<p>Can't forward ports (carrier NAT, dorm or office Wi-Fi, hotspot)? Use the tunnel above.</p>",
+            where=html.escape(where), ports=ports,
+            lan=html.escape(r.lan_ip) if r and r.lan_ip else t("the 'Same Wi-Fi' address above"),
+        ))
+
+    def _check_port(self):
+        if not self.meta:
+            return
+        if not self.running:
+            set_status(self.port_check_status, "off", t("Start the server first: only a running server can answer."))
+            return
+        port, key = self.port, self.key
+        set_status(self.port_check_status, "wait", t("Checking from outside..."))
+        self.btn_check_port.setEnabled(False)
+
+        def work(task):
+            ip = network.public_ip()
+            return joincheck.external_check(f"{ip}:{port}")
+
+        def done(res):
+            self.btn_check_port.setEnabled(True)
+            if key != self.key:
+                return
+            if res.ok:
+                set_status(self.port_check_status, "ok", t("Open! Friends can join with the Internet address."))
+            elif res.error != "offline":
+                set_status(self.port_check_status, "off", t("Couldn't check (no internet?)"))
+            else:
+                set_status(self.port_check_status, "fail", t(
+                    "Not reachable yet. Check the rule (IP and port), Windows Firewall, and that no other router is "
+                    "in front. The check service can lag a few minutes."))
+
+        def fail(msg):
+            self.btn_check_port.setEnabled(True)
+            set_status(self.port_check_status, "fail", msg)
+
+        run_async(work, done, fail)
 
     @property
     def port(self) -> int:
@@ -1507,22 +1662,11 @@ class NetworkTab(ServerTab):
         self._refresh_tunnel()
         if self.key != getattr(self, "_status_key", None):  # another server: its own port status
             self._status_key = self.key
-            self._router_host = None
             self.port_status.clear()
         if not self.port_status.text():
             set_status(self.port_status, "off", t("Port not opened yet."))
-        ports = f"TCP {self.port}" + "".join(f", UDP {u}" for u in udp)
-        router = self._router_host or "192.168.0.1 / 192.168.1.1"
-        self.manual.setText(t(
-            "<ol style='margin-left:-20px'>"
-            "<li>Open your router page (usually <b>http://{router}</b>) in a browser.</li>"
-            "<li>Find <b>Port Forwarding</b> (or NAT / Virtual Server).</li>"
-            "<li>Forward <b>{ports}</b> to this PC: <b>{lan}</b>.</li>"
-            "<li>Give friends the <b>Internet</b> address above.</li></ol>"
-            "<p>Can't forward ports (carrier NAT, dorm or office Wi-Fi, hotspot)? A free tunnel such as "
-            "<a href='https://playit.gg'>playit.gg</a> works without it.</p>",
-            router=router, ports=ports, lan=t("the 'Same Wi-Fi' address above"),  # not the IP itself (privacy)
-        ))
+        self.port_check_status.clear()
+        self._render_manual()
 
     def _show_public(self, ip: str):
         self.addr_public.set(self._fmt(ip))
@@ -1551,7 +1695,6 @@ class NetworkTab(ServerTab):
             self.btn_open.setEnabled(True)
             if key != self.key:
                 return  # the user switched servers meanwhile
-            self._router_host = res.router_host
             if res.cgnat:
                 set_status(self.port_status, "warn", t(
                     "Port opened, but the router's internet IP ({ip}) is private. You are probably behind "

@@ -639,4 +639,36 @@ KO = {
     "playit.gg didn't send the tunnel list.": "playit.gg에서 터널 목록을 받지 못했어요.",
     "The update couldn't replace Bartizan.exe (the file was locked, e.g. by antivirus). This is still the previous version; please try updating again.":
         "업데이트가 Bartizan.exe를 바꾸지 못했어요 (백신 등이 파일을 잡고 있었어요). 지금은 이전 버전이에요. 다시 업데이트해 주세요.",
+    # 1.21 manual port forwarding
+    "Open the router page": "공유기 설정 페이지 열기",
+    "Find the router again": "공유기 다시 찾기",
+    "Check the port from outside": "바깥에서 포트 확인",
+    "No router found. Is this PC connected by Wi-Fi or cable to a home router?":
+        "공유기를 찾지 못했어요. 이 PC가 와이파이나 랜선으로 집 공유기에 연결돼 있나요?",
+    "Router": "공유기",
+    "{name} at <b>{ip}</b>": "{name} · 주소 <b>{ip}</b>",
+    "Its settings page answers at {urls}.": "설정 페이지 주소: {urls}",
+    "It has no web settings page on the usual ports. Some routers (mesh Wi-Fi, some internet provider models) are set up only with their phone app: look for Port forwarding there.":
+        "흔히 쓰는 포트에서 웹 설정 페이지가 응답하지 않아요. 메시 와이파이나 일부 통신사 기기는 휴대폰 앱으로만 설정해요. 앱에서 '포트포워딩'을 찾아보세요.",
+    "<b>There's another router in front of this one</b> (its internet address is {wan}). Forward the port on that device too, first to this router's address, or use the tunnel. If it's your internet provider's network (carrier NAT), forwarding can't work: use the tunnel.":
+        "<b>이 공유기 앞에 다른 공유기(또는 모뎀)가 하나 더 있어요</b> (이 공유기의 인터넷 주소가 {wan}예요). 앞쪽 기기에서도 이 공유기 주소로 포트포워딩을 하거나, 터널을 쓰세요. 통신사 쪽에서 주소를 나눠 쓰는 경우(CGNAT)라면 포트포워딩은 안 되니 터널을 쓰세요.",
+    "ipTIME: Admin tools → Advanced setup → NAT/Router management → Port forward setup":
+        "ipTIME: 관리도구 → 고급 설정 → NAT/라우터 관리 → 포트포워드 설정",
+    "KT: Device settings → Traffic management → Port forwarding": "KT: 장치 설정 → 트래픽 관리 → 포트포워딩",
+    "SK broadband: Advanced setup → NAT → Port forwarding": "SK브로드밴드: 고급 설정 → NAT → 포트포워딩",
+    "LG U+: Network settings → NAT settings → Port forwarding": "LG U+: 네트워크 설정 → NAT 설정 → 포트포워딩",
+    "ASUS: WAN → Virtual Server / Port Forwarding": "ASUS: WAN → 가상 서버 / 포트 포워딩",
+    "TP-Link: Advanced → NAT Forwarding → Virtual Servers": "TP-Link: 고급 → NAT 포워딩 → 가상 서버",
+    "NETGEAR: Advanced → Advanced Setup → Port Forwarding / Port Triggering":
+        "NETGEAR: 고급 → 고급 설정 → 포트 포워딩 / 포트 트리거링",
+    "This kind of router is set up in its phone app: look for Port forwarding (Advanced networking).":
+        "이런 공유기는 휴대폰 앱에서 설정해요: '포트포워딩'(고급 네트워크)을 찾아보세요.",
+    "Port Forwarding (also called NAT, Virtual Server or Port mapping)": "포트포워딩 (NAT, 가상 서버, 포트 매핑이라고도 해요)",
+    "<ol style='margin-left:-20px'><li>Press <b>Open the router page</b> and sign in. The password is often on a sticker under the router.</li><li>Go to: <b>{where}</b>.</li><li>Add a rule: internal IP = this PC (<b>{lan}</b>), ports <b>{ports}</b> (the same number outside and inside).</li><li>Save, start the server, then press <b>Check the port from outside</b>.</li></ol><p>Can't forward ports (carrier NAT, dorm or office Wi-Fi, hotspot)? Use the tunnel above.</p>":
+        "<ol style='margin-left:-20px'><li><b>공유기 설정 페이지 열기</b>를 누르고 로그인하세요. 비밀번호는 보통 공유기 밑면 스티커에 있어요.</li><li>메뉴: <b>{where}</b></li><li>규칙 추가: 내부 IP = 이 PC (<b>{lan}</b>), 포트 <b>{ports}</b> (외부·내부 포트 같은 번호)</li><li>저장하고 서버를 켠 다음 <b>바깥에서 포트 확인</b>을 누르세요.</li></ol><p>포트포워딩을 할 수 없는 환경(통신사 CGNAT, 기숙사·회사 와이파이, 핫스팟)이라면 위의 터널을 쓰세요.</p>",
+    "Start the server first: only a running server can answer.": "먼저 서버를 켜 주세요. 켜진 서버만 응답할 수 있어요.",
+    "Checking from outside...": "바깥에서 확인하는 중...",
+    "Open! Friends can join with the Internet address.": "열려 있어요! 친구가 인터넷 주소로 들어올 수 있어요.",
+    "Not reachable yet. Check the rule (IP and port), Windows Firewall, and that no other router is in front. The check service can lag a few minutes.":
+        "아직 접속되지 않아요. 규칙(IP와 포트), Windows 방화벽, 앞에 다른 공유기가 없는지 확인하세요. 확인 서비스는 몇 분 늦게 반영될 수 있어요.",
 }

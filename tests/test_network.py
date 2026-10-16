@@ -126,5 +126,41 @@ class FirewallStatusTest(unittest.TestCase):
         self.assertEqual(n._ps_quote("C:\\it's\\java.exe"), "'C:\\it''s\\java.exe'")
 
 
+class ManualForwardTest(unittest.TestCase):
+    def test_route_print(self):
+        from mc_server_maker.core import network as n
+        text = """===========================================================================
+IPv4 경로 테이블
+===========================================================================
+활성 경로:
+네트워크 대상      네트워크 마스크     게이트웨이      인터페이스    메트릭
+          0.0.0.0          0.0.0.0     192.168.0.1    192.168.0.24     35
+          0.0.0.0          0.0.0.0        On-link       10.8.0.2      5
+===========================================================================
+"""
+        self.assertEqual(n.parse_route_print(text), [("192.168.0.1", "192.168.0.24", 35)])
+
+    def test_guide_key(self):
+        from mc_server_maker.core import network as n
+        self.assertEqual(n.router_guide_key("EFM Networks ipTIME A3004NS-M", ""), "iptime")
+        self.assertEqual(n.router_guide_key("", "192.168.219.1"), "lgu")
+        self.assertEqual(n.router_guide_key("ASUSTeK RT-AX56U", "192.168.50.1"), "asus")
+        self.assertEqual(n.router_guide_key("", "10.0.0.1"), "")
+
+    def test_admin_pages_finds_a_listening_port(self):
+        import socket
+        from unittest import mock
+        from mc_server_maker.core import network as n
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        port = srv.getsockname()[1]
+        try:
+            with mock.patch.object(n, "ADMIN_PORTS", (port, 1)):
+                self.assertEqual(n.admin_pages("127.0.0.1"), [f"http://127.0.0.1:{port}"])
+        finally:
+            srv.close()
+
+
 if __name__ == "__main__":
     unittest.main()
