@@ -42,7 +42,10 @@ jobs:
           $env:BARTIZAN_SELFTEST = "1"
           $env:MCSM_HOME = "$env:RUNNER_TEMP\bartizan-selftest"
           $p = Start-Process -FilePath "dist\Bartizan.exe" -PassThru
-          if (-not $p.WaitForExit(90000)) { Stop-Process -Id $p.Id -Force; Write-Error "EXE did not finish starting (startup error?)"; exit 1 }
+          $ok = $p.WaitForExit(90000)
+          $log = "$env:MCSM_HOME\selftest.log"
+          if (Test-Path $log) { Get-Content $log }
+          if (-not $ok) { Stop-Process -Id $p.Id -Force; Write-Error "EXE did not finish starting (startup error?)"; exit 1 }
           if ($p.ExitCode -ne 0) { Write-Error "EXE self-test failed with code $($p.ExitCode)"; exit 1 }
           Get-Item dist\Bartizan.exe | Select-Object Name, @{n="MB";e={[math]::Round($_.Length/1MB,1)}}
 

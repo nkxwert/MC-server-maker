@@ -1013,6 +1013,23 @@ def _excepthook(exc_type, exc, tb):
     box.exec()
 
 
+def _selftest_log():
+    """BARTIZAN_SELFTEST=1 (the build check): write progress and any hard crash to a log."""
+    if not os.environ.get("BARTIZAN_SELFTEST"):
+        return lambda _msg: None
+    import faulthandler
+
+    paths.BASE_DIR.mkdir(parents=True, exist_ok=True)
+    log = open(paths.BASE_DIR / "selftest.log", "w", encoding="utf-8", buffering=1)
+    faulthandler.enable(log, all_threads=True)
+
+    def write(msg: str):
+        log.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+
+    write("starting")
+    return write
+
+
 def main():
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     if sys.platform == "win32":
@@ -1029,6 +1046,7 @@ def main():
         moved = []
         print("data migration failed:", e)
     sys.excepthook = _excepthook
+    selftest = _selftest_log()
     settings = AppSettings.load()
     set_language(settings.language)
     app = QApplication(sys.argv)
@@ -1047,16 +1065,26 @@ def main():
     app.aboutToQuit.connect(lambda: runner.any_running() and runner.stop_all(20000))
     app.commitDataRequest.connect(lambda _m: runner.any_running() and runner.stop_all(20000))
     win.show()
+    selftest("window shown")
     updater.cleanup_old()
     QTimer.singleShot(400, win.show_whats_new_if_updated)
-    if settings.last_update_check != time.strftime("%Y-%m-%d"):
+    if not os.environ.get("BARTIZAN_SELFTEST") and settings.last_update_check != time.strftime("%Y-%m-%d"):
         QTimer.singleShot(4000, lambda: current_window() and current_window().check_updates(manual=False))
     if moved:
         QMessageBox.information(win, APP_NAME, t("Your servers were moved to:\n{path}", path=paths.BASE_DIR))
     if os.environ.get("BARTIZAN_SELFTEST"):
-        # the build check: the app really started (window shown), then quits with code 0
-        QTimer.singleShot(5000, lambda: (wait_all(), os._exit(0 if win.isVisible() else 3)))
+        # the build check: the app really started and runs, then quits normally with code 0
+        def finish():
+            selftest(f"visible={win.isVisible()} tabs={win.tabs.count()} servers={len(win.servers)}")
+            for i in range(win.tabs.count()):  # every tab draws once
+                win.tabs.setCurrentIndex(i)
+                QApplication.processEvents()
+            selftest("tabs ok")
+            app.exit(0 if win.isVisible() else 3)
+
+        QTimer.singleShot(6000, finish)
     code = app.exec()
+    selftest(f"event loop ended: {code}")
     if any_running():
         # a network lookup is still blocked in a thread; destroying it would abort the process
         sys.stdout.flush()
