@@ -1436,6 +1436,17 @@ class NetworkTab(ServerTab):
         self.auto_upnp = QCheckBox(t("Open the port every time the server starts"))
         self.auto_upnp.toggled.connect(self._toggle_auto)
         v.addWidget(self.auto_upnp)
+        # one button that gathers everything someone helping needs, ready to paste in a chat
+        diag_row = QHBoxLayout()
+        self.btn_diag = QPushButton(t("Copy diagnostic info"))
+        self.btn_diag.setToolTip(t("Checks the router, firewall, tunnel and ports, then copies a summary to paste "
+                                   "into a chat. Internet addresses are partly hidden."))
+        self.btn_diag.clicked.connect(self._copy_diagnostics)
+        diag_row.addWidget(self.btn_diag)
+        self.diag_status = QLabel()
+        self.diag_status.setWordWrap(True)
+        diag_row.addWidget(self.diag_status, 1)
+        v.addLayout(diag_row)
         # the manual steps are long: folded away until asked for
         self.btn_manual = set_kind(QPushButton(), "ghost")
         self.btn_manual.setCheckable(True)
@@ -1590,6 +1601,77 @@ class NetworkTab(ServerTab):
             where=html.escape(where), ports=ports,
             lan=html.escape(r.lan_ip) if r and r.lan_ip else t("the 'Same Wi-Fi' address above"),
         ))
+
+    def _copy_diagnostics(self):
+        if not self.meta:
+            return
+        meta, port, running = self.meta, self.port, self.running
+        udp = plugins.udp_ports(meta)
+        java = java_exe(meta)
+        tm = self.tunnel
+        tunnel_state = tm.state if tm else "off"
+        tunnel_addr = bool(tm and tm.address)
+        self.btn_diag.setEnabled(False)
+        set_status(self.diag_status, "wait", t("Checking... (about 10 seconds)"))
+
+        def work(task):
+            r = network.check_router()
+            res = {"router": r}
+            res["firewall"] = network.firewall_status(port, java) if os.name == "nt" else "-"
+            res["local"] = joincheck.server_list_ping("127.0.0.1", port) if running else None
+            if running and r.public_ip:
+                res["internet"] = joincheck.external_check(f"{r.public_ip}:{port}")
+            return res
+
+        def done(res):
+            self.btn_diag.setEnabled(True)
+            text = self._diagnostics_text(meta, port, udp, running, tunnel_state, tunnel_addr, res)
+            QGuiApplication.clipboard().setText(text)
+            self._router = res["router"]  # the manual section can use it too
+            self._render_router()
+            self._render_manual()
+            set_status(self.diag_status, "ok", t("Copied! Paste it into the chat (Ctrl+V)."))
+
+        def fail(msg):
+            self.btn_diag.setEnabled(True)
+            set_status(self.diag_status, "fail", msg)
+
+        run_async(work, done, fail)
+
+    @staticmethod
+    def _diagnostics_text(meta, port, udp, running, tunnel_state, tunnel_addr, res) -> str:
+        import platform
+
+        from mc_server_maker import APP_VERSION
+
+        r = res["router"]
+        yes, no, unknown = t("yes"), t("no"), t("unknown")
+
+        def check(c):
+            if c is None:
+                return t("not checked (server is off)")
+            return t("OK") if c.ok else t("failed") + (f" ({c.error})" if c.error else "")
+
+        lines = [
+            f"[Bartizan {APP_VERSION} - " + t("network diagnostics") + "]",
+            f"OS: {platform.system()} {platform.release()} ({platform.version()})",
+            t("Server") + f": {meta.software_name} {meta.mc_version} · " + t("port") + f" TCP {port}"
+            + "".join(f", UDP {u}" for u in udp) + " · " + (t("running") if running else t("stopped")),
+            t("This PC (LAN IP)") + f": {r.lan_ip or unknown}",
+            t("Default gateway") + f": {r.gateway or unknown}",
+            t("Router model") + f": {r.brand or unknown}",
+            t("Router settings page") + f": {', '.join(r.admin_urls) or (r.upnp_admin or t('no answer on usual ports'))}",
+            t("UPnP router found") + f": {yes if r.wan_ip else no}",
+            t("Router internet IP") + f": {network.mask_ip(r.wan_ip) if r.wan_ip else unknown}"
+            + (f" ({t('private')})" if r.wan_ip and not network.is_public(r.wan_ip) else ""),
+            t("Public IP") + f": {network.mask_ip(r.public_ip) if r.public_ip else unknown}",
+            t("Another router/modem in front (double NAT)") + f": {yes if r.double_nat else (no if r.wan_ip else unknown)}",
+            t("Windows Firewall") + f": {res.get('firewall', '-')}",
+            t("Tunnel (playit.gg)") + f": {tunnel_state}" + (", " + t("address known") if tunnel_addr else ""),
+            t("Join from this PC") + f": {check(res.get('local'))}",
+            t("Join from the internet") + f": {check(res.get('internet')) if running and r.public_ip else t('not checked')}",
+        ]
+        return "\n".join(lines)
 
     def _check_port(self):
         if not self.meta:
