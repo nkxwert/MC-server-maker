@@ -3,6 +3,18 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.14.0
+### en
+- Header: *Force stop* moved into the ▾ menu next to *Stop*; the folder button is gone (use 📁 Folder in the sidebar).
+- Console: Online, Uptime and Total uptime split the side panel into three equal parts.
+- The World tab is now part of the Settings tab (world, server version, import and backups at the bottom).
+- The Players tab is removed. Use console commands such as `op <name>` or `whitelist add <name>`.
+### ko
+- 위쪽 버튼: *강제 종료*는 *중지* 옆 ▾ 메뉴 안으로 옮겼어요. 폴더 버튼은 없앴어요 (왼쪽 아래 📁 폴더를 쓰세요).
+- 콘솔: 접속 중 · 가동 시간 · 총 가동 시간을 오른쪽에 똑같이 삼등분해서 보여줘요.
+- 월드 탭을 설정 탭 안으로 옮겼어요 (아래쪽에 월드, 서버 버전, 불러오기, 백업).
+- 플레이어 탭을 없앴어요. 콘솔에서 `op 이름`, `whitelist add 이름` 같은 명령어를 쓰세요.
+
 ## 1.13.0
 ### en
 - **Auto-save**: Settings tab → *Auto-save* saves the world every 5, 10, 15, 30 or 60 minutes while the server runs.

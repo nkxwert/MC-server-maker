@@ -574,4 +574,6 @@ KO = {
     "Every hour": "1시간마다",
     "While the server runs, the world is saved at this interval, so less is lost if the PC shuts down suddenly. Saving takes a moment on big worlds.":
         "서버가 켜져 있는 동안 정한 간격마다 월드를 저장해요. PC가 갑자기 꺼져도 잃는 게 적어요. 월드가 크면 저장하는 동안 잠깐 멈칫할 수 있어요.",
+    "Force stop (without saving)": "강제 종료 (저장 안 함)",
+    "More stop options": "다른 중지 방법",
 }

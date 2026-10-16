@@ -1,4 +1,4 @@
 """Bartizan - create and manage Minecraft servers with a GUI."""
 
 APP_NAME = "Bartizan"
-APP_VERSION = "1.13.0"
+APP_VERSION = "1.14.0"

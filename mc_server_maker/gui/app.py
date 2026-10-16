@@ -46,10 +46,8 @@ from mc_server_maker.gui.tabs import (
     AddonsTab,
     ConsoleTab,
     NetworkTab,
-    PlayersTab,
     SettingsTab,
     StatusTab,
-    WorldTab,
     jar_paths,
     open_path,
 )
@@ -306,16 +304,21 @@ class MainWindow(QMainWindow):
         self.btn_stop = QPushButton("■  " + t("Stop"))
         self.btn_stop.setMinimumHeight(42)
         self.btn_stop.clicked.connect(lambda: self.runner.stop(self.key))
-        self.btn_kill = set_kind(QPushButton(t("Kill")), "danger")
-        self.btn_kill.setToolTip(t("Force stop without saving"))
-        self.btn_kill.setMinimumHeight(42)
-        self.btn_kill.clicked.connect(self._kill)
-        self.btn_folder = QPushButton("📂")
-        self.btn_folder.setToolTip(t("Open server folder (plugins, mods...)"))
-        self.btn_folder.setMinimumSize(44, 42)
-        self.btn_folder.clicked.connect(lambda: open_path(self.meta.folder))
-        for b in (self.btn_start, self.btn_stop, self.btn_kill, self.btn_folder):
-            hl.addWidget(b)
+        # ▾ next to Stop: rarely needed "force stop" lives in its menu
+        self.btn_stop_more = QPushButton("▾")
+        self.btn_stop_more.setToolTip(t("More stop options"))
+        self.btn_stop_more.setFixedSize(30, 42)
+        self.btn_stop_more.setStyleSheet(  # our own ▾ only, not Qt's extra menu arrow
+            "QPushButton { padding: 0; } QPushButton::menu-indicator { image: none; width: 0px; }")
+        stop_menu = QMenu(self.btn_stop_more)
+        self.act_kill = stop_menu.addAction("⚠  " + t("Force stop (without saving)"), self._kill)
+        self.btn_stop_more.setMenu(stop_menu)
+        stop_group = QHBoxLayout()
+        stop_group.setSpacing(2)
+        stop_group.addWidget(self.btn_stop)
+        stop_group.addWidget(self.btn_stop_more)
+        hl.addWidget(self.btn_start)
+        hl.addLayout(stop_group)
         dv.addWidget(header)
 
         self.tabs = QTabWidget()
@@ -324,14 +327,11 @@ class MainWindow(QMainWindow):
         self.status_tab = StatusTab(self.runner, self.reload)
         self.addons_tab = AddonsTab(self.runner, self.reload)
         self.settings_tab = SettingsTab(self.runner, self.reload)
-        self.world_tab = WorldTab(self.runner, self.reload)
-        self.players_tab = PlayersTab(self.runner, self.reload)
         self.network_tab = NetworkTab(self.runner, self.reload)
         self.all_tabs = [
-            self.console_tab, self.status_tab, self.addons_tab, self.settings_tab, self.world_tab,
-            self.players_tab, self.network_tab,
+            self.console_tab, self.status_tab, self.addons_tab, self.settings_tab, self.network_tab,
         ]
-        titles = ["Console", "Server status", "Plugins", "Settings", "World", "Players", "Network"]
+        titles = ["Console", "Server status", "Plugins", "Settings", "Network"]
         for tab, name in zip(self.all_tabs, titles):
             self.tabs.addTab(tab, t(name))
         self.tabs.currentChanged.connect(lambda _i: anim.fade_in(self.tabs.currentWidget(), anim.FAST))
@@ -485,7 +485,8 @@ class MainWindow(QMainWindow):
         running = self.runner.is_running(self.key)
         self.btn_start.setEnabled(not running and self.key not in _starting)
         self.btn_stop.setEnabled(running and state != STOPPING)
-        self.btn_kill.setEnabled(running)
+        self.btn_stop_more.setEnabled(running)
+        self.act_kill.setEnabled(running)
 
     def _on_state_changed(self, key: str, state: str):
         if state == STOPPED:

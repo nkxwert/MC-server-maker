@@ -53,7 +53,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mc_server_maker.core import addons, joincheck, net, network, players, plugins, property_catalog, stats, versions
+from mc_server_maker.core import addons, joincheck, net, network, plugins, property_catalog, stats, versions
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import get_provider
@@ -315,7 +315,7 @@ class ConsoleTab(ServerTab):
         outer.addLayout(left, 1)
 
         side = QVBoxLayout()
-        side.setSpacing(0)
+        side.setSpacing(8)
         box = QGroupBox(t("Online"))
         v = QVBoxLayout(box)
         self.player_count = QLabel("0")
@@ -324,21 +324,24 @@ class ConsoleTab(ServerTab):
         self.more_btn = set_kind(QPushButton(t("More...")), "ghost")
         self.more_btn.clicked.connect(self._show_players)
         v.addWidget(self.more_btn)
-        side.addWidget(box)
+        v.addStretch()
+        side.addWidget(box, 1)  # the three boxes split the height into exact thirds
         box = QGroupBox(t("Uptime"))
         v = QVBoxLayout(box)
         self.uptime = QLabel("-")
         self.uptime.setObjectName("Big")
         v.addWidget(self.uptime)
-        side.addWidget(box)
+        v.addStretch()
+        side.addWidget(box, 1)
         box = QGroupBox(t("Total uptime"))
         v = QVBoxLayout(box)
         self.total_uptime = QLabel("-")
-        self.total_uptime.setObjectName("ItemName")
+        self.total_uptime.setObjectName("Big")
+        self.total_uptime.setWordWrap(True)
         self.total_uptime.setToolTip(t("All the time this server has been running, across every start."))
         v.addWidget(self.total_uptime)
-        side.addWidget(box)
-        side.addStretch()
+        v.addStretch()
+        side.addWidget(box, 1)
         side_w = QWidget()
         side_w.setLayout(side)
         side.setContentsMargins(0, 0, 0, 0)
@@ -690,6 +693,14 @@ class SettingsTab(ServerTab):
         save.setMinimumHeight(38)
         save.clicked.connect(self.save)
         layout.addWidget(save)
+
+        # ---- world (its buttons act right away; "Save" above is only for the settings)
+        layout.addSpacing(14)
+        title = QLabel("🌍 " + t("World"))
+        title.setObjectName("Big")
+        layout.addWidget(title)
+        self.world = WorldTab(runner, on_changed, embedded=True)
+        layout.addWidget(self.world)
         layout.addStretch()
 
         outer = QVBoxLayout(self)
@@ -730,6 +741,7 @@ class SettingsTab(ServerTab):
         self.autosave.setCurrentIndex(idx)
         self._update_preview()
         self._loaded = self._form_state()  # what's on disk; Save writes only what differs
+        self.world.set_server(self.meta)
         self.on_state()
 
     def _spins(self):
@@ -774,6 +786,7 @@ class SettingsTab(ServerTab):
         self.notice.setText(t("The server is running. Saved changes apply after a restart.") if self.running else "")
         self.notice.setVisible(self.running)
         self._refresh_bedrock()
+        self.world.on_state()
 
     def _refresh_bedrock(self):
         if not self.meta:
@@ -887,7 +900,9 @@ class SettingsTab(ServerTab):
 
 
 class WorldTab(ServerTab):
-    def __init__(self, runner, on_changed):
+    """World and server version. Shown inside the Settings tab (embedded=True)."""
+
+    def __init__(self, runner, on_changed, embedded: bool = False):
         super().__init__(runner, on_changed)
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -974,7 +989,12 @@ class WorldTab(ServerTab):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(_scroll(body))
+        if embedded:  # the Settings tab already scrolls
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(10)
+            outer.addWidget(body)
+        else:
+            outer.addWidget(_scroll(body))
 
     def refresh(self):
         if not self.meta:
@@ -1043,82 +1063,6 @@ class WorldTab(ServerTab):
             return
         self.run_task(t("Backups"), lambda task: srv.backup_server(meta, "world", worlds_only=True, task=task))
         self.refresh()
-
-
-# =================================================================== players
-
-
-class PlayersTab(ServerTab):
-    KINDS = (("ops", "Operators (OP)", "op", "deop"), ("whitelist", "Whitelist", "whitelist add", "whitelist remove"))
-
-    def __init__(self, runner, on_changed):
-        super().__init__(runner, on_changed)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 10, 16, 16)
-        self.hint = hint("")
-        layout.addWidget(self.hint)
-        row = QHBoxLayout()
-        self.lists = {}
-        for kind, title, add_cmd, remove_cmd in self.KINDS:
-            box = QGroupBox(t(title))
-            v = QVBoxLayout(box)
-            lst = QListWidget()
-            v.addWidget(lst)
-            buttons = QHBoxLayout()
-            add = QPushButton(t("Add"))
-            add.clicked.connect(lambda _=False, k=kind, c=add_cmd: self._add(k, c))
-            rem = set_kind(QPushButton(t("Remove")), "ghost")
-            rem.clicked.connect(lambda _=False, k=kind, c=remove_cmd: self._remove(k, c))
-            buttons.addWidget(add)
-            buttons.addWidget(rem)
-            v.addLayout(buttons)
-            self.lists[kind] = lst
-            row.addWidget(box)
-        layout.addLayout(row)
-
-    def refresh(self):
-        if not self.meta:
-            return
-        for kind, lst in self.lists.items():
-            lst.clear()
-            lst.addItems(players.list_names(self.meta.folder, kind))
-        online = self.meta.properties().get_bool("online-mode", True)
-        self.hint.setText(
-            (t("Server is running: changes are sent as console commands.") + " " if self.running else "")
-            + (t("Online mode is on: use exact Minecraft names.") if online else t("Offline mode."))
-        )
-
-    def _add(self, kind: str, command: str):
-        name, ok = QInputDialog.getText(self, t("Add player"), t("Minecraft name:"))
-        name = name.strip()
-        if not ok or not name:
-            return
-        if self.running:
-            self.runner.send(self.key, f"{command} {name}")
-            QTimer.singleShot(1500, self.refresh)
-            return
-        folder = self.meta.folder
-        online = self.meta.properties().get_bool("online-mode", True)
-        run_async(
-            lambda task: players.add(folder, kind, name, online),
-            lambda _: self.refresh(),
-            lambda msg: QMessageBox.warning(self, t("Add player"), msg),
-        )
-
-    def _remove(self, kind: str, command: str):
-        item = self.lists[kind].currentItem()
-        if not item:
-            return
-        name = item.text()
-        if self.running:
-            self.runner.send(self.key, f"{command} {name}")
-            QTimer.singleShot(1500, self.refresh)
-        else:
-            try:
-                players.remove(self.meta.folder, kind, name)
-            except players.PlayerError as e:
-                QMessageBox.warning(self, t("Remove"), str(e))
-            self.refresh()
 
 
 # =================================================================== network
