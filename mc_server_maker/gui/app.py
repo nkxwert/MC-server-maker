@@ -1013,6 +1013,22 @@ def _excepthook(exc_type, exc, tb):
     box.exec()
 
 
+def _hard_exit(code: int) -> None:
+    """Leave right away while a worker thread is still blocked (e.g. in a network call).
+
+    On Windows os._exit still runs DLL shutdown code, which can crash (0xC0000005) while Qt
+    threads are alive; TerminateProcess ends the process without running any of it."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code & 0xFFFFFFFF)
+        except (AttributeError, OSError):
+            pass
+    os._exit(code)
+
+
 def _selftest_log():
     """BARTIZAN_SELFTEST=1 (the build check): write progress and any hard crash to a log."""
     if not os.environ.get("BARTIZAN_SELFTEST"):
@@ -1080,6 +1096,8 @@ def main():
                 win.tabs.setCurrentIndex(i)
                 QApplication.processEvents()
             selftest("tabs ok")
+            # quitting while a worker is still busy (like a slow network call) must exit cleanly too
+            run_async(lambda task: time.sleep(30), lambda _r: None, lambda _m: None)
             app.exit(0 if win.isVisible() else 3)
 
         QTimer.singleShot(6000, finish)
@@ -1088,5 +1106,5 @@ def main():
     if any_running():
         # a network lookup is still blocked in a thread; destroying it would abort the process
         sys.stdout.flush()
-        os._exit(code)
+        _hard_exit(code)
     sys.exit(code)
