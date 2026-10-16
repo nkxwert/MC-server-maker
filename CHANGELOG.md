@@ -3,6 +3,18 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.19.0
+### en
+- Network tab is much quieter: explanations moved into (?) buttons next to each section title.
+- The Tunnel (?) explains step by step how to set up playit.gg.
+- "If automatic doesn't work" (manual port forwarding) is folded away; press ▾ to open it.
+- Private addresses fade in and out of the blur smoothly when clicked.
+### ko
+- 네트워크 탭의 글을 줄였어요. 설명은 각 제목 옆 (?) 버튼 안으로 옮겼어요.
+- 터널 (?)에 playit.gg 설정 방법을 단계별로 적었어요.
+- "자동으로 안 될 때"(직접 포트포워딩) 안내는 접혀 있어요. ▾를 누르면 펼쳐져요.
+- 가려진 주소를 누르면 블러가 부드럽게 걷히고 다시 덮여요.
+
 ## 1.18.1
 ### en
 - Fixed: the EXE didn't start ("No module named 'PySide6.QtNetwork'"). The build left out a Qt part the app needs; it's included again, and the app now starts even without it.

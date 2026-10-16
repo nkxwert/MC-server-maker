@@ -66,6 +66,7 @@ from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
 from mc_server_maker.gui.runner import ServerRunner
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import (
+    HelpButton,
     MotdPreview,
     amp_to_section,
     color_help,
@@ -105,6 +106,25 @@ def set_spin(spin: QSpinBox, value) -> None:
     except (TypeError, ValueError):
         value = spin.minimum()
     spin.setValue(max(spin.minimum(), min(spin.maximum(), value)))
+
+
+def help_section(title: str, help_text: str, first: bool = False):
+    """A section (title over a thin line) whose explanation hides behind a (?) next to the title."""
+    box = QGroupBox()
+    box.setObjectName("Section")
+    if first:
+        box.setProperty("first", True)
+    v = QVBoxLayout(box)
+    v.setSpacing(10)
+    head = QHBoxLayout()
+    head.setSpacing(8)
+    label = QLabel(title)
+    label.setObjectName("SectionTitle")
+    head.addWidget(label)
+    head.addWidget(HelpButton(help_text))
+    head.addStretch()
+    v.addLayout(head)
+    return box, v
 
 
 def left_aligned(widget: QWidget) -> QWidget:
@@ -1234,9 +1254,10 @@ class AddressRow(QWidget):
         col.setSpacing(0)
         title_label = QLabel(title)
         title_label.setObjectName("ItemName")
+        title_label.setToolTip(sub)  # who the address is for: in the section's (?) and on hover
         col.addWidget(title_label)
-        col.addWidget(hint(sub))
         row.addLayout(col, 1)
+        self._blur_anim = None
         self.value = ClickLabel("-")
         self.value.setObjectName("Address")
         self.value.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -1254,20 +1275,49 @@ class AddressRow(QWidget):
         self.copy.setText(t("Copied"))
         QTimer.singleShot(1200, lambda: self.copy.setText(t("Copy")))
 
+    BLUR = 24  # strong enough that the digits can't be read, even zoomed in
+
     def _toggle_shown(self):
         if not self._real:
             return
         self._shown = not self._shown
-        self._render()
+        self._render(animate=True)
 
-    def _render(self):
+    def _blur(self) -> QGraphicsBlurEffect:
+        blur = self.value.graphicsEffect()
+        if not isinstance(blur, QGraphicsBlurEffect):
+            blur = QGraphicsBlurEffect(self.value)
+            blur.setBlurHints(QGraphicsBlurEffect.QualityHint)
+            blur.setBlurRadius(0)
+            self.value.setGraphicsEffect(blur)
+        return blur
+
+    def _render(self, animate: bool = False):
         hide = self._private and not self._shown and self._real
         self.value.setText(self._text)
-        if hide:  # blurred, not replaced: the layout stays the same and it looks tidy
-            blur = QGraphicsBlurEffect(self.value)
-            blur.setBlurRadius(24)  # strong enough that the digits can't be read, even zoomed in
-            blur.setBlurHints(QGraphicsBlurEffect.QualityHint)
-            self.value.setGraphicsEffect(blur)
+        if self._blur_anim is not None:
+            self._blur_anim.stop()
+            self._blur_anim = None
+        # blurred, not replaced: the layout stays the same and it looks tidy
+        if animate and anim.enabled():  # the blur melts away / fogs over instead of jumping
+            blur = self._blur()
+            fade = QVariantAnimation(self)
+            fade.setDuration(220)
+            fade.setEasingCurve(QEasingCurve.OutCubic)
+            fade.setStartValue(float(blur.blurRadius()))
+            fade.setEndValue(float(self.BLUR if hide else 0))
+            fade.valueChanged.connect(lambda r, b=blur: b.setBlurRadius(r))
+            def done(fade=fade, hide=hide):
+                if self._blur_anim is fade:
+                    self._blur_anim = None
+                    if not hide:  # fully sharp at the end: drop the effect so the text renders crisply
+                        self.value.setGraphicsEffect(None)
+
+            fade.finished.connect(done)
+            self._blur_anim = fade
+            fade.start()
+        elif hide:
+            self._blur().setBlurRadius(self.BLUR)
         else:
             self.value.setGraphicsEffect(None)
         # private rows aren't selectable: a click toggles them (Copy is there for copying)
@@ -1297,9 +1347,14 @@ class NetworkTab(ServerTab):
         body = QWidget()
         layout = QVBoxLayout(body)
 
-        box = QGroupBox(t("Addresses"))
-        box.setProperty("first", True)
-        v = QVBoxLayout(box)
+        box, v = help_section(t("Addresses"), t(
+            "Give friends the address that fits where they are:\n"
+            "• This PC: playing on this computer\n"
+            "• Same Wi-Fi: people in the same home\n"
+            "• Internet: friends in other homes (the port must be open, or use the tunnel)\n"
+            "• Bedrock: phone / console players, address + port\n\n"
+            "Blurred addresses are private: click one to show it, click again to hide it. "
+            "Copy always copies the real address."), first=True)
         self.addr_local = AddressRow(t("This PC"), t("Playing on this computer"))
         self.addr_lan = AddressRow(t("Same Wi-Fi"), t("People in the same home"), private=True)
         self.addr_public = AddressRow(t("Internet"), t("Friends in other homes"), private=True)
@@ -1307,15 +1362,21 @@ class NetworkTab(ServerTab):
                                        private=True)
         for w in (self.addr_local, self.addr_lan, self.addr_public, self.addr_bedrock):
             v.addWidget(w)
-        v.addWidget(hint(t("Blurred addresses show when you click them, and hide again on a second click.")))
         layout.addWidget(box)
 
-        box = QGroupBox(t("Tunnel (no port forwarding) — playit.gg"))
-        v = QVBoxLayout(box)
-        v.setSpacing(10)
-        v.addWidget(hint(t(
-            "Free and the easiest option: friends join without opening any ports. "
-            "Adds a little latency (distance to the nearest playit server).")))
+        box, v = help_section(t("Tunnel (no port forwarding) — playit.gg"), t(
+            "Free and the easiest way: friends join without opening any ports. It adds a little "
+            "latency (the distance to the nearest playit server).\n\n"
+            "How to:\n"
+            "1. Press Start tunnel. The playit.gg agent is downloaded and started automatically.\n"
+            "2. First time only: a browser page opens. Sign in to playit.gg (or continue as a guest) "
+            "and approve this PC.\n"
+            "3. On the playit.gg dashboard add a tunnel: type Minecraft Java, local port = this server's "
+            "port (usually 25565).\n"
+            "4. After a few seconds the tunnel address appears here. Give it to your friends. If it "
+            "doesn't appear, copy it from the dashboard and use Enter address.\n"
+            "5. Bedrock players: also add a Minecraft Bedrock tunnel (local port 19132).\n\n"
+            "Tick the box below to start the tunnel together with this server."))
         self.tunnel_status = QLabel()
         self.tunnel_status.setWordWrap(True)
         self.tunnel_status.setTextFormat(Qt.RichText)
@@ -1342,11 +1403,13 @@ class NetworkTab(ServerTab):
         v.addWidget(self.auto_tunnel)
         layout.addWidget(box)
 
-        box = QGroupBox(t("Let friends from other homes join"))
-        v = QVBoxLayout(box)
-        v.setSpacing(10)
-        v.addWidget(hint(t(
-            "Your router must forward the server port. Most routers can do it automatically (UPnP).")))
+        box, v = help_section(t("Let friends from other homes join"), t(
+            "Friends in other homes reach the server through your router, so the router must forward "
+            "the server port to this PC. Most routers can do it automatically (UPnP). If yours can't, "
+            "see \"If automatic doesn't work\" below, or use the tunnel.\n\n"
+            "Allow in Windows Firewall lets other devices through this PC's firewall (one administrator "
+            "prompt). The rules stay until you remove them, but they only matter while the server is "
+            "running: when it's off, nothing on this PC answers on that port."))
         self.port_status = QLabel()
         self.port_status.setWordWrap(True)
         v.addWidget(self.port_status)
@@ -1373,16 +1436,19 @@ class NetworkTab(ServerTab):
         self.auto_upnp = QCheckBox(t("Open the port every time the server starts"))
         self.auto_upnp.toggled.connect(self._toggle_auto)
         v.addWidget(self.auto_upnp)
-        layout.addWidget(box)
-
-        box = QGroupBox(t("If automatic doesn't work"))
-        v = QVBoxLayout(box)
+        # the manual steps are long: folded away until asked for
+        self.btn_manual = set_kind(QPushButton(), "ghost")
+        self.btn_manual.setCheckable(True)
+        self.btn_manual.setStyleSheet("QPushButton { padding-left: 0; text-align: left; }")
+        self.btn_manual.toggled.connect(self._show_manual)
+        v.addWidget(self.btn_manual, 0, Qt.AlignLeft)
         self.manual = QLabel()
         self.manual.setWordWrap(True)
         self.manual.setTextFormat(Qt.RichText)
         self.manual.setOpenExternalLinks(True)
         self.manual.setTextInteractionFlags(Qt.TextBrowserInteraction)
         v.addWidget(self.manual)
+        self._show_manual(False)
         layout.addWidget(box)
         layout.addStretch()
 
@@ -1395,6 +1461,13 @@ class NetworkTab(ServerTab):
         super().forget_server()
         self._status_key = None
         self._fw_for = None
+
+    def _show_manual(self, on: bool):
+        self.btn_manual.setText(t("If automatic doesn't work") + ("  ▴" if on else "  ▾"))
+        if on and anim.enabled():
+            anim.crossfade(self.manual.parentWidget(), lambda: self.manual.setVisible(True), ms=anim.FAST)
+        else:
+            self.manual.setVisible(on)
 
     @property
     def port(self) -> int:

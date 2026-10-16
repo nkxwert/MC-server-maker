@@ -91,6 +91,9 @@ QGroupBox::title {{
     left: 0; top: 16px; padding: 0; font-weight: bold; font-size: 10.5pt;
 }}
 QGroupBox[first="true"]::title {{ top: 4px; }}
+QGroupBox#Section {{ padding-top: 18px; }}
+QGroupBox#Section[first="true"] {{ padding-top: 4px; }}
+#SectionTitle {{ font-weight: bold; font-size: 10.5pt; }}
 QGroupBox#Stat {{ border-top: none; margin-top: 0; padding: 22px 0 0 0; }}
 QGroupBox#Stat::title {{ top: 0; color: {muted}; font-weight: 400; font-size: 9.5pt; }}
 
