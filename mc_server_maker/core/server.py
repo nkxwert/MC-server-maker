@@ -414,7 +414,7 @@ def upgrade_server(
     if switching and old_software in SPLIT_DIMENSIONS and software not in SPLIT_DIMENSIONS:
         try:  # (vanilla -> Paper needs nothing: Paper splits them itself)
             _merge_dimensions(meta, task)
-        except OSError as e:
+        except (OSError, ServerError) as e:
             task.log(t("Couldn't move the Nether/End into the world folder: {err}. "
                        "The backup has them; move them by hand before starting.", err=e))
     from mc_server_maker.core import plugins
@@ -433,7 +433,7 @@ def upgrade_server(
 def _merge_dimensions(meta: ServerMeta, task: Task) -> None:
     """Paper keeps the Nether and End in world_nether/DIM-1 and world_the_end/DIM1; vanilla
     and mod loaders expect them inside world/. Move them back so they aren't regenerated."""
-    level = meta.properties().get("level-name") or "world"
+    level = level_name(meta)
     world = meta.folder / level
     for folder, dim in ((f"{level}_nether", "DIM-1"), (f"{level}_the_end", "DIM1")):
         src = meta.folder / folder / dim
@@ -468,8 +468,25 @@ def change_java(meta: ServerMeta, auto_java: bool, task: Optional[Task] = None) 
 # ----------------------------------------------------------------- backups
 
 
+def level_name(meta: ServerMeta) -> str:
+    """level-name from server.properties, refused if it points outside the world folder.
+
+    It's free text (the full properties editor), and worlds get deleted by it: "." would be the
+    server folder itself, ".." every server, an absolute path anywhere on the disk."""
+    level = (meta.properties().get("level-name") or "world").strip() or "world"
+    root = meta.folder.resolve()
+    target = (meta.folder / level).resolve()
+    bad = (Path(level).is_absolute() or target == root or not target.is_relative_to(root)
+           or any(part in ("", ".", "..") for part in level.replace("\\", "/").split("/"))
+           or target.name in (BACKUP_DIR, "plugins", "mods", "config", "libraries", "logs"))
+    if bad:
+        raise ServerError(t("The world folder name (level-name = '{name}') isn't a safe folder inside the server. "
+                            "Change it in All server.properties, e.g. to 'world'.", name=level))
+    return level
+
+
 def world_dirs(meta: ServerMeta) -> List[Path]:
-    level = meta.properties().get("level-name") or "world"
+    level = level_name(meta)
     return [meta.folder / n for n in (level, f"{level}_nether", f"{level}_the_end")]
 
 
@@ -586,7 +603,7 @@ def replace_world_with_import(meta: ServerMeta, src: Path, task: Optional[Task] 
         raise ServerError(t("That is this server's own world. Choose another world to import."))
     if any(d.exists() for d in world_dirs(meta)):
         backup_server(meta, "world-before-import", worlds_only=True, task=task)
-    level = meta.properties().get("level-name") or "world"
+    level = level_name(meta)
     task.log(t("Importing world..."))
     # copy/extract next to the server first; the current world is removed only once that worked
     with tempfile.TemporaryDirectory(dir=meta.folder, prefix=".import-") as tmp:

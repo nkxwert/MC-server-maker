@@ -701,4 +701,6 @@ KO = {
     "Join from the internet": "인터넷에서 접속",
     "not checked": "확인 안 함",
     "Server": "서버",
+    "The world folder name (level-name = '{name}') isn't a safe folder inside the server. Change it in All server.properties, e.g. to 'world'.":
+        "월드 폴더 이름(level-name = '{name}')이 서버 안의 안전한 폴더가 아니에요. 'server.properties 전체 편집'에서 'world' 같은 이름으로 바꿔 주세요.",
 }

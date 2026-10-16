@@ -326,5 +326,25 @@ class PlayitApiTest(unittest.TestCase):
             self.assertEqual(tunnel.read_secret(), "0a1B2c")
 
 
+class LevelNameSafetyTest(unittest.TestCase):
+    def test_dangerous_level_names_are_refused_before_deleting(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        folder = root / "srv"
+        folder.mkdir()
+        meta = srv.ServerMeta(name="s", software="vanilla", mc_version="1.21.4", folder=folder)
+        meta.save()
+        (folder / "backups").mkdir()
+        (folder / "backups" / "old.zip").write_bytes(b"x")
+        for bad in (".", "..", "../other", str(root), "backups", "a/../.."):
+            (folder / "server.properties").write_text(f"level-name={bad}\n")
+            with self.assertRaises(srv.ServerError, msg=bad):
+                srv.regenerate_world(meta, "", "normal", Task())
+        self.assertTrue((folder / "server-maker.json").exists())
+        self.assertTrue((folder / "backups" / "old.zip").exists())
+        (folder / "server.properties").write_text("level-name=worlds/main\n")
+        self.assertEqual(srv.world_dirs(meta)[0], folder / "worlds/main")
+
+
 if __name__ == "__main__":
     unittest.main()

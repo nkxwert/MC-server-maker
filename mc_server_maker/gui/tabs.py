@@ -1214,7 +1214,12 @@ class WorldTab(ServerTab):
 
     def _backup(self):
         meta = self.meta
-        if not any(d.exists() for d in srv.world_dirs(meta)):
+        try:
+            worlds = srv.world_dirs(meta)
+        except srv.ServerError as e:
+            QMessageBox.warning(self, t("Backups"), str(e))
+            return
+        if not any(d.exists() for d in worlds):
             QMessageBox.information(self, t("Backups"), t("There is no world yet."))
             return
         self.run_task(t("Backups"), lambda task: srv.backup_server(meta, "world", worlds_only=True, task=task))
