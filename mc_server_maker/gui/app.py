@@ -60,6 +60,7 @@ from mc_server_maker.i18n import LANGUAGES, set_language, t
 
 
 _starting = set()  # servers whose Start is waiting for the internet check
+_after_start: dict = {}  # server folder -> meta: tunnel/UPnP to do once its Java process runs
 
 
 def state_text(state: str):
@@ -199,6 +200,7 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self._replaced = False
         self.runner.state_changed.connect(self._on_state_changed)
+        self.runner.process_started.connect(self._process_started)
         self.servers: List[srv.ServerMeta] = []
         self.meta: Optional[srv.ServerMeta] = None
 
@@ -397,6 +399,10 @@ class MainWindow(QMainWindow):
         """Re-read servers from disk, keeping the current selection."""
         keep = str(select_folder) if select_folder else self.key
         self.servers = srv.list_servers()
+        folders = {m.folder for m in self.servers}
+        for tab in self.all_tabs:  # a server that's gone (deleted here or by hand): forget it
+            if tab.meta is not None and tab.meta.folder not in folders:
+                tab.forget_server()
         self.list.blockSignals(True)
         for i in range(self.list.count()):
             self._drop_widget(self.list.item(i))
@@ -498,6 +504,7 @@ class MainWindow(QMainWindow):
 
     def _on_state_changed(self, key: str, state: str):
         if state == STOPPED:
+            _after_start.pop(key, None)
             for m in self.servers:
                 if str(m.folder) == key and srv.end_offline_session(m):
                     self.runner.system_line(key, t("Online mode is back on."))
@@ -699,6 +706,16 @@ class MainWindow(QMainWindow):
         if meta.offline_session:
             self.runner.system_line(key, t(
                 "Offline mode for this run: players join without signing in. Online mode turns back on when the server stops."))
+        # tunnel and router port only once Java really runs (on Linux/macOS a failed start is
+        # reported a moment after start() returns)
+        _after_start[key] = meta
+        if self.runner.has_started(key):  # Windows may report "started" inside start() already
+            self._process_started(key)
+
+    def _process_started(self, key: str):
+        meta = _after_start.pop(key, None)
+        if meta is None or not self.runner.is_running(key):
+            return
         if meta.tunnel and not self.tunnel.is_active():
             self.runner.system_line(key, t("Starting the playit.gg tunnel..."))
             self.tunnel.start()
@@ -708,6 +725,9 @@ class MainWindow(QMainWindow):
             self.runner.system_line(key, t("Opening router port {port} (UPnP)...", port=port))
 
             def done(res):
+                if not self.runner.is_running(key):  # stopped while the router was being asked
+                    self._close_auto_port(meta)
+                    return
                 msg = t("Port {port} open — friends in other homes can join.", port=res.port)
                 if res.cgnat:
                     msg += " " + t("(Warning: the router's internet IP is private; joining may not work.)")
@@ -786,6 +806,9 @@ class MainWindow(QMainWindow):
                 path=meta.folder))
             return
         self.runner.forget(str(meta.folder))  # a new server with the same name starts with a clean log
+        for tab in self.all_tabs:  # ...and with fresh tabs (no old graphs, edits or port status)
+            if tab.meta is not None and tab.meta.folder == meta.folder:
+                tab.forget_server()
         if self.meta and self.meta.folder == meta.folder:
             self.meta = None
         self.reload()
@@ -844,6 +867,7 @@ class MainWindow(QMainWindow):
 
     def _detach(self):
         self.runner.state_changed.disconnect(self._on_state_changed)
+        self.runner.process_started.disconnect(self._process_started)
         self.setAttribute(Qt.WA_DeleteOnClose)
         if self in _windows:
             _windows.remove(self)

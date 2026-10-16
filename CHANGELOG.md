@@ -3,6 +3,34 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.18.0
+### en
+**Windows Firewall**
+- *Allow in Windows Firewall* now also allows Java itself and removes the block rules Windows makes when someone presses *Cancel* in its first-run popup (a block rule beats every allow rule).
+- The Network tab shows whether the firewall lets players in, and *Server status* no longer says "Same Wi-Fi: OK" when the firewall actually blocks other devices.
+
+**Fixes**
+- Deleting a server and creating a new one with the same name no longer shows the old log, graphs or unsaved settings.
+- The tunnel and the router port are only started once Java really runs; a port opened while the server was stopping is closed again.
+- server.properties lines with some Korean (cp949) or special characters are no longer split on save.
+- World import works with a level name in a subfolder (e.g. worlds/main).
+- Cancel works while the Forge/NeoForge installer is quiet; its files are removed after a failure.
+- Java install: retries when antivirus holds the new files, and keeps the old Java if replacing fails.
+- Snapshots are ordered by their real release dates; settings, uptime and player lists are saved safely.
+### ko
+**Windows 방화벽**
+- *Windows 방화벽 허용*이 이제 Java 자체도 허용하고, 처음 뜨는 Windows 창에서 *취소*를 눌렀을 때 생긴 차단 규칙도 지워요 (차단 규칙은 허용 규칙보다 우선이에요).
+- 네트워크 탭에 방화벽이 플레이어를 들여보내는지 표시돼요. 방화벽이 다른 기기를 막고 있으면 *서버 상태*에서 "같은 와이파이: 접속 가능"이라고 잘못 나오지 않아요.
+
+**버그 수정**
+- 서버를 지우고 같은 이름으로 새로 만들면 예전 로그, 그래프, 저장 안 한 설정이 보이던 문제를 고쳤어요.
+- 터널과 공유기 포트는 Java가 실제로 켜진 뒤에만 열어요. 서버가 꺼지는 사이에 열린 포트는 다시 닫아요.
+- 일부 한글(cp949)이나 특수 문자가 든 server.properties 줄이 저장할 때 쪼개지지 않아요.
+- 월드 이름이 하위 폴더(예: worlds/main)여도 월드 불러오기가 제대로 돼요.
+- Forge/NeoForge 설치 프로그램이 조용할 때도 취소가 돼요. 실패하면 설치 파일을 지워요.
+- Java 설치: 백신이 새 파일을 잡고 있으면 다시 시도하고, 교체에 실패하면 예전 Java를 그대로 둬요.
+- 스냅샷 버전을 실제 출시일 순서로 정렬해요. 설정, 가동 시간, 플레이어 목록을 안전하게 저장해요.
+
 ## 1.17.0
 ### en
 **Design**

@@ -154,6 +154,10 @@ class ServerTab(QWidget):
         self.meta = meta
         self.refresh()
 
+    def forget_server(self) -> None:
+        """The shown server was deleted: a new server in the same folder must start fresh."""
+        self.meta = None
+
     def refresh(self) -> None:
         pass
 
@@ -400,6 +404,13 @@ class ConsoleTab(ServerTab):
             self.on_state()
         else:
             super().set_server(meta)
+
+    def forget_server(self) -> None:
+        super().forget_server()
+        self._dirty = True
+        self._pending.clear()
+        self._missed = 0
+        self.view.clear()
 
     def _live(self) -> bool:
         return self.isVisible() and not self._paused
@@ -935,6 +946,11 @@ class SettingsTab(ServerTab):
         else:
             super().set_server(meta)
 
+    def forget_server(self) -> None:
+        super().forget_server()
+        self._loaded = None  # no unsaved edits carry over to whatever comes next
+        self.world.forget_server()
+
     def _reload_keeping_edits(self):
         """Re-read the server from disk but keep what the user changed and hasn't saved yet."""
         loaded = getattr(self, "_loaded", None)
@@ -1106,6 +1122,11 @@ class WorldTab(ServerTab):
             outer.addWidget(body)
         else:
             outer.addWidget(_scroll(body))
+
+    def forget_server(self) -> None:
+        super().forget_server()
+        self._shown_for = None
+        self.upgrade.forget_server()
 
     def refresh(self):
         if not self.meta:
@@ -1369,6 +1390,11 @@ class NetworkTab(ServerTab):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(_scroll(body))
         self._router_host = ""
+
+    def forget_server(self) -> None:
+        super().forget_server()
+        self._status_key = None
+        self._fw_for = None
 
     @property
     def port(self) -> int:
@@ -2231,6 +2257,13 @@ class StatusTab(ServerTab):
         self._paused = paused
         self._update_timer()
 
+    def forget_server(self) -> None:
+        super().forget_server()
+        self._shown_for = None
+        self._disk_for = None
+        self.timer.stop()
+        self.join.timer.stop()
+
     def refresh(self):
         self._shown_for = self.meta.folder if self.meta else None
         self._disk_for = None
@@ -2436,6 +2469,10 @@ class UpgradeSection(ServerTab):
         layout.addWidget(box)
 
         self.loader = VersionLoader(self.version, self.version_status)
+        self._loaded_for = None
+
+    def forget_server(self) -> None:
+        super().forget_server()
         self._loaded_for = None
 
     def refresh(self):

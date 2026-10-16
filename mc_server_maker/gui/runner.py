@@ -30,6 +30,7 @@ class ServerRunner(QObject):
     line = Signal(str, str)  # (server folder, one line)
     state_changed = Signal(str, str)  # (server folder, state)
     players_changed = Signal(str)  # (server folder)
+    process_started = Signal(str)  # (server folder) Java really runs (not just "asked to start")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -61,6 +62,11 @@ class ServerRunner(QObject):
     def is_running(self, key: str) -> bool:
         p = self.procs.get(key)
         return p is not None and p.state() != QProcess.NotRunning
+
+    def has_started(self, key: str) -> bool:
+        """The Java process is up (QProcess "Running", past "Starting")."""
+        p = self.procs.get(key)
+        return p is not None and p.state() == QProcess.Running
 
     def any_running(self) -> bool:
         return any(self.is_running(k) for k in self.procs)
@@ -200,6 +206,7 @@ class ServerRunner(QObject):
             self._set_state(key, STARTING)
 
     def _started(self, key: str, proc: QProcess):
+        self.process_started.emit(key)
         if not self.low_priority:
             return
         try:
