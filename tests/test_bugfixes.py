@@ -144,5 +144,39 @@ class ModrinthLockedJarTest(unittest.TestCase):
         self.assertEqual([p.name for p in (d / "plugins").iterdir()], ["Cool-1.0.jar"])
 
 
+class SwitchSoftwareTest(unittest.TestCase):
+    def test_paper_to_fabric_keeps_nether_and_end(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        meta = srv.ServerMeta(name="s", software="paper", mc_version="1.21.4", folder=d,
+                              launch={"type": "jar", "jar": "server.jar"})
+        meta.save()
+        (d / "server.properties").write_text("level-name=world\nmotd=hi\n")
+        (d / "server.jar").write_bytes(b"paper")
+        for folder, dim in (("world", None), ("world_nether", "DIM-1"), ("world_the_end", "DIM1")):
+            base = d / folder / (dim or "")
+            base.mkdir(parents=True)
+            (base / "level.dat" if not dim else base / "region.mca").write_bytes(b"x")
+
+        class FakeFabric:
+            name = "Fabric"
+
+            def install(self, folder, version, java, task):
+                (Path(folder) / "fabric-server-launch.jar").write_bytes(b"fabric")
+                return {"launch": {"type": "jar", "jar": "fabric-server-launch.jar"}, "build": "loader 1"}
+
+        java = mock.Mock(major=21, path="java")
+        with mock.patch.object(srv, "get_provider", return_value=FakeFabric()), \
+                mock.patch.object(srv, "_java_for", return_value=java):
+            srv.upgrade_server(meta, "1.21.4", backup_first=False, new_software="fabric")
+        saved = srv.ServerMeta.load(d)
+        self.assertEqual((saved.software, saved.mc_version, saved.launch["jar"]), ("fabric", "1.21.4", "fabric-server-launch.jar"))
+        self.assertTrue((d / "world" / "DIM-1" / "region.mca").exists())
+        self.assertTrue((d / "world" / "DIM1" / "region.mca").exists())
+        self.assertFalse((d / "world_nether").exists())
+        self.assertFalse((d / "server.jar").exists())  # Paper's jar is gone
+        self.assertEqual(Properties(d / "server.properties").get("motd"), "hi")  # settings stay
+
+
 if __name__ == "__main__":
     unittest.main()

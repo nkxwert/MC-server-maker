@@ -3,6 +3,14 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.15.0
+### en
+- **Switch server software**: Settings → World → *Server version* → *Software* turns an existing server into Paper, Purpur, Vanilla, Fabric, NeoForge or Forge. The world and settings stay, a full backup is made first, and the Nether/End are moved where the new software expects them.
+- The Settings tab is now the last tab.
+### ko
+- **구동기 바꾸기**: 설정 → 월드 → *서버 버전* → *구동기*에서 기존 서버를 Paper, Purpur, Vanilla, Fabric, NeoForge, Forge로 바꿀 수 있어요. 월드와 설정은 그대로이고, 먼저 서버 전체를 백업하고, 네더·엔드도 새 구동기에 맞는 자리로 옮겨요.
+- 설정 탭을 맨 마지막으로 옮겼어요.
+
 ## 1.14.0
 ### en
 - Header: *Force stop* moved into the ▾ menu next to *Stop*; the folder button is gone (use 📁 Folder in the sidebar).

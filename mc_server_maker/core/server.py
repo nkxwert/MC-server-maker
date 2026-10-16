@@ -340,21 +340,35 @@ def create_server(opts: CreateOptions, task: Optional[Task] = None) -> ServerMet
 # --------------------------------------------------------------- upgrade
 
 
+SPLIT_DIMENSIONS = ("paper", "purpur")  # keep the Nether/End in world_nether / world_the_end
+
+
 def upgrade_server(
     meta: ServerMeta,
     new_version: str,
     auto_java: bool = True,
     backup_first: bool = True,
     task: Optional[Task] = None,
+    new_software: Optional[str] = None,
 ) -> ServerMeta:
+    """Update the server to another version, or switch it to another software (Paper -> Fabric...).
+
+    The world, server.properties, OPs/whitelist and the app's settings stay.
+    """
     task = task or Task()
     old_version = meta.mc_version
+    software = new_software or meta.software
+    switching = software != meta.software
     if backup_first:
-        backup_server(meta, f"before-{new_version}", task=task)
-    java = _java_for(meta.software, new_version, auto_java, task)
+        label = f"before-{software}-{new_version}" if switching else f"before-{new_version}"
+        backup_server(meta, label, task=task)
+    java = _java_for(software, new_version, auto_java, task)
     task.check()
-    provider = get_provider(meta.software)
-    task.log(t("Upgrading {name} {old} → {new}...", name=provider.name, old=old_version, new=new_version))
+    provider = get_provider(software)
+    if switching:
+        task.log(t("Switching {old} → {new} {v}...", old=meta.software_name, new=provider.name, v=new_version))
+    else:
+        task.log(t("Upgrading {name} {old} → {new}...", name=provider.name, old=old_version, new=new_version))
 
     old_launch = meta.launch or {}
     result = provider.install(meta.folder, new_version, java, task)
@@ -371,6 +385,9 @@ def upgrade_server(
         props.set("level-type", level_type_value(parse_level_type(props.get("level-type")), new_version))
         props.save()
 
+    if switching and meta.software in SPLIT_DIMENSIONS and software not in SPLIT_DIMENSIONS:
+        _merge_dimensions(meta, task)  # (vanilla -> Paper needs nothing: Paper splits them itself)
+    meta.software = software
     meta.mc_version = new_version
     meta.build = result.get("build", "")
     meta.launch = new_launch
@@ -380,14 +397,40 @@ def upgrade_server(
     write_start_scripts(meta)
     from mc_server_maker.core import plugins
 
-    if plugins.bedrock_installed(meta):
+    if plugins.bedrock_installed(meta) and plugins.supports_bedrock(meta):
         task.log(t("Updating Geyser/Floodgate for the new version..."))
         try:
             plugins.install_bedrock(meta, task)
         except Exception as e:  # noqa: BLE001 - the server itself is updated; Geyser can be retried
             task.log(t("Could not update Geyser: {err} (retry from Settings)", err=e))
-    task.log(t("Upgrade complete! The world is converted to the new version on next start."))
+    task.log(t("Done! {name} {v} starts with your world next time.", name=provider.name, v=new_version) if switching
+             else t("Upgrade complete! The world is converted to the new version on next start."))
     return meta
+
+
+def _merge_dimensions(meta: ServerMeta, task: Task) -> None:
+    """Paper keeps the Nether and End in world_nether/DIM-1 and world_the_end/DIM1; vanilla
+    and mod loaders expect them inside world/. Move them back so they aren't regenerated."""
+    level = meta.properties().get("level-name") or "world"
+    world = meta.folder / level
+    for folder, dim in ((f"{level}_nether", "DIM-1"), (f"{level}_the_end", "DIM1")):
+        src = meta.folder / folder / dim
+        if not src.is_dir():
+            continue
+        dest = world / dim
+        if dest.exists() and any(dest.iterdir()):
+            task.log(t("{dim} already exists in {world}; left {folder} as it is.", dim=dim, world=level, folder=folder))
+            continue
+        world.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            dest.rmdir()
+        shutil.move(str(src), str(dest))
+        leftover = meta.folder / folder
+        try:  # only Paper's bookkeeping files are left; the backup has them anyway
+            shutil.rmtree(leftover)
+        except OSError:
+            pass
+        task.log(t("Moved {folder} into {world}.", folder=folder, world=level))
 
 
 def change_java(meta: ServerMeta, auto_java: bool, task: Optional[Task] = None) -> ServerMeta:

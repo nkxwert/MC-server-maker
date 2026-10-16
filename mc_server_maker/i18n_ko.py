@@ -576,4 +576,19 @@ KO = {
         "서버가 켜져 있는 동안 정한 간격마다 월드를 저장해요. PC가 갑자기 꺼져도 잃는 게 적어요. 월드가 크면 저장하는 동안 잠깐 멈칫할 수 있어요.",
     "Force stop (without saving)": "강제 종료 (저장 안 함)",
     "More stop options": "다른 중지 방법",
+    # ---- switch server software
+    "Switch software": "구동기 바꾸기",
+    "Pick another software to switch this server to it (for example Paper → Fabric). The world and settings stay; a full backup is made first.":
+        "다른 구동기를 고르면 이 서버를 그 구동기로 바꿔요 (예: Paper → Fabric). 월드와 설정은 그대로이고, 먼저 서버 전체를 백업해요.",
+    "Switch {old} {oldv} → {new} {newv}?": "{old} {oldv} → {new} {newv}(으)로 바꿀까요?",
+    "The world and settings stay.": "월드와 설정은 그대로 남아요.",
+    "Blocks, items and creatures added by mods will disappear from the world.": "모드로 추가된 블록·아이템·생물은 월드에서 사라져요.",
+    "Plugins won't work anymore. The plugins folder is kept.": "플러그인은 더 이상 작동하지 않아요. plugins 폴더는 그대로 남겨둬요.",
+    "The Nether and End are moved into the world folder (that's where {name} keeps them).": "네더와 엔드를 월드 폴더 안으로 옮겨요 ({name}은(는) 거기에 저장해요).",
+    "Bedrock players can't join anymore: Geyser needs Paper or Purpur.": "베드락 플레이어는 더 이상 접속할 수 없어요. Geyser는 Paper나 Purpur에서만 작동해요.",
+    "Put mods made for {name} into the Mods tab afterwards.": "바꾼 뒤 {name}용 모드를 모드 탭에 넣어 주세요.",
+    "Switching {old} → {new} {v}...": "{old} → {new} {v}(으)로 바꾸는 중...",
+    "Done! {name} {v} starts with your world next time.": "완료! 다음에 시작하면 {name} {v}(으)로 월드가 열려요.",
+    "Moved {folder} into {world}.": "{folder}을(를) {world} 안으로 옮겼어요.",
+    "{dim} already exists in {world}; left {folder} as it is.": "{world} 안에 이미 {dim}이(가) 있어서 {folder}은(는) 그대로 뒀어요.",
 }

@@ -56,7 +56,7 @@ from PySide6.QtWidgets import (
 from mc_server_maker.core import addons, joincheck, net, network, plugins, property_catalog, stats, versions
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.properties import Properties
-from mc_server_maker.core.providers import get_provider
+from mc_server_maker.core.providers import PROVIDERS, get_provider
 from mc_server_maker.gui import anim, browse, theme
 from mc_server_maker.gui.anim import FadeInDialog
 from mc_server_maker.gui.browse import ModrinthBrowser
@@ -2150,8 +2150,17 @@ class UpgradeSection(ServerTab):
         self.btn_java.clicked.connect(self._fix_java)
         java_row.addWidget(self.btn_java)
         form.addRow("Java", java_row)
+        # another software (Paper -> Fabric...) switches the server; the same one updates it
+        self.software = QComboBox()
+        for p in PROVIDERS:
+            self.software.addItem(p.name, p.id)
+        self.software.currentIndexChanged.connect(self._reload)
+        form.addRow(with_help(t("Software"), t(
+            "Pick another software to switch this server to it (for example Paper → Fabric). "
+            "The world and settings stay; a full backup is made first.")), self.software)
         self.version = QComboBox()
         form.addRow(t("Update to"), self.version)
+        self.version_label = form.labelForField(self.version)
         self.version_status = hint("")
         form.addRow("", self.version_status)
         self.unstable = QCheckBox(t("Show snapshots"))
@@ -2189,18 +2198,35 @@ class UpgradeSection(ServerTab):
         running = self.running
         self.btn_upgrade.setEnabled(not running)
         self.btn_java.setEnabled(not running)
-        if self._loaded_for != (m.folder, m.software, m.mc_version):
+        if self._loaded_for is None or self._loaded_for[:3] != (m.folder, m.software, m.mc_version):
+            self.software.blockSignals(True)  # a new server (or after a switch): start from its own software
+            self.software.setCurrentIndex(max(0, self.software.findData(m.software)))
+            self.software.blockSignals(False)
             self._reload()
+
+    def _target(self) -> str:
+        return self.software.currentData() or (self.meta.software if self.meta else "")
 
     def _reload(self):
         if not self.meta:
             return
         m = self.meta
-        self._loaded_for = (m.folder, m.software, m.mc_version)
-        provider = get_provider(m.software)
+        target = self._target()
+        switching = target != m.software
+        self._loaded_for = (m.folder, m.software, m.mc_version, target)
+        self.version_label.setText(t("Version") if switching else t("Update to"))
+        self.btn_upgrade.setText(t("Switch software") if switching else t("Update"))
+        provider = get_provider(target)
         current = m.mc_version
         downgrade = self.allow_downgrade.isChecked()
         unstable = self.unstable.isChecked()
+        if switching:
+            # same Minecraft version or newer (older only when asked); the current one is preselected
+            def not_older(v: str) -> bool:
+                return downgrade or versions.version_key(v) >= versions.version_key(current)
+
+            self.loader.load(provider, unstable, keep=current, filter_fn=not_older)
+            return
 
         def make_filter():  # runs in the background: may fetch the full list
             order = None
@@ -2230,6 +2256,9 @@ class UpgradeSection(ServerTab):
         self.loader.load(provider, unstable, make_filter=make_filter)
 
     def _upgrade(self):
+        if self._target() != self.meta.software:
+            self._switch()
+            return
         new = self.version.currentData()
         if not new:
             if self.loader.loaded:
@@ -2249,6 +2278,40 @@ class UpgradeSection(ServerTab):
         self.run_task(
             t("Update"),
             lambda task: srv.upgrade_server(m, new, auto_java=auto_java, backup_first=backup, task=task),
+        )
+        self.on_changed()
+
+    def _switch(self):
+        m, target, new = self.meta, self._target(), self.version.currentData()
+        if not new:
+            QMessageBox.information(self, t("Switch software"), t("The version list isn't loaded. Check your internet connection.")
+                                    if not self.loader.loaded else t("No versions available."))
+            return
+        mods = ("fabric", "forge", "neoforge")
+        split = srv.SPLIT_DIMENSIONS
+        notes = []
+        if m.software in mods:
+            notes.append(t("Blocks, items and creatures added by mods will disappear from the world."))
+        if m.software in split and target not in split:
+            notes.append(t("Plugins won't work anymore. The plugins folder is kept."))
+            notes.append(t("The Nether and End are moved into the world folder (that's where {name} keeps them).",
+                           name=get_provider(target).name))
+            if plugins.bedrock_installed(m):
+                notes.append(t("Bedrock players can't join anymore: Geyser needs Paper or Purpur."))
+        if target in mods and m.software != target:
+            notes.append(t("Put mods made for {name} into the Mods tab afterwards.", name=get_provider(target).name))
+        if versions.version_key(new) < versions.version_key(m.mc_version):
+            notes.append(t("Going to an older version can break the world!"))
+        text = t("Switch {old} {oldv} → {new} {newv}?", old=m.software_name, oldv=m.mc_version,
+                 new=get_provider(target).name, newv=new)
+        text += "\n\n" + t("The world and settings stay.") + ("\n\n" + "\n".join("⚠ " + n for n in notes) if notes else "")
+        if QMessageBox.question(self, t("Switch software"), text) != QMessageBox.Yes:
+            return
+        backup, auto_java = self.backup.isChecked(), self.auto_java.isChecked()
+        self.run_task(
+            t("Switch software"),
+            lambda task: srv.upgrade_server(m, new, auto_java=auto_java, backup_first=backup, task=task,
+                                            new_software=target),
         )
         self.on_changed()
 

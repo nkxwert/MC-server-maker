@@ -329,9 +329,9 @@ class MainWindow(QMainWindow):
         self.settings_tab = SettingsTab(self.runner, self.reload)
         self.network_tab = NetworkTab(self.runner, self.reload)
         self.all_tabs = [
-            self.console_tab, self.status_tab, self.addons_tab, self.settings_tab, self.network_tab,
+            self.console_tab, self.status_tab, self.addons_tab, self.network_tab, self.settings_tab,
         ]
-        titles = ["Console", "Server status", "Plugins", "Settings", "Network"]
+        titles = ["Console", "Server status", "Plugins", "Network", "Settings"]  # settings last
         for tab, name in zip(self.all_tabs, titles):
             self.tabs.addTab(tab, t(name))
         self.tabs.currentChanged.connect(lambda _i: anim.fade_in(self.tabs.currentWidget(), anim.FAST))
