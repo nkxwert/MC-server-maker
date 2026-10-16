@@ -6,10 +6,10 @@ current version as the GitHub Release notes, and the app shows it as "What's new
 ## 1.19.1
 ### en
 - Fixed: the playit.gg tunnel stopped right away with "code 2". playit 1.0 changed its download to a background service that doesn't take the same settings; Bartizan now uses playit's standalone agent 0.17.1 (still supported by playit) and replaces a wrong download automatically.
-- Quitting while something is still loading in the background no longer risks a crash on Windows.
+- Quitting while something is still loading in the background (e.g. the update check) no longer shows an error box or risks a crash.
 ### ko
 - 수정: playit.gg 터널이 "코드 2"로 바로 멈추던 문제. playit 1.0부터 받는 파일이 다른 방식의 백그라운드 서비스로 바뀌어서 실행 설정을 알아듣지 못했어요. 이제 playit이 계속 지원하는 단독 실행 버전 0.17.1을 쓰고, 잘못 받은 파일은 자동으로 바꿔요.
-- 백그라운드 작업이 남아 있을 때 앱을 종료해도 Windows에서 오류로 꺼지지 않아요.
+- 백그라운드 작업(예: 업데이트 확인)이 남아 있을 때 앱을 종료해도 오류 창이 뜨거나 오류로 꺼지지 않아요.
 
 ## 1.19.0
 ### en

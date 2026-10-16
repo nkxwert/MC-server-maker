@@ -1105,6 +1105,7 @@ def main():
     selftest(f"event loop ended: {code}")
     if any_running():
         # a network lookup is still blocked in a thread; destroying it would abort the process
-        sys.stdout.flush()
+        if sys.stdout:  # None in the windowed EXE
+            sys.stdout.flush()
         _hard_exit(code)
     sys.exit(code)
