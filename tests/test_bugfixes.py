@@ -300,5 +300,31 @@ class PlayitAgentVersionTest(unittest.TestCase):
         self.assertIn("/tags/" + tunnel.AGENT_VERSION, tunnel.RELEASES)
 
 
+class PlayitApiTest(unittest.TestCase):
+    def test_rundata_and_java_address(self):
+        data = {"status": "success", "data": {"agent_id": "a", "tunnels": [
+            {"display_address": "fun-bed.ply.gg:41234", "tunnel_type": "minecraft-bedrock", "port_type": "udp",
+             "agent_config": {"fields": [{"name": "local_port", "value": "19132"}]}, "disabled_reason": None},
+            {"display_address": "old.gl.joinmc.link", "tunnel_type": "minecraft-java", "port_type": "tcp",
+             "agent_config": {"fields": []}, "disabled_reason": "account limit"},
+            {"display_address": "brave-fox.gl.joinmc.link", "tunnel_type": "minecraft-java", "port_type": "tcp",
+             "agent_config": {"fields": [{"name": "local_port", "value": "25565"}]}, "disabled_reason": None},
+        ], "pending": [], "notices": []}}
+        tunnels = tunnel.parse_rundata(data)
+        self.assertEqual(len(tunnels), 3)
+        self.assertEqual(tunnel.java_address(tunnels), "brave-fox.gl.joinmc.link")
+        self.assertEqual(tunnel.java_address(tunnels[:2]), "")  # only Bedrock + a disabled one
+        with self.assertRaises(tunnel.TunnelError):
+            tunnel.parse_rundata({"status": "error", "data": {}})
+
+    def test_secret_from_toml(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        with mock.patch.object(tunnel, "agent_dir", return_value=d):
+            self.assertEqual(tunnel.read_secret(), "")
+            tunnel.secret_path().write_text('secret_key = "0a1B2c"\n')
+            self.assertEqual(tunnel.read_secret(), "0a1B2c")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -140,7 +140,8 @@ def download(info: UpdateInfo, task: Optional[Task] = None) -> Path:
         expected = parts[0].strip().lower() if parts else ""
         if not re.fullmatch(r"[0-9a-f]{64}", expected):
             raise UpdateError(t("The update's checksum file is broken. Please try again later."))
-    dest = Path(sys.executable).with_name(EXE_NAME + ".new")
+    dest = update_dir() / EXE_NAME  # not next to the app: nothing extra appears in its folder
+    dest.parent.mkdir(parents=True, exist_ok=True)
     net.download(info.exe_url, dest, task, sha256=expected)
     if dest.stat().st_size < 1_000_000:
         dest.unlink(missing_ok=True)
@@ -148,35 +149,86 @@ def download(info: UpdateInfo, task: Optional[Task] = None) -> Path:
     return dest
 
 
-def install_and_restart(new_exe: Path) -> None:
-    """Swap the running EXE for the new one and start it. The caller quits right after.
+INSTALL_ARG = "--bartizan-install"
 
-    A running EXE can't be overwritten on Windows, but it can be renamed: rename it
-    to .old, move the new one in, start it. The .old file is removed on next start.
+
+def update_dir() -> Path:
+    import tempfile
+
+    return Path(tempfile.gettempdir()) / "Bartizan-update"
+
+
+def install_and_restart(new_exe: Path) -> None:
+    """Start the downloaded EXE as the installer; the caller quits right after.
+
+    A running EXE can't be overwritten on Windows. So the new version (in a temp folder)
+    waits until this one has closed, copies itself over Bartizan.exe and starts it:
+    the app stays one EXE, with no .new/.old files next to it.
     """
     exe = Path(sys.executable)
-    old = exe.with_name(exe.name + ".old")
-    old.unlink(missing_ok=True)
-    os.replace(exe, old)
-    try:
-        os.replace(new_exe, exe)
-    except OSError:
-        os.replace(old, exe)  # put the original back
-        raise
     flags = 0x00000008 | 0x00000200 if os.name == "nt" else 0  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     # a fresh start for the new EXE: otherwise PyInstaller's onefile bootloader thinks it is a child
     # of this process and reuses our temp folder, which is deleted when we quit
+    env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")
+    subprocess.Popen([str(new_exe), INSTALL_ARG, str(exe), str(os.getpid())],
+                     cwd=str(new_exe.parent), creationflags=flags, close_fds=True, env=env)
+
+
+def _wait_for_exit(pid: int, timeout: float) -> None:
+    try:
+        import psutil
+
+        psutil.Process(pid).wait(timeout=timeout)
+    except Exception:  # noqa: BLE001 - already gone, or psutil can't tell: the copy loop retries anyway
+        pass
+
+
+def run_installer(argv: List[str]) -> bool:
+    """When started as "<new exe> --bartizan-install <target> <pid>": replace the target EXE with
+    this one, start it, and return True (the caller exits). Otherwise return False."""
+    if len(argv) < 4 or argv[1] != INSTALL_ARG:
+        return False
+    import shutil
+    import time
+
+    target, pid = Path(argv[2]), int(argv[3]) if argv[3].isdigit() else 0
+    if pid:
+        _wait_for_exit(pid, 60)
+    me = Path(sys.executable)
+    copied = False
+    for _ in range(60):  # the old EXE can stay locked a moment (antivirus, the closing process)
+        try:
+            tmp = target.with_name(target.name + ".tmp")
+            shutil.copyfile(me, tmp)
+            os.replace(tmp, target)
+            copied = True
+            break
+        except OSError:
+            time.sleep(0.5)
+    flags = 0x00000008 | 0x00000200 if os.name == "nt" else 0
     env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1", BARTIZAN_RESTART="1")
-    subprocess.Popen([str(exe)], cwd=str(exe.parent), creationflags=flags, close_fds=True, env=env)
+    if not copied:
+        env["BARTIZAN_UPDATE_FAILED"] = "1"  # the old version starts and says so
+    try:
+        subprocess.Popen([str(target)], cwd=str(target.parent), creationflags=flags, close_fds=True, env=env)
+    except OSError:
+        pass
+    return True
 
 
 def cleanup_old() -> None:
-    """Remove the previous EXE left behind by an update."""
+    """Remove what an update left behind: the downloaded installer (and .old files from
+    versions before 1.20, which renamed the running EXE)."""
     if paths.FROZEN:
-        try:
-            Path(sys.executable).with_name(Path(sys.executable).name + ".old").unlink(missing_ok=True)
-        except OSError:
-            pass  # still locked (old process closing, antivirus scan): try again next start
+        exe = Path(sys.executable)
+        for leftover in (exe.with_name(exe.name + ".old"), exe.with_name(exe.name + ".tmp")):
+            try:
+                leftover.unlink(missing_ok=True)
+            except OSError:
+                pass  # still locked (old process closing, antivirus scan): try again next start
+    import shutil
+
+    shutil.rmtree(update_dir(), ignore_errors=True)
 
 
 def sha256_file(path: Path) -> str:

@@ -1,6 +1,5 @@
 """App self-update: changelog, release selection, EXE swap."""
 
-import os
 import sys
 import tempfile
 import unittest
@@ -62,34 +61,37 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(updater.parse_version("v1.6"), (1, 6))
 
 
-class SwapTest(unittest.TestCase):
-    def test_install_and_restart_swaps_and_rolls_back(self):
+class InstallTest(unittest.TestCase):
+    def test_install_starts_the_new_exe_as_installer(self):
         with tempfile.TemporaryDirectory() as d:
             exe = Path(d) / "Bartizan.exe"
             exe.write_text("old")
-            new = Path(d) / "Bartizan.exe.new"
+            new = Path(d) / "update" / "Bartizan.exe"
+            new.parent.mkdir()
             new.write_text("new")
             with mock.patch.object(sys, "executable", str(exe)), \
                     mock.patch.object(updater.subprocess, "Popen") as popen:
                 updater.install_and_restart(new)
-                self.assertEqual(exe.read_text(), "new")
-                self.assertEqual((Path(d) / "Bartizan.exe.old").read_text(), "old")
-                popen.assert_called_once()
-                # failure while moving the new file in -> original restored
-                new.write_text("newer")
-                real_replace = os.replace
-                calls = []
+            args = popen.call_args[0][0]
+            self.assertEqual(args[:3], [str(new), updater.INSTALL_ARG, str(exe)])
+            self.assertEqual(exe.read_text(), "old")  # nothing is renamed next to the app
+            self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["Bartizan.exe", "update"])
 
-                def flaky(src, dst):
-                    calls.append(src)
-                    if len(calls) == 2:
-                        raise OSError("locked")
-                    return real_replace(src, dst)
-
-                with mock.patch.object(updater.os, "replace", flaky):
-                    with self.assertRaises(OSError):
-                        updater.install_and_restart(new)
-                self.assertEqual(exe.read_text(), "new")
+    def test_installer_copies_itself_over_the_target_and_restarts(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / "Bartizan.exe"
+            target.write_text("old")
+            me = Path(d) / "tmp" / "Bartizan.exe"
+            me.parent.mkdir()
+            me.write_text("new")
+            with mock.patch.object(sys, "executable", str(me)), \
+                    mock.patch.object(updater.subprocess, "Popen") as popen:
+                self.assertTrue(updater.run_installer(["x", updater.INSTALL_ARG, str(target), "0"]))
+            self.assertEqual(target.read_text(), "new")
+            self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["Bartizan.exe", "tmp"])  # no .tmp/.old
+            self.assertEqual(popen.call_args[0][0], [str(target)])
+            self.assertNotIn("BARTIZAN_UPDATE_FAILED", popen.call_args[1]["env"])
+        self.assertFalse(updater.run_installer(["Bartizan.exe"]))
 
 
 if __name__ == "__main__":

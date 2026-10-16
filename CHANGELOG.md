@@ -3,6 +3,16 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.20.0
+### en
+- Tunnel: the tunnel address now fills in by itself. The playit agent doesn't print it, so Bartizan asks playit.gg for this PC's tunnels. If there's no Minecraft Java tunnel yet, the Network tab says how to add one.
+- Server status no longer says "not reachable from the internet" while friends can join through the tunnel, and a fresh tunnel that the outside check hasn't seen yet shows as "not confirmed yet" instead of an error.
+- Updates now replace Bartizan.exe in place: the new version is downloaded to a temporary folder, waits for the app to close, copies itself over Bartizan.exe and starts it. No more .new / .old files next to the app.
+### ko
+- 터널: 터널 주소가 이제 자동으로 채워져요. playit 프로그램이 주소를 출력하지 않아서, Bartizan이 playit.gg에 이 PC의 터널을 직접 물어봐요. 아직 Minecraft Java 터널이 없으면 네트워크 탭에서 추가 방법을 알려줘요.
+- 친구가 터널로 들어올 수 있는데도 서버 상태에 "인터넷에서 접속할 수 없어요"라고 나오던 문제를 고쳤어요. 막 만든 터널을 외부 확인 서비스가 아직 못 봤을 때는 오류 대신 "아직 확인되지 않음"으로 보여줘요.
+- 업데이트가 이제 Bartizan.exe 하나만 바꿔요: 새 버전을 임시 폴더에 받고, 앱이 닫히면 Bartizan.exe를 덮어쓴 뒤 다시 실행해요. 앱 옆에 .new / .old 파일이 더 이상 생기지 않아요.
+
 ## 1.19.1
 ### en
 - Fixed: the playit.gg tunnel stopped right away with "code 2". playit 1.0 changed its download to a background service that doesn't take the same settings; Bartizan now uses playit's standalone agent 0.17.1 (still supported by playit) and replaces a wrong download automatically.

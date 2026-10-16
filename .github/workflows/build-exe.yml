@@ -49,6 +49,24 @@ jobs:
           if ($p.ExitCode -ne 0) { Write-Error "EXE self-test failed with code $($p.ExitCode)"; exit 1 }
           Get-Item dist\Bartizan.exe | Select-Object Name, @{n="MB";e={[math]::Round($_.Length/1MB,1)}}
 
+      - name: Check in-place update
+        shell: pwsh
+        run: |
+          # the downloaded new version installs itself over the old EXE, then starts it
+          $env:BARTIZAN_SELFTEST = "1"
+          $env:MCSM_HOME = "$env:RUNNER_TEMP\bartizan-selftest2"
+          $dir = "$env:RUNNER_TEMP\app dir"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $target = "$dir\Bartizan.exe"
+          Set-Content $target "old version"
+          $p = Start-Process -FilePath "dist\Bartizan.exe" -ArgumentList "--bartizan-install", "`"$target`"", "0" -PassThru
+          if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; Write-Error "installer did not finish"; exit 1 }
+          if ((Get-FileHash $target).Hash -ne (Get-FileHash "dist\Bartizan.exe").Hash) { Write-Error "EXE was not replaced"; exit 1 }
+          $extra = Get-ChildItem $dir | Where-Object { $_.Name -ne "Bartizan.exe" }
+          if ($extra) { Write-Error "left files next to the EXE: $($extra.Name)"; exit 1 }
+          Start-Sleep -Seconds 15  # the restarted app runs its own self-test and quits
+          Get-Process Bartizan -ErrorAction SilentlyContinue | Stop-Process -Force
+
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:

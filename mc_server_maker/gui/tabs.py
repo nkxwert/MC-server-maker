@@ -1597,7 +1597,14 @@ class NetworkTab(ServerTab):
             tmod.ERROR: ("fail", esc(tm.error or t("Tunnel error."))),
         }
         state, text = texts.get(tm.state, ("off", ""))
-        if port != 25565 and tm.state == tmod.RUNNING:
+        java_tunnels = [x for x in (tm.tunnels or []) if x.address and not x.disabled
+                        and "bedrock" not in x.kind and x.port_type != "udp"]
+        if tm.state == tmod.RUNNING and tm.tunnels is not None and not java_tunnels:
+            # the agent runs, but the playit account has no (working) Minecraft Java tunnel yet
+            state, text = "warn", t(
+                "The agent is running, but there is no Minecraft Java tunnel yet. On the playit.gg dashboard "
+                "add a tunnel: <b>Minecraft Java</b>, local port <b>{port}</b>.", port=port)
+        elif port != 25565 and tm.state == tmod.RUNNING:
             text += " " + esc(t("(Make sure the playit tunnel points to local port {port}.)", port=port))
         set_status(self.tunnel_status, state, text, rich=True)
         self.btn_tunnel.setText(t("Stop tunnel") if tm.is_active() else t("Start tunnel"))
@@ -2185,6 +2192,7 @@ class JoinCheckBox(QGroupBox):
         for r in self.rows.values():
             r.set("wait", t("Checking..."))
         port = meta.properties().get_int("server-port", 25565)
+        self._port = port
         udp = plugins.udp_ports(meta)
         tunnel_addr = self.tab.tunnel.address if self.tab.tunnel else ""
         java = java_exe(meta)
@@ -2225,6 +2233,8 @@ class JoinCheckBox(QGroupBox):
 
     def _show(self, res):
         local, lan, inet = res.get("local"), res.get("lan"), res.get("internet")
+        tm = self.tab.tunnel
+        tunnel_on = bool(tm and tm.state == "running" and tm.address)
         if local and local.ok:
             self.rows["local"].set("ok", _ok_detail(local))
         else:
@@ -2247,6 +2257,12 @@ class JoinCheckBox(QGroupBox):
             self.rows["internet"].set("off", t("Couldn't check (no internet?)"))
         elif inet.ok:
             self.rows["internet"].set("ok", _ok_detail(inet))
+        elif res.get("tunnel") is not None and res["tunnel"].ok:
+            # the port isn't open, but that's fine: friends come in through the tunnel
+            self.rows["internet"].set("ok", t("Through the tunnel (the port itself isn't open, which is fine)."))
+        elif tunnel_on:
+            self.rows["internet"].set("warn", t(
+                "The port isn't open. Friends in other homes can still join with the tunnel address."))
         elif fw == network.BLOCKED:
             self.rows["internet"].set("fail", t(
                 "Windows Firewall blocks Java. Press 'Allow in Windows Firewall' in the Network tab, then open the port."))
@@ -2256,8 +2272,13 @@ class JoinCheckBox(QGroupBox):
             tr = res["tunnel"]
             if tr.ok:
                 self.rows["tunnel"].set("ok", _ok_detail(tr))
+            elif tr.error != "offline":
+                self.rows["tunnel"].set("off", t("Couldn't check (no internet?)"))
             else:
-                self.rows["tunnel"].set("fail", t("The tunnel isn't reaching the server. Check the playit tunnel's local port."))
+                # the outside check service caches answers for a few minutes and can miss a fresh tunnel
+                self.rows["tunnel"].set("warn", t(
+                    "Not confirmed from outside yet (the check service updates every few minutes). If it stays like "
+                    "this, check that the playit tunnel points to local port {port}.", port=self._port))
         if "bedrock" in res:
             br = res["bedrock"]
             if br.ok:

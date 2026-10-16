@@ -9,6 +9,7 @@ that the agent keeps the tunnel up and logs its public address.
 import os
 import platform
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
@@ -130,3 +131,71 @@ def find_address(text: str) -> Optional[str]:
         found += [m.group(1).lower() for m in ADDRESS_RE.finditer(line)]
     # "*.joinmc.link" is playit's Minecraft Java address; prefer it over plain ply.gg ones
     return next((a for a in found if "joinmc.link" in a), found[0] if found else None)
+
+
+# ---- tunnel addresses from playit's API
+# In --stdout mode the 0.17 agent logs only the first line of its status ("N tunnels
+# registered"), never the addresses; the agent itself asks the API for them, so we do too.
+API_RUNDATA = "https://api.playit.gg/v1/agents/rundata"
+
+
+@dataclass
+class PlayitTunnel:
+    address: str
+    kind: str  # "minecraft-java", "minecraft-bedrock", ... ("" if unknown)
+    port_type: str  # tcp / udp / both
+    local_port: Optional[int]
+    disabled: str  # reason, "" if it works
+
+
+def read_secret() -> str:
+    """The agent's secret key from playit.toml (written after this PC was approved)."""
+    try:
+        text = secret_path().read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    m = re.search(r'secret_key\s*=\s*["\']([0-9a-fA-F]+)["\']', text)
+    return m.group(1) if m else ""
+
+
+def parse_rundata(data: dict) -> List[PlayitTunnel]:
+    if not isinstance(data, dict) or data.get("status") != "success":
+        raise TunnelError(t("playit.gg didn't send the tunnel list."))
+    tunnels = []
+    for tun in (data.get("data") or {}).get("tunnels") or []:
+        fields = {f.get("name"): f.get("value") for f in ((tun.get("agent_config") or {}).get("fields") or [])}
+        try:
+            local_port = int(fields.get("local_port")) if fields.get("local_port") else None
+        except (TypeError, ValueError):
+            local_port = None
+        tunnels.append(PlayitTunnel(
+            address=str(tun.get("display_address") or ""),
+            kind=str(tun.get("tunnel_type") or "").lower(),
+            port_type=str(tun.get("port_type") or "").lower(),
+            local_port=local_port,
+            disabled=str(tun.get("disabled_reason") or ""),
+        ))
+    return tunnels
+
+
+def fetch_tunnels(secret: str) -> List[PlayitTunnel]:
+    data = net.post_json(API_RUNDATA, {}, headers={"Authorization": f"Agent-Key {secret}"})
+    return parse_rundata(data)
+
+
+def java_address(tunnels: List[PlayitTunnel], server_port: Optional[int] = None) -> str:
+    """The address friends use for Java Edition: a working, non-Bedrock (TCP) tunnel,
+    preferring one that points at this server's port."""
+    def is_java(tun: PlayitTunnel) -> bool:
+        if tun.disabled or not tun.address:
+            return False
+        if "bedrock" in tun.kind or tun.port_type == "udp":
+            return False
+        return True
+
+    usable = [tun for tun in tunnels if is_java(tun)]
+    usable.sort(key=lambda tun: (
+        server_port is not None and tun.local_port not in (None, server_port),  # wrong port last
+        "minecraft-java" not in tun.kind,
+    ))
+    return usable[0].address if usable else ""

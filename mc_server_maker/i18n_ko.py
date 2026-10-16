@@ -629,4 +629,14 @@ KO = {
         "다른 집 친구는 공유기를 거쳐 들어오기 때문에, 공유기가 서버 포트를 이 PC로 넘겨줘야 해요(포트포워딩). 대부분의 공유기는 자동으로 할 수 있어요(UPnP). 안 되면 아래 '자동으로 안 될 때'를 보거나 터널을 쓰세요.\n\n'Windows 방화벽 허용'은 이 PC의 방화벽이 다른 기기의 접속을 통과시키게 해요(관리자 확인 창이 한 번 떠요). 이 규칙은 지울 때까지 남아 있지만, 서버가 켜져 있을 때만 의미가 있어요. 서버가 꺼져 있으면 그 포트에 응답하는 프로그램이 없어요.",
     "The playit.gg agent didn't accept its settings (code {code}). Press Start tunnel again to download the right version.":
         "playit.gg 프로그램이 실행 설정을 받아들이지 않았어요 (코드 {code}). '터널 시작'을 다시 누르면 맞는 버전을 받아요.",
+    "The agent is running, but there is no Minecraft Java tunnel yet. On the playit.gg dashboard add a tunnel: <b>Minecraft Java</b>, local port <b>{port}</b>.":
+        "playit 프로그램은 실행 중이지만 아직 Minecraft Java 터널이 없어요. playit.gg 대시보드에서 터널을 추가하세요: <b>Minecraft Java</b>, 로컬 포트 <b>{port}</b>.",
+    "Through the tunnel (the port itself isn't open, which is fine).": "터널로 접속 가능 (포트는 열려 있지 않지만 괜찮아요).",
+    "The port isn't open. Friends in other homes can still join with the tunnel address.":
+        "포트는 열려 있지 않아요. 다른 집 친구는 터널 주소로 들어올 수 있어요.",
+    "Not confirmed from outside yet (the check service updates every few minutes). If it stays like this, check that the playit tunnel points to local port {port}.":
+        "아직 바깥에서 확인되지 않았어요 (확인 서비스는 몇 분마다 갱신돼요). 계속 이렇다면 playit 터널의 로컬 포트가 {port}인지 확인하세요.",
+    "playit.gg didn't send the tunnel list.": "playit.gg에서 터널 목록을 받지 못했어요.",
+    "The update couldn't replace Bartizan.exe (the file was locked, e.g. by antivirus). This is still the previous version; please try updating again.":
+        "업데이트가 Bartizan.exe를 바꾸지 못했어요 (백신 등이 파일을 잡고 있었어요). 지금은 이전 버전이에요. 다시 업데이트해 주세요.",
 }

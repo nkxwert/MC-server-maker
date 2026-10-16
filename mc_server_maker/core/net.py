@@ -34,10 +34,11 @@ def _ssl_context() -> ssl.SSLContext:
 _CTX = _ssl_context()
 
 
-def _open(url: str, body: Optional[bytes] = None, content_type: str = ""):
+def _open(url: str, body: Optional[bytes] = None, content_type: str = "", extra_headers: Optional[dict] = None):
     headers = {"User-Agent": USER_AGENT}
     if content_type:
         headers["Content-Type"] = content_type
+    headers.update(extra_headers or {})
     req = urllib.request.Request(url, data=body, headers=headers)
     try:
         return urllib.request.urlopen(req, timeout=TIMEOUT, context=_CTX)
@@ -49,8 +50,9 @@ def _open(url: str, body: Optional[bytes] = None, content_type: str = ""):
         raise NetError(t("Connection failed ({reason}): {url}", reason=e, url=url)) from e
 
 
-def _read(url: str, body: Optional[bytes] = None, content_type: str = "", limit: int = -1) -> bytes:
-    with _open(url, body, content_type) as resp:
+def _read(url: str, body: Optional[bytes] = None, content_type: str = "", limit: int = -1,
+          extra_headers: Optional[dict] = None) -> bytes:
+    with _open(url, body, content_type, extra_headers) as resp:
         try:
             return resp.read(limit)
         except (OSError, http.client.HTTPException) as e:
@@ -68,9 +70,9 @@ def get_json(url: str):
     return _json(_read(url), url)
 
 
-def post_json(url: str, payload):
+def post_json(url: str, payload, headers: Optional[dict] = None):
     """POST a JSON body and return the JSON answer."""
-    return _json(_read(url, json.dumps(payload).encode("utf-8"), "application/json"), url)
+    return _json(_read(url, json.dumps(payload).encode("utf-8"), "application/json", extra_headers=headers), url)
 
 
 def get_bytes(url: str, limit: int = 2 * 1024 * 1024) -> bytes:

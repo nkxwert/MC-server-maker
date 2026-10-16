@@ -1086,6 +1086,10 @@ def main():
     app.commitDataRequest.connect(lambda _m: runner.any_running() and runner.stop_all(20000))
     win.show()
     selftest("window shown")
+    if os.environ.pop("BARTIZAN_UPDATE_FAILED", ""):
+        QTimer.singleShot(500, lambda: QMessageBox.warning(win, t("Update"), t(
+            "The update couldn't replace Bartizan.exe (the file was locked, e.g. by antivirus). "
+            "This is still the previous version; please try updating again.")))
     updater.cleanup_old()
     QTimer.singleShot(400, win.show_whats_new_if_updated)
     if not os.environ.get("BARTIZAN_SELFTEST") and settings.last_update_check != time.strftime("%Y-%m-%d"):

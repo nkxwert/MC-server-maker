@@ -34,6 +34,10 @@ class TunnelManager(QObject):
         self._line = ""
         self._installing = False  # an agent download is running (only ever one)
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.tunnels = None  # the account's tunnels from playit's API (None: not known yet)
+        self._polling = False
+        self._poll = QTimer(self)  # ask playit for the tunnel address while the agent runs
+        self._poll.timeout.connect(self._poll_tunnels)
 
     # ----------------------------------------------------------------- control
 
@@ -65,6 +69,7 @@ class TunnelManager(QObject):
             self._fail(msg)
 
     def stop(self):
+        self._poll.stop()
         proc, self.proc = self.proc, None  # detach first so _finished() ignores it
         if proc and proc.state() != QProcess.NotRunning:
             proc.kill()
@@ -86,7 +91,37 @@ class TunnelManager(QObject):
         self.state = state
         self.changed.emit()
 
+    def _poll_tunnels(self):
+        """Ask playit's API which tunnels this PC has (the agent doesn't print the addresses)."""
+        if self._polling or self.proc is None or self.state not in (STARTING, WAITING_CLAIM, RUNNING):
+            return
+        secret = tunnel.read_secret()
+        if not secret:  # not approved on playit.gg yet
+            return
+        self._polling = True
+        proc = self.proc
+
+        def done(tunnels):
+            self._polling = False
+            if proc is not self.proc:
+                return  # stopped or restarted meanwhile
+            self.tunnels = tunnels
+            addr = tunnel.java_address(tunnels)
+            if addr and addr != self.address:
+                self.set_address(addr)
+            if self.state in (STARTING, WAITING_CLAIM):
+                self._set(RUNNING)
+            else:
+                self.changed.emit()  # e.g. "add a tunnel" hint changed
+
+        def fail(msg):
+            self._polling = False
+            self._append("tunnel list: " + msg)
+
+        run_async(lambda task: tunnel.fetch_tunnels(secret), done, fail)
+
     def _fail(self, msg: str):
+        self._poll.stop()
         self.error = msg
         self._set(ERROR)
 
@@ -114,6 +149,8 @@ class TunnelManager(QObject):
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._set(STARTING)
         proc.start()
+        self._poll.start(10_000)
+        QTimer.singleShot(3000, self._poll_tunnels)
         # still alive after a few seconds -> this command line works
         QTimer.singleShot(4000, lambda: self._settled(proc))
 
