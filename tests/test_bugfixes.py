@@ -215,7 +215,8 @@ class ReviewFixes117Test(unittest.TestCase):
         p = Properties(path)
         p.set("pvp", "true")
         p.save()
-        self.assertTrue(path.read_bytes().startswith(b"motd=\xc7\xd1\n"))
+        self.assertTrue(path.read_bytes().startswith(b"motd=\xc7\xd1"))  # (\r\n on Windows)
+        self.assertNotIn("\xc7".encode("utf-8"), path.read_bytes())
 
     def test_custom_level_type_survives_upgrade_check(self):
         self.assertFalse(srv.is_builtin_level_type("biomesoplenty:biomesoplenty"))
