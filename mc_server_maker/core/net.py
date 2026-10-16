@@ -137,5 +137,9 @@ def download(
         if h.hexdigest() != expected:
             tmp.unlink(missing_ok=True)
             raise NetError(t("File check failed ({algo}): {file} - please try again.", algo=name, file=dest.name))
-    tmp.replace(dest)
+    try:
+        tmp.replace(dest)
+    except OSError:  # the destination is locked (antivirus, Explorer): don't leave the .part
+        tmp.unlink(missing_ok=True)
+        raise
     return dest

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import List
@@ -54,7 +55,9 @@ def _read(path: Path, strict: bool = False) -> List[dict]:
 
 
 def _write(path: Path, data: List[dict]) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def list_names(server_dir: Path, kind: str) -> List[str]:

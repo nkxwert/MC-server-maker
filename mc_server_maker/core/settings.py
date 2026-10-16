@@ -1,6 +1,7 @@
 """App preferences (theme, language) saved in settings.json."""
 
 import json
+import os
 from dataclasses import asdict, dataclass
 
 from mc_server_maker.core import paths
@@ -34,4 +35,6 @@ class AppSettings:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+        tmp = self.path.with_name(self.path.name + ".tmp")  # a crash mid-write keeps the old settings
+        tmp.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+        os.replace(tmp, self.path)

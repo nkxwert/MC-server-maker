@@ -207,17 +207,45 @@ class _InstallerProvider(Provider):
             errors="replace",
             creationflags=NO_WINDOW,
         )
-        for line in proc.stdout:
-            line = line.rstrip()
-            if line:
-                task.log("  " + line)
-            if task.cancelled:
+        # read the output in a helper thread, so Cancel works even while the installer is quiet
+        import queue
+        import threading
+
+        lines: "queue.Queue[Optional[str]]" = queue.Queue()
+
+        def pump():
+            try:
+                for ln in proc.stdout:
+                    lines.put(ln)
+            finally:
+                lines.put(None)
+
+        threading.Thread(target=pump, daemon=True).start()
+        try:
+            while True:
+                if task.cancelled:
+                    proc.kill()
+                    proc.wait()
+                    task.check()
+                try:
+                    line = lines.get(timeout=0.3)
+                except queue.Empty:
+                    continue
+                if line is None:
+                    break
+                line = line.rstrip()
+                if line:
+                    task.log("  " + line)
+            code = proc.wait()
+        finally:
+            if proc.poll() is None:
                 proc.kill()
-                task.check()
-        if proc.wait() != 0:
+                proc.wait()
+            proc.stdout.close()
+            installer.unlink(missing_ok=True)  # also after a failure or cancel
+            Path(str(installer) + ".log").unlink(missing_ok=True)
+        if code != 0:
             raise ProviderError(t("{name} install failed. See the log above.", name=self.name))
-        installer.unlink(missing_ok=True)
-        Path(str(installer) + ".log").unlink(missing_ok=True)
 
         # Modern versions start through libraries/.../unix_args.txt
         args_dir = server_dir / "libraries" / Path(self.GROUP_PATH) / full

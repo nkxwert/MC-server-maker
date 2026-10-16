@@ -258,5 +258,33 @@ class ReviewFixes117Test(unittest.TestCase):
         self.assertIsNone(LOGIN_RE.search("[12:00:00 INFO]: <Steve> Notch[/6.6.6.6:1] logged in"))
 
 
+class ReviewFixes118Test(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def test_nel_byte_does_not_split_a_line(self):
+        path = self.dir / "server.properties"
+        path.write_bytes(b"motd=Welcome\x85 friends\npvp=true\n")  # not UTF-8: read as latin-1
+        p = Properties(path)
+        self.assertEqual(p.get("motd"), "Welcome\x85 friends")
+        p.set("pvp", "false")
+        p.save()
+        self.assertIn(b"motd=Welcome\x85 friends", path.read_bytes())
+
+    def test_import_with_nested_level_name(self):
+        meta = srv.ServerMeta(name="n", software="vanilla", mc_version="1.21.4", folder=self.dir / "srv")
+        meta.folder.mkdir()
+        (meta.folder / "server.properties").write_text("level-name=worlds/main\n")
+        (meta.folder / "worlds" / "main").mkdir(parents=True)
+        (meta.folder / "worlds" / "main" / "level.dat").write_bytes(b"old")
+        src = self.dir / "new"
+        src.mkdir()
+        (src / "level.dat").write_bytes(b"new")
+        srv.replace_world_with_import(meta, src, Task())
+        self.assertEqual((meta.folder / "worlds" / "main" / "level.dat").read_bytes(), b"new")
+        self.assertFalse((meta.folder / "worlds" / "worlds").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

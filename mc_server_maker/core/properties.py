@@ -99,7 +99,9 @@ class Properties:
         # join lines continued with a trailing backslash
         logical: List[str] = []
         buf = ""
-        for line in text.splitlines():
+        # only \n and \r end a line in a .properties file; str.splitlines() would also split at
+        # characters like U+0085 that latin-1/cp949 text can contain, breaking the line on save
+        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             stripped = line.lstrip() if buf else line
             is_comment = not buf and stripped.lstrip().startswith(("#", "!"))
             # a trailing backslash continues a key=value line, never a comment (Java rules)

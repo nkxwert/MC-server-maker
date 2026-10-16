@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,6 +82,8 @@ def find_java_candidates() -> List[JavaInfo]:
     seen = set()
     if paths.RUNTIME_DIR.exists():
         for d in sorted(paths.RUNTIME_DIR.glob("java-*")):
+            if d.name.endswith((".tmp", ".old")):  # an install in progress or being replaced
+                continue
             exe = _find_exe(d)
             if exe:
                 major = java_major(str(exe))
@@ -189,8 +192,14 @@ def install_java(required: int, task: Optional[Task] = None) -> JavaInfo:
     tmp = target.with_name(target.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     task.log(t("Extracting..."))
-    _safe_extract(archive, tmp)
-    archive.unlink(missing_ok=True)
+    try:
+        _safe_extract(archive, tmp)
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    finally:
+        archive.unlink(missing_ok=True)
+    old = None
     if target.exists():
         # move the old one aside first: if a running server holds it (Windows), keep it intact
         old = target.with_name(target.name + ".old")
@@ -200,8 +209,19 @@ def install_java(required: int, task: Optional[Task] = None) -> JavaInfo:
         except OSError as e:
             shutil.rmtree(tmp, ignore_errors=True)
             raise JavaError(t("Java {v} is in use. Stop the servers using it, then try again. ({err})", v=major, err=e)) from e
+    for attempt in range(5):  # antivirus may hold the freshly unpacked java.exe for a moment
+        try:
+            tmp.rename(target)
+            break
+        except OSError:
+            if attempt == 4:
+                if old is not None:
+                    old.rename(target)  # put the previous Java back
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise
+            time.sleep(1)
+    if old is not None:
         shutil.rmtree(old, ignore_errors=True)
-    tmp.rename(target)
     exe = _find_exe(target)
     if not exe:
         raise JavaError(t("Installed Java executable not found."))

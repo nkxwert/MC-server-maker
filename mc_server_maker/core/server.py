@@ -593,8 +593,10 @@ def replace_world_with_import(meta: ServerMeta, src: Path, task: Optional[Task] 
         staging = Path(tmp)
         import_world(staging, src, level)
         _remove_worlds(meta)
-        for d in staging.iterdir():
-            shutil.move(str(d), str(meta.folder / d.name))
+        for name in (level, f"{level}_nether", f"{level}_the_end"):  # level-name may be "worlds/main"
+            if (staging / name).exists():
+                (meta.folder / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(staging / name), str(meta.folder / name))
     task.log(t("World imported!"))
 
 
@@ -712,7 +714,10 @@ def add_uptime(folder: Path, seconds: float) -> float:
     """Add a run's seconds to the total and return the new total."""
     total = total_uptime(folder) + max(0.0, seconds)
     try:
-        (Path(folder) / UPTIME_FILE).write_text(json.dumps({"total_seconds": round(total)}), encoding="utf-8")
+        path = Path(folder) / UPTIME_FILE
+        tmp = path.with_name(UPTIME_FILE + ".tmp")
+        tmp.write_text(json.dumps({"total_seconds": round(total)}), encoding="utf-8")
+        os.replace(tmp, path)
     except OSError:
         pass  # e.g. the folder was just moved to the Recycle Bin
     return total
