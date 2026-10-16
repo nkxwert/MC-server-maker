@@ -16,7 +16,11 @@ from mc_server_maker.core import net, paths
 from mc_server_maker.core.tasks import Task
 from mc_server_maker.i18n import t
 
-RELEASES = "https://api.github.com/repos/playit-cloud/playit-agent/releases/latest"
+# playit 1.0 split the agent into a background service (playitd) plus a separate CLI; its
+# Windows download is only the service, which doesn't understand this command line (it exits
+# with code 2). 0.17.1 is the last standalone agent, and playit still supports it.
+AGENT_VERSION = "v0.17.1"
+RELEASES = f"https://api.github.com/repos/playit-cloud/playit-agent/releases/tags/{AGENT_VERSION}"
 DASHBOARD = "https://playit.gg/account/tunnels"
 CLAIM_RE = re.compile(r"https://playit\.gg/(?:claim|mc)/[A-Za-z0-9_-]+")
 # public tunnel addresses look like "name.gl.joinmc.link" or "name.ply.gg:12345"
@@ -39,8 +43,24 @@ def secret_path() -> Path:
     return agent_dir() / "playit.toml"
 
 
+def version_path() -> Path:
+    return agent_dir() / "version.txt"
+
+
 def is_installed() -> bool:
-    return agent_path().exists()
+    """The right agent version is downloaded (an older app may have fetched playit 1.x)."""
+    try:
+        return agent_path().exists() and version_path().read_text(encoding="utf-8").strip() == AGENT_VERSION
+    except OSError:
+        return False
+
+
+def remove_agent() -> None:
+    for p in (agent_path(), version_path()):
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def is_claimed() -> bool:
@@ -80,6 +100,7 @@ def install_agent(task: Optional[Task] = None) -> Path:
                  sha256=digest.split(":", 1)[1] if digest.startswith("sha256:") else None)
     if os.name != "nt":
         dest.chmod(0o755)
+    version_path().write_text(AGENT_VERSION, encoding="utf-8")
     task.log(t("playit.gg agent {v} installed.", v=release.get("tag_name", "")))
     return dest
 

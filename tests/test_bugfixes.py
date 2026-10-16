@@ -286,5 +286,19 @@ class ReviewFixes118Test(unittest.TestCase):
         self.assertFalse((meta.folder / "worlds" / "worlds").exists())
 
 
+class PlayitAgentVersionTest(unittest.TestCase):
+    def test_only_the_pinned_agent_counts_as_installed(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        with mock.patch.object(tunnel, "agent_dir", return_value=d):
+            tunnel.agent_path().write_bytes(b"x")  # e.g. playit 1.x fetched by an older app
+            self.assertFalse(tunnel.is_installed())
+            tunnel.version_path().write_text(tunnel.AGENT_VERSION)
+            self.assertTrue(tunnel.is_installed())
+            tunnel.remove_agent()
+            self.assertFalse(tunnel.agent_path().exists())
+        self.assertIn("/tags/" + tunnel.AGENT_VERSION, tunnel.RELEASES)
+
+
 if __name__ == "__main__":
     unittest.main()

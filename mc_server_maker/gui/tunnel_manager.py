@@ -126,7 +126,7 @@ class TunnelManager(QObject):
         if proc is self.proc and err == QProcess.FailedToStart:
             self.proc = None
             try:  # a broken (e.g. cut-off) agent download: fetch it again next time
-                tunnel.agent_path().unlink(missing_ok=True)
+                tunnel.remove_agent()
             except OSError:
                 pass
             self._fail(t("The playit.gg agent couldn't start: {err}", err=proc.errorString()))
@@ -161,12 +161,19 @@ class TunnelManager(QObject):
     def _finished(self, proc: QProcess, code: int):
         if proc is not self.proc:
             return
-        out = self._buf.lower()
-        bad_args = any(k in out for k in ("unexpected argument", "unrecognized", "unknown argument", "usage:"))
+        out = (self._buf + self._line).lower()
+        # clap (the agent's argument parser) exits with code 2 when it doesn't know an argument
+        bad_args = code == 2 or any(k in out for k in ("unexpected argument", "unrecognized", "unknown argument", "usage:"))
         if bad_args and self._variant + 1 < len(tunnel.command_variants()):
             self._variant += 1  # older/newer CLI: try the next syntax
             self._launch()
             return
         self.proc = None
-        if self.state != OFF:
+        if self.state == OFF:
+            return
+        if bad_args:  # a playit agent we can't drive: download the supported one next time
+            tunnel.remove_agent()
+            self._fail(t("The playit.gg agent didn't accept its settings (code {code}). "
+                         "Press Start tunnel again to download the right version.", code=code))
+        else:
             self._fail(t("The playit.gg agent stopped (code {code}).", code=code))
