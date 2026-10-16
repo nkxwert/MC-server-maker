@@ -3,6 +3,7 @@
 import html
 import os
 import re
+import shutil
 import time
 from collections import deque
 from pathlib import Path
@@ -1342,6 +1343,12 @@ class NetworkTab(ServerTab):
             row.addWidget(fw)
         row.addStretch()
         v.addLayout(row)
+        self.fw_status = QLabel()
+        self.fw_status.setWordWrap(True)
+        self.fw_status.setVisible(os.name == "nt")
+        v.addWidget(self.fw_status)
+        self._fw_busy = False
+        self._fw_for = None
         self.auto_upnp = QCheckBox(t("Open the port every time the server starts"))
         self.auto_upnp.toggled.connect(self._toggle_auto)
         v.addWidget(self.auto_upnp)
@@ -1366,6 +1373,12 @@ class NetworkTab(ServerTab):
     @property
     def port(self) -> int:
         return self.meta.properties().get_int("server-port", 25565) if self.meta else 25565
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.meta and self._fw_for != self.key:  # once per server while the tab is open
+            self._fw_for = self.key
+            self._check_firewall()
 
     def _fmt(self, host: str) -> str:
         return host if self.port == 25565 else f"{host}:{self.port}"
@@ -1533,8 +1546,34 @@ class NetworkTab(ServerTab):
             self.meta.save()
 
     def _firewall(self):
-        if not network.allow_firewall(self.port, plugins.udp_ports(self.meta)):
+        if not network.allow_firewall(self.port, plugins.udp_ports(self.meta), java_exe(self.meta)):
             QMessageBox.warning(self, t("Firewall"), t("Could not add the firewall rule."))
+            return
+        set_status(self.fw_status, "wait", t("Waiting for the administrator prompt..."))
+        QTimer.singleShot(6000, self._check_firewall)  # the prompt runs on its own: look again shortly
+        QTimer.singleShot(20000, self._check_firewall)
+
+    def _check_firewall(self):
+        if os.name != "nt" or not self.meta or self._fw_busy:
+            return
+        self._fw_busy = True
+        key, port, java = self.key, self.port, java_exe(self.meta)
+
+        def done(state):
+            self._fw_busy = False
+            if key != self.key:
+                return
+            if state == network.BLOCKED:
+                set_status(self.fw_status, "fail", t("Windows Firewall blocks Java: other devices can't join. Press 'Allow in Windows Firewall'."))
+            elif state == network.ALLOWED:
+                set_status(self.fw_status, "ok", t("Windows Firewall lets players in."))
+            else:
+                set_status(self.fw_status, "off", t("Not allowed in Windows Firewall yet."))
+
+        def fail(_msg):
+            self._fw_busy = False
+
+        run_async(lambda task: network.firewall_status(port, java), done, fail)
 
 
 # ============================================================ plugins / mods
@@ -1931,6 +1970,14 @@ class StatTile(QFrame):
         self.sub.setText(sub)
 
 
+def java_exe(meta) -> str:
+    """Full path of the java.exe this server runs with ("" if unknown)."""
+    path = (meta.java_path or "") if meta else ""
+    if path and not os.path.isabs(path):
+        path = shutil.which(path) or ""
+    return path
+
+
 def _file_size(path: Path) -> int:
     try:
         return path.stat().st_size
@@ -1962,12 +2009,12 @@ class CheckRow(QWidget):
         row.addWidget(self.detail, 1)
 
     def set(self, state: str, detail: str):
-        """state: ok / fail / wait / off"""
-        color = {"ok": theme.C["ok"], "fail": theme.C["danger"], "wait": theme.C["warn"],
+        """state: ok / warn / fail / wait / off"""
+        color = {"ok": theme.C["ok"], "fail": theme.C["danger"], "wait": theme.C["warn"], "warn": theme.C["warn"],
                  "off": theme.C["disabled"]}[state]
         self.icon.setStyleSheet(f"color: {color}; font-size: 8pt;")
         self.detail.setText(detail)
-        self.detail.setStyleSheet(f"color: {theme.C['text'] if state in ('ok', 'fail') else theme.C['muted']};")
+        self.detail.setStyleSheet(f"color: {theme.C['text'] if state in ('ok', 'fail', 'warn') else theme.C['muted']};")
 
 
 def _ok_detail(r) -> str:
@@ -2041,9 +2088,13 @@ class JoinCheckBox(QGroupBox):
         port = meta.properties().get_int("server-port", 25565)
         udp = plugins.udp_ports(meta)
         tunnel_addr = self.tab.tunnel.address if self.tab.tunnel else ""
+        java = java_exe(meta)
 
         def work(task):
             res = {"local": joincheck.server_list_ping("127.0.0.1", port)}
+            # pinging our own LAN address goes through loopback, which Windows Firewall never
+            # filters: ask the firewall itself whether other devices are let in
+            res["firewall"] = network.firewall_status(port, java, max_age=300) if os.name == "nt" else network.UNKNOWN
             lan = network.lan_ip()
             res["lan"] = joincheck.server_list_ping(lan, port) if lan != "127.0.0.1" else None
             try:
@@ -2079,16 +2130,27 @@ class JoinCheckBox(QGroupBox):
             self.rows["local"].set("ok", _ok_detail(local))
         else:
             self.rows["local"].set("fail", t("The server isn't answering."))
+        fw = res.get("firewall", network.UNKNOWN)
         if lan is None:
             self.rows["lan"].set("off", t("Not connected to a network"))
-        elif lan.ok:
-            self.rows["lan"].set("ok", _ok_detail(lan))
-        else:
+        elif not lan.ok:
             self.rows["lan"].set("fail", t("Blocked on the network. Allow it in Windows Firewall (Network tab)."))
+        elif fw == network.BLOCKED:
+            self.rows["lan"].set("fail", t(
+                "Windows Firewall blocks Java, so other devices can't join. Press 'Allow in Windows Firewall' in the Network tab."))
+        elif fw == network.UNKNOWN and os.name == "nt":
+            self.rows["lan"].set("warn", t(
+                "Works from this PC. Other devices may still be blocked by Windows Firewall: "
+                "press 'Allow in Windows Firewall' in the Network tab to be sure."))
+        else:
+            self.rows["lan"].set("ok", _ok_detail(lan))
         if inet is None:
             self.rows["internet"].set("off", t("Couldn't check (no internet?)"))
         elif inet.ok:
             self.rows["internet"].set("ok", _ok_detail(inet))
+        elif fw == network.BLOCKED:
+            self.rows["internet"].set("fail", t(
+                "Windows Firewall blocks Java. Press 'Allow in Windows Firewall' in the Network tab, then open the port."))
         else:
             self.rows["internet"].set("fail", t("Not reachable from the internet. Open the port or start the tunnel (Network tab)."))
         if "tunnel" in res:

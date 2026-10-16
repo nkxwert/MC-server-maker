@@ -111,5 +111,20 @@ class UPnPTest(unittest.TestCase):
         self.assertFalse(network.is_public("100.64.1.1"))
 
 
+class FirewallStatusTest(unittest.TestCase):
+    def test_parse(self):
+        from mc_server_maker.core import network as n
+        self.assertEqual(n.parse_firewall_status("fw=0\n"), n.ALLOWED)
+        self.assertEqual(n.parse_firewall_status("fw=3\napp=Allow\napp=Block\n"), n.BLOCKED)
+        self.assertEqual(n.parse_firewall_status("fw=3\napp=Allow\n"), n.ALLOWED)
+        self.assertEqual(n.parse_firewall_status("fw=3\nport=1\n"), n.ALLOWED)
+        self.assertEqual(n.parse_firewall_status("fw=3\n"), n.UNKNOWN)
+        self.assertEqual(n.parse_firewall_status(""), n.UNKNOWN)
+
+    def test_quote(self):
+        from mc_server_maker.core import network as n
+        self.assertEqual(n._ps_quote("C:\\it's\\java.exe"), "'C:\\it''s\\java.exe'")
+
+
 if __name__ == "__main__":
     unittest.main()

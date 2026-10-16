@@ -609,4 +609,15 @@ KO = {
         "업데이트 확인 파일이 손상됐어요. 잠시 후 다시 시도해 주세요.",
     "Java {v} is in use. Stop the servers using it, then try again. ({err})":
         "Java {v}를 사용하는 중이에요. 이 Java를 쓰는 서버를 끄고 다시 시도해 주세요. ({err})",
+    "Windows Firewall blocks Java, so other devices can't join. Press 'Allow in Windows Firewall' in the Network tab.":
+        "Windows 방화벽이 Java를 막고 있어서 다른 기기는 들어올 수 없어요. 네트워크 탭에서 'Windows 방화벽 허용'을 눌러 주세요.",
+    "Works from this PC. Other devices may still be blocked by Windows Firewall: press 'Allow in Windows Firewall' in the Network tab to be sure.":
+        "이 PC에서는 접속돼요. 다른 기기는 Windows 방화벽에 막혀 있을 수 있으니 네트워크 탭에서 'Windows 방화벽 허용'을 눌러 두세요.",
+    "Windows Firewall blocks Java. Press 'Allow in Windows Firewall' in the Network tab, then open the port.":
+        "Windows 방화벽이 Java를 막고 있어요. 네트워크 탭에서 'Windows 방화벽 허용'을 누른 뒤 포트를 열어 주세요.",
+    "Waiting for the administrator prompt...": "관리자 권한 창을 기다리는 중...",
+    "Windows Firewall blocks Java: other devices can't join. Press 'Allow in Windows Firewall'.":
+        "Windows 방화벽이 Java를 막고 있어요. 다른 기기가 들어올 수 없으니 'Windows 방화벽 허용'을 눌러 주세요.",
+    "Windows Firewall lets players in.": "Windows 방화벽이 플레이어 접속을 허용하고 있어요.",
+    "Not allowed in Windows Firewall yet.": "아직 Windows 방화벽에서 허용하지 않았어요.",
 }

@@ -301,8 +301,13 @@ def close_port(port: int, gateway: Optional[Gateway] = None, udp_ports: Sequence
 # ---------------------------------------------------------------- firewall
 
 
-def allow_firewall(port: int, udp_ports: Sequence[int] = ()) -> bool:
-    """Add Windows Firewall allow rules (shows one admin prompt)."""
+def allow_firewall(port: int, udp_ports: Sequence[int] = (), java_path: str = "") -> bool:
+    """Add Windows Firewall allow rules (shows one admin prompt).
+
+    Besides the port rules, Java itself is allowed: when someone pressed "Cancel" in the
+    Windows popup that appears the first time Java listens, Windows made *Block* rules for
+    java.exe, and a block rule beats every allow rule. Those rules for this Java are replaced.
+    """
     if os.name != "nt":
         return False
     import ctypes
@@ -310,9 +315,82 @@ def allow_firewall(port: int, udp_ports: Sequence[int] = ()) -> bool:
     def rule(name: str, proto: str, p: int) -> str:
         # delete first so pressing the button again doesn't pile up duplicate rules
         return (f'netsh advfirewall firewall delete rule name="{name}" >nul 2>&1 & '
-                f'netsh advfirewall firewall add rule name="{name}" dir=in action=allow protocol={proto} localport={p}')
+                f'netsh advfirewall firewall add rule name="{name}" dir=in action=allow protocol={proto} '
+                f'localport={p} profile=any')
 
     rules = [rule(f"Minecraft Server {port}", "TCP", port)]
     rules += [rule(f"Minecraft Bedrock {u}", "UDP", u) for u in udp_ports]
+    if java_path and os.path.isabs(java_path) and '"' not in java_path:
+        rules.append(f'netsh advfirewall firewall delete rule name=all dir=in program="{java_path}" >nul 2>&1')
+        rules.append(f'netsh advfirewall firewall add rule name="{JAVA_RULE}" dir=in action=allow '
+                     f'program="{java_path}" enable=yes profile=any')
+    # the command line must not start with a quote, or cmd strips the wrong ones
     # ShellExecute returns > 32 on success
     return ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd", "/c " + " & ".join(rules), None, 0) > 32
+
+
+JAVA_RULE = "Minecraft Server (Java)"
+BLOCKED, ALLOWED, UNKNOWN = "blocked", "allowed", "unknown"
+
+
+def _ps_quote(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def parse_firewall_status(output: str) -> str:
+    """Read the lines printed by firewall_status()'s PowerShell script."""
+    lines = [ln.strip() for ln in output.splitlines() if ln.strip()]
+    enabled = next((ln[3:] for ln in lines if ln.startswith("fw=")), "")
+    if enabled == "0":
+        return ALLOWED  # the firewall is off for every network type
+    actions = {ln[4:].lower() for ln in lines if ln.startswith("app=")}
+    if "block" in actions:
+        return BLOCKED
+    if "allow" in actions or "port=1" in lines:
+        return ALLOWED
+    return UNKNOWN
+
+
+_fw_cache: Dict[tuple, tuple] = {}  # (port, java) -> (time, status): PowerShell is slow to start
+
+
+def firewall_status(port: int, java_path: str, timeout: float = 20, max_age: float = 0) -> str:
+    """See _firewall_status; max_age > 0 reuses an answer that is at most that many seconds old."""
+    import time
+
+    key = (port, java_path)
+    hit = _fw_cache.get(key)
+    if max_age and hit and time.monotonic() - hit[0] < max_age:
+        return hit[1]
+    status = _firewall_status(port, java_path, timeout)
+    _fw_cache[key] = (time.monotonic(), status)
+    return status
+
+
+def _firewall_status(port: int, java_path: str, timeout: float = 20) -> str:
+    """Does Windows Firewall let other devices reach this server? blocked / allowed / unknown.
+
+    Asks PowerShell (no admin needed). Rule *names* are localized on Korean Windows, but the
+    Action/Direction values are not, so only those are compared."""
+    if os.name != "nt" or not java_path:
+        return UNKNOWN
+    import subprocess
+
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        "$fw=@(Get-NetFirewallProfile | Where-Object { $_.Enabled -eq 'True' }).Count;"
+        "Write-Output ('fw=' + $fw);"
+        f"Get-NetFirewallApplicationFilter -Program {_ps_quote(java_path)} | Get-NetFirewallRule | "
+        "Where-Object { $_.Direction -eq 'Inbound' -and $_.Enabled -eq 'True' } | "
+        "ForEach-Object { Write-Output ('app=' + $_.Action) };"
+        f"if (Get-NetFirewallRule -DisplayName {_ps_quote(f'Minecraft Server {port}')} | "
+        "Where-Object { $_.Enabled -eq 'True' }) { Write-Output 'port=1' }"
+    )
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return UNKNOWN
+    return parse_firewall_status(out)
