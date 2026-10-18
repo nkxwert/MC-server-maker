@@ -594,6 +594,10 @@ class MainWindow(QMainWindow):
         if not can:
             QDesktopServices.openUrl(QUrl(info.page_url))
             return
+        self._install_update(info)
+
+    def _install_update(self, info):
+        """Download `info` (the installer when the release has one) and hand over to it."""
         if self.runner.any_running() and QMessageBox.question(
                 self, t("Update"), t("Running servers will be stopped safely before updating. Continue?")) != QMessageBox.Yes:
             return
@@ -612,6 +616,30 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, t("Update"), t("Couldn't install the update: {err}", err=e))
             return
         quit_app(self)
+
+    def offer_install(self):
+        """The portable single EXE asks once to move to the installed app (shortcuts, uninstall in
+        Windows settings, fewer antivirus false alarms). Servers and worlds stay where they are."""
+        if not updater.can_self_update() or updater.is_installed() or self.settings.install_offered:
+            return
+        self.settings.install_offered = True
+        self.settings.save()
+        if QMessageBox.question(self, t("Install Bartizan"), t(
+                "Bartizan can now be installed like a normal Windows program: Start menu and desktop "
+                "shortcuts, removal in Windows Settings, and fewer false alarms from antivirus programs "
+                "such as V3.\n\nInstall it now? Your servers and worlds stay as they are, and this "
+                "single Bartizan.exe is removed afterwards.")) != QMessageBox.Yes:
+            return
+
+        def got(info):
+            if not info or not info.setup_url:
+                QMessageBox.information(self, t("Install Bartizan"), t(
+                    "The installer isn't available right now. Try again with the next update."))
+                return
+            self._install_update(info)
+
+        run_async(lambda task: updater.check(current="0"), got,
+                  lambda msg: QMessageBox.warning(self, t("Install Bartizan"), msg))
 
     def show_whats_new_if_updated(self):
         """After an update, show the notes for this version once."""
@@ -1116,6 +1144,8 @@ def main():
             "This is still the previous version; please try updating again.")))
     updater.cleanup_old()
     QTimer.singleShot(400, win.show_whats_new_if_updated)
+    if not os.environ.get("BARTIZAN_SELFTEST"):
+        QTimer.singleShot(1500, lambda: current_window() and current_window().offer_install())
     if not os.environ.get("BARTIZAN_SELFTEST") and settings.last_update_check != time.strftime("%Y-%m-%d"):
         QTimer.singleShot(4000, lambda: current_window() and current_window().check_updates(manual=False))
     if moved:

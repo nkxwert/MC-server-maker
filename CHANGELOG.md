@@ -3,6 +3,16 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.23.0
+### en
+- **Installer**: Bartizan now comes as `Bartizan-Setup.exe`. It installs for your user (no administrator prompt) with Start menu and desktop shortcuts, and can be removed in Windows Settings → Apps. Updates run the installer silently and restart the app.
+- If you use the single `Bartizan.exe`, it offers once to switch to the installed app; your servers and worlds stay, and the old EXE is removed.
+- Fewer antivirus false alarms (e.g. V3): the installed app no longer unpacks itself into a temp folder at every start, its launcher is built from source, and the files carry product, version and publisher details.
+### ko
+- **설치 프로그램**: 이제 `Bartizan-Setup.exe`로 설치해요. 관리자 권한 없이 내 계정에만 설치되고, 시작 메뉴·바탕화면 바로가기가 생기며, Windows 설정 → 앱에서 제거할 수 있어요. 업데이트는 설치 프로그램을 조용히 실행한 뒤 앱을 다시 켜요.
+- `Bartizan.exe` 하나로 쓰고 있었다면, 한 번 설치형으로 바꿀지 물어봐요. 서버와 월드는 그대로이고, 예전 EXE는 지워져요.
+- 백신(V3 등) 오진이 줄어요: 설치형은 실행할 때마다 임시 폴더에 압축을 풀지 않고, 실행 부분(부트로더)을 직접 빌드하고, 파일에 제품명·버전·제작자 정보를 넣었어요.
+
 ## 1.22.1
 ### en
 - Stop is never a dead button any more: pressing it while the server is still starting or already stopping sends "stop" again, the console says what's happening ("saving the world..."), and if the server is still running a minute later you're offered a force stop.

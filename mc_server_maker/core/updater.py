@@ -27,6 +27,7 @@ REPO = "nkxwert/MC-server-maker"
 RELEASES_API = f"https://api.github.com/repos/{REPO}/releases?per_page=30"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases"
 EXE_NAME = "Bartizan.exe"
+SETUP_NAME = "Bartizan-Setup.exe"
 
 
 class UpdateError(Exception):
@@ -97,6 +98,8 @@ class UpdateInfo:
     exe_url: str
     sha256_url: str = ""
     page_url: str = RELEASES_PAGE
+    setup_url: str = ""  # Bartizan-Setup.exe (installed app); exe_url is the portable single file
+    setup_sha256_url: str = ""
     notes: List[Tuple[str, str]] = field(default_factory=list)  # (version, body), newest first
 
     def notes_text(self, lang: str) -> str:
@@ -104,7 +107,7 @@ class UpdateInfo:
 
 
 def check(current: str = APP_VERSION) -> Optional[UpdateInfo]:
-    """Newest release if it is newer than `current`, else None."""
+    """Newest release if it is newer than `current`, else None (current="0": the newest release)."""
     releases = [r for r in net.get_json(RELEASES_API) if not r.get("draft") and not r.get("prerelease")]
     newer = [r for r in releases if parse_version(r.get("tag_name", "")) > parse_version(current)]
     if not newer:
@@ -117,6 +120,8 @@ def check(current: str = APP_VERSION) -> Optional[UpdateInfo]:
         version=latest["tag_name"].lstrip("v"),
         exe_url=exe,
         sha256_url=assets.get(EXE_NAME + ".sha256", ""),
+        setup_url=assets.get(SETUP_NAME, ""),
+        setup_sha256_url=assets.get(SETUP_NAME + ".sha256", ""),
         page_url=latest.get("html_url", RELEASES_PAGE),
         notes=[(r["tag_name"].lstrip("v"), r.get("body") or "") for r in newer],
     )
@@ -130,19 +135,34 @@ def can_self_update() -> bool:
     return paths.FROZEN and os.name == "nt"
 
 
+def is_installed() -> bool:
+    """Running from the installed app (Bartizan-Setup.exe put an uninstaller next to it),
+    not from the portable single-file EXE."""
+    return paths.FROZEN and any(Path(sys.executable).parent.glob("unins*.exe"))
+
+
+def _expected_sha256(url: str) -> Optional[str]:
+    if not url:
+        return None
+    parts = net.get_text(url).split()
+    expected = parts[0].strip().lower() if parts else ""
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise UpdateError(t("The update's checksum file is broken. Please try again later."))
+    return expected
+
+
 def download(info: UpdateInfo, task: Optional[Task] = None) -> Path:
+    """Download the update into a temp folder: the installer when the release has one (the
+    installed app updates through it, and a portable EXE moves to it), else the portable EXE."""
     task = task or Task()
-    if not info.exe_url:
+    use_setup = bool(info.setup_url) and os.name == "nt"
+    url = info.setup_url if use_setup else info.exe_url
+    if not url:
         raise UpdateError(t("This release has no EXE to download."))
-    expected = None
-    if info.sha256_url:
-        parts = net.get_text(info.sha256_url).split()
-        expected = parts[0].strip().lower() if parts else ""
-        if not re.fullmatch(r"[0-9a-f]{64}", expected):
-            raise UpdateError(t("The update's checksum file is broken. Please try again later."))
-    dest = update_dir() / EXE_NAME  # not next to the app: nothing extra appears in its folder
+    expected = _expected_sha256(info.setup_sha256_url if use_setup else info.sha256_url)
+    dest = update_dir() / (SETUP_NAME if use_setup else EXE_NAME)  # not next to the app
     dest.parent.mkdir(parents=True, exist_ok=True)
-    net.download(info.exe_url, dest, task, sha256=expected)
+    net.download(url, dest, task, sha256=expected)
     if dest.stat().st_size < 1_000_000:
         dest.unlink(missing_ok=True)
         raise UpdateError(t("The downloaded file looks broken. Please try again."))
@@ -159,7 +179,12 @@ def update_dir() -> Path:
 
 
 def install_and_restart(new_exe: Path) -> None:
-    """Start the downloaded EXE as the installer; the caller quits right after.
+    """Start the downloaded update; the caller quits right after.
+
+    Bartizan-Setup.exe runs silently, replaces the installed app and starts it again (moving a
+    portable EXE to the installed app on the way: /OLDEXE removes the old file).
+
+    The portable EXE (older releases or no installer):
 
     A running EXE can't be overwritten on Windows. So the new version (in a temp folder)
     waits until this one has closed, copies itself over Bartizan.exe and starts it:
@@ -170,6 +195,12 @@ def install_and_restart(new_exe: Path) -> None:
     # a fresh start for the new EXE: otherwise PyInstaller's onefile bootloader thinks it is a child
     # of this process and reuses our temp folder, which is deleted when we quit
     env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")
+    if new_exe.name == SETUP_NAME:
+        args = [str(new_exe), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
+        if not is_installed():
+            args.append(f"/OLDEXE={exe}")  # the portable EXE that the installed app replaces
+        subprocess.Popen(args, cwd=str(new_exe.parent), creationflags=flags, close_fds=True, env=env)
+        return
     subprocess.Popen([str(new_exe), INSTALL_ARG, str(exe), str(os.getpid())],
                      cwd=str(new_exe.parent), creationflags=flags, close_fds=True, env=env)
 

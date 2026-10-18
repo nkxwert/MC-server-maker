@@ -5,9 +5,12 @@
 Create and manage Minecraft servers with a few clicks. Windows / macOS / Linux.
 English by default; switch to 한국어 in **⚙ Settings**. (한국어는 왼쪽 아래 ⚙ 설정에서 바꿀 수 있어요.)
 
-## Download (EXE)
+## Download
 
-Download `Bartizan.exe` from **[Releases](https://github.com/nkxwert/MC-server-maker/releases/latest)**.
+Download **`Bartizan-Setup.exe`** from **[Releases](https://github.com/nkxwert/MC-server-maker/releases/latest)** and run it.
+It installs for your user only (no administrator prompt), adds Start menu / desktop shortcuts, and can be removed in
+Windows Settings → Apps. A portable single-file `Bartizan.exe` is also attached; when started it offers to switch to the
+installed version (fewer antivirus false alarms).
 
 - **Updates:** ⚙ Settings → *Check for updates* downloads the newest release, shows what's new, and restarts the app.
   The app also checks once a day and tells you what was added.
@@ -18,7 +21,8 @@ Download `Bartizan.exe` from **[Releases](https://github.com/nkxwert/MC-server-m
 
 - All data lives in **Documents/Bartizan**: `servers/<each server>/` (its files and settings), `runtime/` (Java), `settings.json`.
   Data from older versions (next to the EXE, or in `Documents/MC-Server-Maker-Files` from before the rename) is moved there automatically.
-- If Windows SmartScreen warns, click **More info → Run anyway** (the EXE isn't code-signed).
+- If Windows SmartScreen warns ("Windows protected your PC"), click **More info → Run anyway** (the app isn't code-signed).
+  If an antivirus program such as V3 blocks it, report the file as a false positive to its vendor or add an exception.
 
 ## Run from source
 

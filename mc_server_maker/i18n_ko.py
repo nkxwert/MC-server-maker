@@ -710,4 +710,9 @@ KO = {
     "Stopping: saving the world...": "중지하는 중: 월드를 저장하고 있어요...",
     "The server is still running a minute after Stop. A big world can take a while to save.\n\nForce stop now? Changes since the last save can be lost.":
         "중지를 누른 지 1분이 지났는데 서버가 아직 켜져 있어요. 월드가 크면 저장에 시간이 걸릴 수 있어요.\n\n지금 강제 종료할까요? 마지막 저장 이후의 변경은 사라질 수 있어요.",
+    # 1.23 installer
+    "Install Bartizan": "Bartizan 설치",
+    "Bartizan can now be installed like a normal Windows program: Start menu and desktop shortcuts, removal in Windows Settings, and fewer false alarms from antivirus programs such as V3.\n\nInstall it now? Your servers and worlds stay as they are, and this single Bartizan.exe is removed afterwards.":
+        "이제 Bartizan을 일반 Windows 프로그램처럼 설치할 수 있어요. 시작 메뉴·바탕화면 바로가기가 생기고, Windows 설정에서 제거할 수 있고, V3 같은 백신의 오진도 줄어요.\n\n지금 설치할까요? 서버와 월드는 그대로 남고, 지금 쓰는 Bartizan.exe 파일은 설치 후 지워져요.",
+    "The installer isn't available right now. Try again with the next update.": "지금은 설치 파일을 받을 수 없어요. 다음 업데이트 때 다시 시도해 주세요.",
 }

@@ -94,5 +94,37 @@ class InstallTest(unittest.TestCase):
         self.assertFalse(updater.run_installer(["Bartizan.exe"]))
 
 
+class SetupInstallTest(unittest.TestCase):
+    def test_setup_runs_silently_and_replaces_the_portable_exe(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe = Path(d) / "Bartizan.exe"
+            exe.write_text("portable")
+            setup = Path(d) / "upd" / updater.SETUP_NAME
+            setup.parent.mkdir()
+            setup.write_text("setup")
+            with mock.patch.object(sys, "executable", str(exe)), \
+                    mock.patch.object(updater.paths, "FROZEN", True), \
+                    mock.patch.object(updater.subprocess, "Popen") as popen:
+                self.assertFalse(updater.is_installed())
+                updater.install_and_restart(setup)
+                args = popen.call_args[0][0]
+                self.assertEqual(args[:4], [str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
+                self.assertIn(f"/OLDEXE={exe}", args)
+                (Path(d) / "unins000.exe").write_text("x")  # installed: nothing to remove
+                self.assertTrue(updater.is_installed())
+                updater.install_and_restart(setup)
+                self.assertFalse(any(a.startswith("/OLDEXE") for a in popen.call_args[0][0]))
+
+    def test_check_reads_the_setup_asset(self):
+        release = {"tag_name": "v99.0.0", "html_url": "page", "body": "", "assets": [
+            {"name": "Bartizan.exe", "browser_download_url": "u/exe"},
+            {"name": "Bartizan.exe.sha256", "browser_download_url": "u/exe.sha"},
+            {"name": "Bartizan-Setup.exe", "browser_download_url": "u/setup"},
+            {"name": "Bartizan-Setup.exe.sha256", "browser_download_url": "u/setup.sha"}]}
+        with mock.patch.object(updater.net, "get_json", return_value=[release]):
+            info = updater.check("1.0.0")
+        self.assertEqual((info.exe_url, info.setup_url, info.setup_sha256_url), ("u/exe", "u/setup", "u/setup.sha"))
+
+
 if __name__ == "__main__":
     unittest.main()
