@@ -97,6 +97,30 @@ KO = {
     "Theme": "테마",
     "Language": "언어",
     "Cancel": "취소",
+    # ---- new server dialog / settings save bar / plugins & mods empty state
+    "Show versions still in development (advanced)": "개발 중인 버전도 보기 (고급)",
+    "Match your friends' Minecraft version. Different versions can't join.":
+        "친구들의 마인크래프트 버전과 맞춰 주세요. 다르면 접속이 안 돼요.",
+    "More world and game settings": "월드 · 게임 규칙 더 설정하기",
+    "Game (can be changed later)": "게임 (나중에 바꿀 수 있어요)",
+    "Agree to the EULA to create a server.": "EULA에 동의해야 서버를 만들 수 있어요.",
+    "Save server settings": "서버 설정 저장",
+    "Undo changes": "바꾼 내용 되돌리기",
+    "You changed settings. They apply when the server restarts.": "설정을 바꿨어요. 서버를 다시 시작하면 적용돼요.",
+    "You changed settings.": "설정을 바꿨어요.",
+    "No unsaved changes": "저장 안 한 변경 사항이 없어요",
+    "The buttons below run right away. The current world is backed up first.":
+        "이 아래 작업은 누르면 바로 실행돼요. 기존 월드는 먼저 백업해요.",
+    "Installed plugins": "설치된 플러그인",
+    "Installed mods": "설치된 모드",
+    "Find plugins": "플러그인 찾기",
+    "Find mods": "모드 찾기",
+    "No plugins yet": "아직 플러그인이 없어요",
+    "No mods yet": "아직 모드가 없어요",
+    "Plugins are optional. You can play with friends without any.":
+        "플러그인은 꼭 필요하지 않아요. 없어도 친구들과 함께 놀 수 있어요.",
+    "Mods are optional. You can play with friends without any.":
+        "모드는 꼭 필요하지 않아요. 없어도 친구들과 함께 놀 수 있어요.",
     "SERVERS": "서버 목록",
     "Force stop without saving": "저장하지 않고 강제 종료",
     "Open server folder (plugins, mods...)": "서버 폴더 열기 (plugins, mods 등)",

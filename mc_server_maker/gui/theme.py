@@ -1,5 +1,8 @@
 """App look: dark and light themes."""
 
+import tempfile
+from pathlib import Path
+
 from PySide6 import QtSvg  # noqa: F401 - bundles the SVG plugin used for check marks
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPalette, QPixmap
@@ -140,12 +143,39 @@ QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
 }}
 QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus {{ border-color: {accent}; }}
 QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {{ color: {disabled}; background: {bg}; }}
-QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox::drop-down {{
+    subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 22px; right: -4px;
+}}
+QComboBox::down-arrow {{ image: url("{arrow_down}"); width: 12px; height: 12px; }}
+QComboBox::down-arrow:disabled {{ image: url("{arrow_down_off}"); }}
+QComboBox::down-arrow:on {{ image: url("{arrow_up}"); }}
 QComboBox QAbstractItemView {{
     background: {surface}; border: 1px solid {border}; selection-background-color: {surface3};
     selection-color: {text}; padding: 4px;
 }}
-QSpinBox::up-button, QSpinBox::down-button {{ width: 16px; border: none; background: transparent; }}
+QSpinBox {{ padding-right: 24px; }}
+QSpinBox::up-button, QSpinBox::down-button {{
+    subcontrol-origin: border; width: 20px; border: none; border-left: 1px solid {border}; background: {surface2};
+}}
+QSpinBox::up-button {{ subcontrol-position: top right; border-top-right-radius: 6px; margin: 1px 1px 0 0; }}
+QSpinBox::down-button {{
+    subcontrol-position: bottom right; border-bottom-right-radius: 6px; margin: 0 1px 1px 0;
+    border-top: 1px solid {border};
+}}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {hover}; }}
+QSpinBox::up-button:disabled, QSpinBox::down-button:disabled {{ background: transparent; }}
+QSpinBox::up-arrow {{ image: url("{arrow_up}"); width: 10px; height: 10px; }}
+QSpinBox::down-arrow {{ image: url("{arrow_down}"); width: 10px; height: 10px; }}
+QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off {{ image: url("{arrow_up_off}"); }}
+QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off {{ image: url("{arrow_down_off}"); }}
+QLineEdit[error="true"], QComboBox[error="true"] {{ border-color: {danger}; }}
+#FieldError {{ color: {danger}; font-size: 9.5pt; }}
+#EulaStrip {{ background: {surface}; border: 1px solid {border}; border-radius: 6px; }}
+#EulaStrip[error="true"] {{ border-color: {danger}; }}
+#SaveBar {{ background: {surface}; border: none; border-top: 1px solid {border}; }}
+#SaveBar[dirty="true"] {{ background: {accent_soft}; }}
+#SaveBar QLabel {{ background: transparent; }}
+#EmptyTitle {{ font-size: 13pt; font-weight: 600; }}
 
 QCheckBox, QRadioButton {{ spacing: 8px; }}
 QCheckBox::indicator, QRadioButton::indicator {{
@@ -197,6 +227,31 @@ QProgressBar::chunk {{ background: {accent}; border-radius: 3px; }}
 }}
 #ConsoleInput {{ font-family: {mono}; padding: 7px 10px; }}
 """
+
+
+_ARROW = ('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
+          '<path d="{d}" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" '
+          'stroke-linejoin="round"/></svg>')
+_ARROW_PATHS = {"down": "M3.5 6l4.5 4.5 4.5-4.5", "up": "M3.5 10.5l4.5-4.5 4.5 4.5"}
+
+
+def _arrows(colors: dict) -> dict:
+    """Combo box / number box arrows drawn in the theme's colours (like check.svg, but the colour
+    changes with the theme, so they're written to a cache folder when the theme is applied)."""
+    folder = Path(tempfile.gettempdir()) / "bartizan-ui"
+    out = {}
+    for name, d in _ARROW_PATHS.items():
+        for suffix, key in (("", "muted"), ("_off", "disabled")):
+            color = colors[key]
+            path = folder / f"arrow-{name}-{color.lstrip('#')}.svg"
+            try:
+                if not path.exists():
+                    folder.mkdir(parents=True, exist_ok=True)
+                    path.write_text(_ARROW.format(d=d, color=color), encoding="utf-8")
+            except OSError:
+                pass  # no arrows is better than no app: Qt just draws none
+            out[f"arrow_{name}{suffix}"] = path.as_posix()
+    return out
 
 
 def app_icon() -> QIcon:
@@ -253,7 +308,8 @@ def apply(app: QApplication, mode: str = "dark") -> None:
     ):
         pal.setColor(role, QColor(colors[key]))
     app.setPalette(pal)
-    app.setStyleSheet(QSS.format(**colors, mono=MONO, check=paths.resource("check.svg").as_posix()))
+    app.setStyleSheet(QSS.format(**colors, mono=MONO, check=paths.resource("check.svg").as_posix(),
+                                 **_arrows(colors)))
     app.setWindowIcon(app_icon())
 
 

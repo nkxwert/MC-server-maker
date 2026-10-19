@@ -8,6 +8,7 @@ from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation,
 from PySide6.QtWidgets import QDialog, QGraphicsOpacityEffect, QLabel, QWidget
 
 FAST = 160
+TAB = 100  # switching tabs: quicker still, it happens all the time
 NORMAL = 220
 _enabled = {"on": True}
 

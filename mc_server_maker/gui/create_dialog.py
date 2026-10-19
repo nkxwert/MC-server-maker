@@ -2,18 +2,19 @@
 
 import random
 
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialogButtonBox,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -25,7 +26,7 @@ from PySide6.QtWidgets import (
 from mc_server_maker.core import plugins
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.providers import PROVIDERS
-from mc_server_maker.gui import theme
+from mc_server_maker.gui import anim, theme
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import amp_to_section, color_help, with_help, with_note
 from mc_server_maker.gui.workers import run_async
@@ -38,6 +39,45 @@ def hint_label(text: str) -> QLabel:
     label.setWordWrap(True)
     label.setObjectName("Hint")
     return label
+
+
+def error_label() -> QLabel:
+    """A red hint under a field, hidden until Create finds a problem there."""
+    label = QLabel()
+    label.setWordWrap(True)
+    label.setObjectName("FieldError")
+    label.hide()
+    return label
+
+
+def stacked(*items) -> QWidget:
+    """Widgets (or layouts) on top of each other, as one form field."""
+    box = QWidget()
+    col = QVBoxLayout(box)
+    col.setContentsMargins(0, 0, 0, 0)
+    col.setSpacing(4)
+    for item in items:
+        if isinstance(item, QWidget):
+            col.addWidget(item)
+        else:
+            col.addLayout(item)
+    return box
+
+
+def indented(widget: QWidget) -> QWidget:
+    """Line up with the fields under a radio button."""
+    box = QWidget()
+    row = QHBoxLayout(box)
+    row.setContentsMargins(24, 0, 0, 0)
+    row.addWidget(widget)
+    return box
+
+
+def set_error(widget: QWidget, on: bool) -> None:
+    """Red border on a field (or the EULA strip) while it has a problem."""
+    widget.setProperty("error", on)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
 
 
 def random_seed() -> str:
@@ -89,25 +129,29 @@ class CreateServerDialog(FadeInDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(t("New server"))
-        fit_to_screen(self, 680, 780)
+        fit_to_screen(self, 680, 680)
         self.options = None
 
         outer = QVBoxLayout(self)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        # always there: unfolding never shifts the content sideways (which made the fade double up)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         body = QWidget()
         layout = QVBoxLayout(body)
         layout.setContentsMargins(4, 0, 12, 0)
         layout.setSpacing(10)
-        scroll.setWidget(body)
-        outer.addWidget(scroll)
+        self.scroll.setWidget(body)
+        outer.addWidget(self.scroll)
+        self._errors = []  # hint labels shown after a failed Create
 
-        # --- 1. software / version
-        box = QGroupBox(t("1. Software and version"))
+        # --- what everyone needs: name, server type, version, memory
+        box = QGroupBox(t("Server"))
         box.setProperty("first", True)
         form = form_layout(box)
         self.name = QLineEdit(t("My Server"))
-        form.addRow(t("Name"), self.name)
+        self.name_error = error_label()
+        form.addRow(t("Name"), stacked(self.name, self.name_error))
         cards = QGridLayout()
         cards.setSpacing(8)
         self.software = QButtonGroup(self)
@@ -121,32 +165,33 @@ class CreateServerDialog(FadeInDialog):
         self.software.button(0).setChecked(True)
         form.addRow(with_help(t("Software"), "\n\n".join(f"{p.name}: {t(p.description)}" for p in PROVIDERS)), cards)
         self.version = QComboBox()
-        form.addRow(t("Version"), self.version)
-        row = QHBoxLayout()
+        self.version_error = error_label()
         self.version_status = hint_label("")
-        self.unstable = QCheckBox(t("Show snapshots"))
-        row.addWidget(self.version_status, 1)
-        row.addWidget(self.unstable)
-        form.addRow("", row)
-        layout.addWidget(box)
-
-        # --- 2. runtime
-        box = QGroupBox(t("2. Runtime"))
-        form = form_layout(box)
+        self.unstable = QCheckBox(t("Show versions still in development (advanced)"))
+        form.addRow(t("Version"), stacked(
+            self.version, self.version_error,
+            hint_label(t("Match your friends' Minecraft version. Different versions can't join.")),
+            self.version_status, self.unstable))
         self.ram = QSpinBox(suffix=" GB", minimum=1, maximum=64, value=2)
         form.addRow(t("Memory (RAM)"), with_note(self.ram, t(
             "1–3 players: 1–2 GB is usually enough. Modpacks need 4 GB or more.")))
-        self.auto_java = QCheckBox(t("Install the right Java automatically"))
-        self.auto_java.setChecked(True)
-        form.addRow("Java", self.auto_java)
-        self.bedrock = QCheckBox(t("Let Bedrock players join"))
-        self.bedrock.setToolTip(t(
-            "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account."))
-        form.addRow(t("Bedrock"), self.bedrock)
         layout.addWidget(box)
 
-        # --- 3. world
-        box = QGroupBox(t("3. World"))
+        # everything else has good defaults: folded away until asked for
+        self.btn_more = set_kind(QPushButton(), "ghost")
+        self.btn_more.setCheckable(True)
+        self.btn_more.setStyleSheet("QPushButton { padding-left: 0; text-align: left; }")
+        self.btn_more.toggled.connect(self._show_more)
+        layout.addWidget(self.btn_more, 0, Qt.AlignLeft)
+        self.more_box = QWidget()
+        more = QVBoxLayout(self.more_box)
+        more.setContentsMargins(0, 0, 0, 0)
+        more.setSpacing(10)
+        layout.addWidget(self.more_box)
+
+        # --- world
+        box = QGroupBox(t("World"))
+        box.setProperty("first", True)
         v = QVBoxLayout(box)
         self.world_group = QButtonGroup(self)
         self.rb_random = QRadioButton(t("Random world"))
@@ -168,6 +213,8 @@ class CreateServerDialog(FadeInDialog):
         seed_row.addWidget(self.seed, 1)
         seed_row.addWidget(self.seed_dice)
         v.addLayout(seed_row)
+        self.seed_error = error_label()
+        v.addWidget(indented(self.seed_error))
 
         v.addWidget(self.rb_import)
         imp_row = QHBoxLayout()
@@ -181,6 +228,8 @@ class CreateServerDialog(FadeInDialog):
         imp_row.addWidget(btn_dir)
         imp_row.addWidget(btn_zip)
         v.addLayout(imp_row)
+        self.import_error = error_label()
+        v.addWidget(indented(self.import_error))
         self.import_widgets = (self.import_path, btn_dir, btn_zip)
 
         type_row = QHBoxLayout()
@@ -190,10 +239,10 @@ class CreateServerDialog(FadeInDialog):
             self.level_type.addItem(t(label), key)
         type_row.addWidget(self.level_type, 1)
         v.addLayout(type_row)
-        layout.addWidget(box)
+        more.addWidget(box)
 
-        # --- 4. basics
-        box = QGroupBox(t("4. Basics (can be changed later)"))
+        # --- game rules and joining (all of it can be changed later in Settings)
+        box = QGroupBox(t("Game (can be changed later)"))
         form = form_layout(box)
         self.motd = QLineEdit(t("&aWelcome to my Minecraft server!"))
         form.addRow(t("Description"), self.motd)
@@ -222,9 +271,22 @@ class CreateServerDialog(FadeInDialog):
         self.pvp = QCheckBox("PvP")
         self.pvp.setChecked(True)
         form.addRow("", self.pvp)
-        layout.addWidget(box)
+        self.bedrock = QCheckBox(t("Let Bedrock players join"))
+        self.bedrock.setToolTip(t(
+            "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account."))
+        form.addRow(t("Bedrock"), self.bedrock)
+        self.auto_java = QCheckBox(t("Install the right Java automatically"))
+        self.auto_java.setChecked(True)
+        form.addRow("Java", self.auto_java)
+        more.addWidget(box)
+        layout.addStretch()
 
-        # --- EULA
+        # --- EULA: outside the scroll area, so it's always in sight right above Create
+        self.eula_strip = QFrame()
+        self.eula_strip.setObjectName("EulaStrip")
+        strip = QVBoxLayout(self.eula_strip)
+        strip.setContentsMargins(12, 8, 12, 8)
+        strip.setSpacing(4)
         self.eula = QCheckBox()
         eula_label = QLabel(
             t('I accept the <a href="https://aka.ms/MinecraftEULA">Minecraft EULA</a> (required).')
@@ -233,8 +295,10 @@ class CreateServerDialog(FadeInDialog):
         eula_row = QHBoxLayout()
         eula_row.addWidget(self.eula)
         eula_row.addWidget(eula_label, 1)
-        layout.addLayout(eula_row)
-        layout.addStretch()
+        strip.addLayout(eula_row)
+        self.eula_error = error_label()
+        strip.addWidget(self.eula_error)
+        outer.addWidget(self.eula_strip)
 
         buttons = QDialogButtonBox()
         self.create_btn = set_kind(buttons.addButton(t("Create server"), QDialogButtonBox.AcceptRole), "primary")
@@ -247,8 +311,17 @@ class CreateServerDialog(FadeInDialog):
         self.software.idToggled.connect(lambda _id, on: on and self._software_changed())
         self.unstable.toggled.connect(self._reload_versions)
         self.world_group.idToggled.connect(self._world_mode_changed)
+        # a hint goes away as soon as its field is changed
+        self.name.textChanged.connect(lambda: self._clear_error(self.name_error))
+        self.version.currentIndexChanged.connect(lambda: self._clear_error(self.version_error))
+        self.seed.textChanged.connect(lambda: self._clear_error(self.seed_error))
+        self.import_path.textChanged.connect(lambda: self._clear_error(self.import_error))
+        self.world_group.idToggled.connect(lambda *_: (self._clear_error(self.seed_error),
+                                                       self._clear_error(self.import_error)))
+        self.eula.toggled.connect(lambda: self._clear_error(self.eula_error))
         self._software_changed()
         self._world_mode_changed()
+        self._show_more(False)
         theme.flatten_groups(self)
 
     # ------------------------------------------------------------------
@@ -284,26 +357,71 @@ class CreateServerDialog(FadeInDialog):
         if f:
             self.import_path.setText(f)
 
+    def _show_more(self, on: bool, animate: bool = True):
+        self.btn_more.setText(t("More world and game settings") + ("  ▴" if on else "  ▾"))
+        if on and animate and anim.enabled():
+            anim.crossfade(self.more_box.parentWidget(), lambda: self.more_box.setVisible(True), ms=anim.FAST)
+        else:
+            self.more_box.setVisible(on)
+
+    def _field_of(self, label: QLabel) -> QWidget:
+        return {self.name_error: self.name, self.version_error: self.version, self.seed_error: self.seed,
+                self.import_error: self.import_path, self.eula_error: self.eula_strip}[label]
+
+    def _clear_error(self, label: QLabel):
+        if label in self._errors:
+            self._errors.remove(label)
+            label.hide()
+            set_error(self._field_of(label), False)
+
+    def _show_errors(self, problems):
+        """Put each problem right under its field, then bring the first one into view."""
+        for label in list(self._errors):
+            self._clear_error(label)
+        for label, text in problems:
+            label.setText(text)
+            label.show()
+            set_error(self._field_of(label), True)
+            self._errors.append(label)
+        # a problem in the folded part: unfold it, so its hint isn't hidden
+        if not self.btn_more.isChecked() and any(self.more_box.isAncestorOf(label) for label, _ in problems):
+            self.btn_more.blockSignals(True)
+            self.btn_more.setChecked(True)
+            self.btn_more.blockSignals(False)
+            self._show_more(True, animate=False)  # no fade: the view scrolls right away
+        label = problems[0][0]
+        if label is self.eula_error:  # always in sight below the scroll area
+            self.eula.setFocus()
+            return
+        field = self._field_of(label)
+
+        def reveal():  # once the layout has made room for the unfolded part and the hint
+            self.scroll.ensureWidgetVisible(label, 0, 60)
+            self.scroll.ensureWidgetVisible(field, 0, 40)
+            field.setFocus()
+        QTimer.singleShot(0, reveal)
+
     def _accept(self):
         name = self.name.text().strip()
         version = self.version.currentData()
         mode = ("random", "seed", "import")[self.world_group.checkedId()]
-        problems = []
+        problems = []  # (hint label under the field, what's wrong)
         if not name:
-            problems.append(t("Enter a server name."))
+            problems.append((self.name_error, t("Enter a server name.")))
         if not version:
-            problems.append(t("Choose a version. (If the list is empty, check your internet connection.)"))
+            problems.append((self.version_error,
+                             t("Choose a version. (If the list is empty, check your internet connection.)")))
         if mode == "seed" and not self.seed.text().strip():
-            problems.append(t("Enter a seed or press Random."))
+            problems.append((self.seed_error, t("Enter a seed or press Random.")))
         if mode == "import":
             try:
                 srv.find_world_root(self.import_path.text().strip())
             except srv.ServerError as e:
-                problems.append(str(e))
+                problems.append((self.import_error, str(e)))
         if not self.eula.isChecked():
-            problems.append(t("You must accept the Minecraft EULA to create a server."))
+            problems.append((self.eula_error, t("Agree to the EULA to create a server.")))
         if problems:
-            QMessageBox.warning(self, t("Check these"), "\n".join(problems))
+            self._show_errors(problems)
             return
 
         self.options = srv.CreateOptions(
