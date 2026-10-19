@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QScrollArea,
     QSpinBox,
+    QSizePolicy,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -344,6 +345,25 @@ class ConsoleTab(ServerTab):
 
         left = QVBoxLayout()
         left.setSpacing(8)
+        # after a start: is the server reachable for friends, and what to do next
+        self.friend_bar = QFrame()
+        self.friend_bar.setObjectName("FriendBar")
+        fb = QHBoxLayout(self.friend_bar)
+        fb.setContentsMargins(14, 10, 12, 10)
+        fb.setSpacing(12)
+        self.friend_text = QLabel()
+        self.friend_text.setWordWrap(True)
+        self.friend_text.setTextFormat(Qt.RichText)
+        self.friend_text.setMinimumWidth(240)
+        fb.addWidget(self.friend_text, 1)
+        self.friend_btn = set_kind(QPushButton(), "primary")
+        self.friend_btn.clicked.connect(self._friend_action)
+        fb.addWidget(self.friend_btn)
+        self.friend_bar.setVisible(False)
+        left.addWidget(self.friend_bar)
+        self._friend = ("", "lan")  # address and kind, from the Network tab
+        self.open_network = None  # set by the main window: shows the Network tab
+        self.copy_invite = None  # set by the main window: copies the invitation text
         self.view = QPlainTextEdit(readOnly=True)
         self.view.setObjectName("Console")
         self.view.setMaximumBlockCount(5000)
@@ -377,8 +397,7 @@ class ConsoleTab(ServerTab):
         self.more_btn.setCursor(Qt.PointingHandCursor)
         self.more_btn.clicked.connect(self._show_players)
         v.addWidget(self.more_btn, 0, Qt.AlignLeft)
-        v.addStretch()
-        side.addWidget(box, 1)  # the three parts split the height into exact thirds
+        side.addWidget(box)
         side.addWidget(self._rule())
         box = QGroupBox(t("Uptime"))
         box.setObjectName("Stat")
@@ -387,8 +406,7 @@ class ConsoleTab(ServerTab):
         self.uptime = QLabel("-")
         self.uptime.setObjectName("Big")
         v.addWidget(self.uptime)
-        v.addStretch()
-        side.addWidget(box, 1)
+        side.addWidget(box)
         side.addWidget(self._rule())
         box = QGroupBox(t("Total uptime"))
         box.setObjectName("Stat")
@@ -399,8 +417,8 @@ class ConsoleTab(ServerTab):
         self.total_uptime.setWordWrap(True)
         self.total_uptime.setToolTip(t("All the time this server has been running, across every start."))
         v.addWidget(self.total_uptime)
-        v.addStretch()
-        side.addWidget(box, 1)
+        side.addWidget(box)
+        side.addStretch()  # numbers stay together at the top
         side_w = QWidget()
         side_w.setLayout(side)
         side.setContentsMargins(0, 0, 0, 0)
@@ -502,6 +520,48 @@ class ConsoleTab(ServerTab):
             w.setEnabled(self.running)
         self._on_players(self.key)
         self._tick()
+        self._render_friend()
+
+    def set_friend(self, address: str, kind: str) -> None:
+        """The address friends should use (from the Network tab): 'tunnel', 'internet' or 'lan'."""
+        self._friend = (address, kind)
+        self._render_friend()
+
+    def _render_friend(self):
+        address, kind = self._friend
+        show = self.running and bool(self.meta)
+        self.friend_bar.setVisible(show)
+        if not show:
+            return
+        c = theme.C
+        if kind in ("tunnel", "internet") and address:
+            how = t("playit.gg tunnel") if kind == "tunnel" else t("router port")
+            text = (f"<span style='color:{c['ok']}'>●</span>&nbsp; <b>{html.escape(t('Friends can join'))}</b>"
+                    f" <span style='color:{c['muted']}'>· {html.escape(how)}</span><br>"
+                    + html.escape(t("Address to send: {addr}", addr=address)))
+            self.friend_btn.setText(t("Copy invitation"))
+            tint = c["ok"]
+        else:
+            lan = html.escape(address or "-")
+            text = (f"<span style='color:{c['warn']}'>●</span>&nbsp; <b>{html.escape(t('The server is on. Friends elsewhere can not join yet.'))}</b><br>"
+                    + t("People on the same Wi-Fi can join now: <b>{lan}</b>", lan=lan))
+            self.friend_btn.setText(t("Open to the internet"))
+            tint = c["accent"]
+        col = QColor(tint)
+        rgb = f"{col.red()}, {col.green()}, {col.blue()}"
+        self.friend_bar.setStyleSheet(  # a faint tint of the state's color (Qt hex alpha is #AARRGGBB)
+            f"#FriendBar {{ background: rgba({rgb}, 0.10); border: 1px solid rgba({rgb}, 0.40); border-radius: 8px; }}")
+        self.friend_text.setText(text)
+
+    def _friend_action(self):
+        address, kind = self._friend
+        if kind in ("tunnel", "internet") and address:
+            if self.copy_invite:
+                self.copy_invite()
+                self.friend_btn.setText(t("Copied"))
+                QTimer.singleShot(1200, self._render_friend)
+        elif self.open_network:
+            self.open_network()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1282,6 +1342,9 @@ class AddressRow(QWidget):
         title_label.setObjectName("ItemName")
         title_label.setToolTip(sub)  # who the address is for: in the section's (?) and on hover
         col.addWidget(title_label)
+        self.badge = QLabel()  # "Send this to friends": the one address that works for them now
+        self.badge.setVisible(False)
+        col.addWidget(self.badge)
         row.addLayout(col, 1)
         self._blur_anim = None
         self.value = ClickLabel("-")
@@ -1362,6 +1425,16 @@ class AddressRow(QWidget):
             self.value.setToolTip(t("Click to show the address") if hide else
                                   (t("Click to hide the address") if self._real else ""))
 
+    def set_badge(self, on: bool):
+        if on:
+            self.badge.setText(f"<span style='color:{theme.C['ok']}'>● {html.escape(t('Send this to friends'))}</span>")
+            self.badge.setStyleSheet("font-size: 9pt;")
+        self.badge.setVisible(on)
+
+    @property
+    def text(self) -> str:
+        return self._text if self._real else ""
+
     def set(self, text: str, enabled: bool = True):
         self._text, self._real = text, enabled and text not in ("", "-")
         self.copy.setEnabled(enabled)
@@ -1369,6 +1442,7 @@ class AddressRow(QWidget):
 
 
 class NetworkTab(ServerTab):
+    friend_changed = Signal(str, str)  # the address for friends and its kind: tunnel / internet / lan
     _public_ip = None  # looked up once per app run
     _ip_lookup = False  # a lookup is running
     tunnel = None  # TunnelManager, set by the main window
@@ -1398,21 +1472,49 @@ class NetworkTab(ServerTab):
                                        private=True)
         for w in (self.addr_local, self.addr_lan, self.addr_public, self.addr_bedrock):
             v.addWidget(w)
+        # one button for the whole invitation (game version, address, "only while the PC is on")
+        self.btn_invite = QPushButton(t("Copy invitation"))
+        self.btn_invite.setToolTip(t("Copies how to join (game version and the address marked for friends), "
+                                     "ready to paste into a chat."))
+        self.btn_invite.clicked.connect(self.copy_invite)
+        v.itemAt(0).layout().addWidget(self.btn_invite)
         layout.addWidget(box)
 
-        box, v = help_section(t("Tunnel (no port forwarding) — playit.gg"), t(
-            "Free and the easiest way: friends join without opening any ports. It adds a little "
-            "latency (the distance to the nearest playit server).\n\n"
-            "How to:\n"
+        # friends elsewhere: either the playit.gg tunnel or a router port, one at a time on screen
+        box, sec = help_section(t("Open to the internet"), t(
+            "Friends who aren't on your Wi-Fi reach the server over the internet. One of the two ways is enough.\n\n"
+            "playit.gg tunnel (recommended): free, no router settings, works in dorms, offices and on hotspots. "
+            "It adds a little latency.\n"
             "1. Press Start tunnel. The playit.gg agent is downloaded and started automatically.\n"
             "2. First time only: a browser page opens. Sign in to playit.gg (or continue as a guest) "
             "and approve this PC.\n"
             "3. On the playit.gg dashboard add a tunnel: type Minecraft Java, local port = this server's "
-            "port (usually 25565).\n"
-            "4. After a few seconds the tunnel address appears here. Give it to your friends. If it "
-            "doesn't appear, copy it from the dashboard and use Enter address.\n"
-            "5. Bedrock players: also add a Minecraft Bedrock tunnel (local port 19132).\n\n"
-            "Tick the box below to start the tunnel together with this server."))
+            "port (usually 25565). Bedrock players: also a Minecraft Bedrock tunnel (local port 19132).\n"
+            "4. After a few seconds the tunnel address appears. If it doesn't, copy it from the dashboard "
+            "and use Enter address.\n\n"
+            "Router port: the lowest latency. Most routers open the port automatically (UPnP); otherwise "
+            "set up port forwarding on the router. Allow in Windows Firewall lets other devices through "
+            "this PC's firewall; the rules only matter while the server runs."))
+        sec.addWidget(hint(t("Lets friends who aren't on your Wi-Fi join. One of the two is enough.")))
+        seg = QHBoxLayout()
+        seg.setSpacing(18)
+        self.way_group = QButtonGroup(self)
+        self.way_tunnel = set_kind(QPushButton(t("playit.gg tunnel (recommended)")), "segment")
+        self.way_router = set_kind(QPushButton(t("Open a router port")), "segment")
+        for i, b in enumerate((self.way_tunnel, self.way_router)):
+            b.setCheckable(True)
+            self.way_group.addButton(b, i)
+            seg.addWidget(b)
+        seg.addStretch()
+        sec.addLayout(seg)
+        self.way_group.idClicked.connect(self._show_way)
+        self.way_stack = QStackedWidget()
+        sec.addWidget(self.way_stack)
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(0, 4, 0, 0)
+        v.setSpacing(10)
+        self.way_stack.addWidget(page)
         self.tunnel_status = QLabel()
         self.tunnel_status.setWordWrap(True)
         self.tunnel_status.setTextFormat(Qt.RichText)
@@ -1437,22 +1539,20 @@ class NetworkTab(ServerTab):
         self.auto_tunnel = QCheckBox(t("Start the tunnel together with this server"))
         self.auto_tunnel.toggled.connect(self._toggle_auto_tunnel)
         v.addWidget(self.auto_tunnel)
-        layout.addWidget(box)
+        v.addStretch()
 
-        box, v = help_section(t("Let friends from other homes join"), t(
-            "Friends in other homes reach the server through your router, so the router must forward "
-            "the server port to this PC. Most routers can do it automatically (UPnP). If yours can't, "
-            "see \"If automatic doesn't work\" below, or use the tunnel.\n\n"
-            "Allow in Windows Firewall lets other devices through this PC's firewall (one administrator "
-            "prompt). The rules stay until you remove them, but they only matter while the server is "
-            "running: when it's off, nothing on this PC answers on that port."))
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(0, 4, 0, 0)
+        v.setSpacing(10)
+        self.way_stack.addWidget(page)
         # no router at all (a public address on this PC) or the provider's shared address:
         # say so first, the router steps below don't apply
         self.direct_note = QLabel()
         self.direct_note.setWordWrap(True)
         self.direct_note.setTextFormat(Qt.RichText)
         self.direct_note.setVisible(False)
-        v.addWidget(self.direct_note)
+        sec.insertWidget(sec.indexOf(self.way_stack) - 1, self.direct_note)
         self.port_status = QLabel()
         self.port_status.setWordWrap(True)
         v.addWidget(self.port_status)
@@ -1489,7 +1589,7 @@ class NetworkTab(ServerTab):
         self.diag_status = QLabel()
         self.diag_status.setWordWrap(True)
         diag_row.addWidget(self.diag_status, 1)
-        v.addLayout(diag_row)
+        sec.addLayout(diag_row)
         # the manual steps are long: folded away until asked for
         self.btn_manual = set_kind(QPushButton(), "ghost")
         self.btn_manual.setCheckable(True)
@@ -1545,6 +1645,63 @@ class NetworkTab(ServerTab):
         super().forget_server()
         self._status_key = None
         self._fw_for = None
+        self._way_for = None
+
+    # ------------------------------------------------------- open to the internet
+
+    _internet_ok: dict = {}  # server folder -> the router port was opened / reached from outside
+
+    def _show_way(self, index: int):
+        self.way_group.button(index).setChecked(True)
+
+        def switch():
+            self.way_stack.setCurrentIndex(index)
+            for i in range(self.way_stack.count()):  # the stack is as tall as the page shown, not the tallest
+                self.way_stack.widget(i).setSizePolicy(
+                    QSizePolicy.Preferred, QSizePolicy.Preferred if i == index else QSizePolicy.Ignored)
+            self.way_stack.adjustSize()
+        if anim.enabled() and self.isVisible() and self.way_stack.currentIndex() != index:
+            anim.crossfade(self.way_stack.parentWidget(), switch, ms=anim.FAST)
+        else:
+            switch()
+
+    def _friend(self):
+        """(row, address, kind) of the address friends should use right now."""
+        tm = self.tunnel
+        if tm and tm.is_active() and tm.address:
+            return self.addr_tunnel, tm.address, "tunnel"
+        kind = self._router.kind if self._router else network.connection_kind(network.lan_ip())
+        if self.addr_public.text and (NetworkTab._internet_ok.get(self.key) or kind == "direct"):
+            return self.addr_public, self.addr_public.text, "internet"
+        return self.addr_lan, self.addr_lan.text, "lan"
+
+    def _update_friend(self):
+        if not self.meta:
+            return
+        row, address, kind = self._friend()
+        for r in (self.addr_lan, self.addr_public, self.addr_tunnel):
+            r.set_badge(r is row and bool(address))
+        if (address, kind) != getattr(self, "_friend_sent", None):
+            self._friend_sent = (address, kind)
+            self.friend_changed.emit(address, kind)
+
+    def invitation(self) -> str:
+        _row, address, kind = self._friend()
+        if not address:
+            return ""
+        text = t("How to join: Minecraft Java {v} → Multiplayer → Add Server\nAddress: {addr}",
+                 v=self.meta.mc_version, addr=address)
+        if kind == "lan":
+            text += "\n" + t("(Works on the same Wi-Fi only.)")
+        return text + "\n" + t("You can join only while the server PC is on.")
+
+    def copy_invite(self):
+        text = self.invitation()
+        if not text:
+            return
+        QGuiApplication.clipboard().setText(text)
+        self.btn_invite.setText(t("Copied"))
+        QTimer.singleShot(1200, lambda: self.btn_invite.setText(t("Copy invitation")))
 
     def _show_manual(self, on: bool):
         self.btn_manual.setText(t("If automatic doesn't work") + ("  ▴" if on else "  ▾"))
@@ -1750,6 +1907,8 @@ class NetworkTab(ServerTab):
                 return
             if res.ok:
                 set_status(self.port_check_status, "ok", t("Open! Friends can join with the Internet address."))
+                NetworkTab._internet_ok[key] = True
+                self._update_friend()
             elif res.error != "offline":
                 set_status(self.port_check_status, "off", t("Couldn't check (no internet?)"))
             else:
@@ -1809,6 +1968,11 @@ class NetworkTab(ServerTab):
         self.port_check_status.clear()
         self._render_kind(self._router.kind if self._router else network.connection_kind(network.lan_ip()))
         self._render_manual()
+        if self.key != getattr(self, "_way_for", None):  # another server: the way it uses
+            self._way_for = self.key
+            use_router = self.meta.upnp and not self.meta.tunnel and not (self.tunnel and self.tunnel.is_active())
+            self._show_way(1 if use_router else 0)
+        self._update_friend()
 
     def _render_kind(self, kind: str):
         if kind == "direct":
@@ -1861,6 +2025,7 @@ class NetworkTab(ServerTab):
                     "carrier NAT, so friends may not get in. See playit.gg below.", ip=mask_address(res.router_ip)))
             else:
                 set_status(self.port_status, "ok", t("Port {port} is open! Friends can join with the Internet address.", port=res.port))
+                NetworkTab._internet_ok[key] = True
             self.refresh()
 
         def fail(msg):
@@ -1874,7 +2039,8 @@ class NetworkTab(ServerTab):
         port, udp, key = self.port, plugins.udp_ports(self.meta), self.key
         set_status(self.port_status, "wait", t("Closing port..."))
         run_async(lambda task: network.close_port(port, udp_ports=udp),
-                  lambda _: key == self.key and set_status(self.port_status, "off", t("Port closed.")),
+                  lambda _: (NetworkTab._internet_ok.pop(key, None), key == self.key and set_status(
+                      self.port_status, "off", t("Port closed.")), self._update_friend()),
                   lambda msg: key == self.key and set_status(self.port_status, "fail", msg))
 
     # ------------------------------------------------------------ tunnel
@@ -1919,6 +2085,7 @@ class NetworkTab(ServerTab):
         self.btn_tunnel.setText(t("Stop tunnel") if tm.is_active() else t("Start tunnel"))
         set_kind(self.btn_tunnel, "" if tm.is_active() else "primary")
         self.addr_tunnel.set(tm.address or "-", bool(tm.address))
+        self._update_friend()
 
     def _toggle_tunnel(self):
         if not self.tunnel:

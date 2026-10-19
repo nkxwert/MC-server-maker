@@ -411,6 +411,10 @@ class MainWindow(QMainWindow):
         self.tabs.tabBar().tabBarClicked.connect(self._tab_clicked)
         self.network_tab.set_tunnel(self.tunnel)
         self.status_tab.tunnel = self.tunnel
+        # the console says whether friends can join, using what the Network tab knows
+        self.network_tab.friend_changed.connect(self.console_tab.set_friend)
+        self.console_tab.open_network = lambda: self._go_tab(self.network_tab)
+        self.console_tab.copy_invite = self.network_tab.copy_invite
         tab_wrap = QWidget()
         tw = QVBoxLayout(tab_wrap)
         tw.setContentsMargins(0, 0, 0, 0)
@@ -585,6 +589,11 @@ class MainWindow(QMainWindow):
     def _tab_clicked(self, index: int):
         if index != self.tabs.currentIndex():
             anim.crossfade(self.tabs, ms=anim.FAST)
+
+    def _go_tab(self, tab):
+        if self.tabs.currentWidget() is not tab:
+            anim.crossfade(self.tabs, ms=anim.FAST)
+            self.tabs.setCurrentWidget(tab)
 
     def _update_header(self):
         m = self.meta
