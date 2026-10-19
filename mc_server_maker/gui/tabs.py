@@ -876,13 +876,7 @@ class SettingsTab(ServerTab):
         v.addLayout(row)
         layout.addWidget(self.bedrock_box)
 
-        save = set_kind(QPushButton(t("Save")), "primary")
-        save.setMinimumSize(120, 36)
-        save.clicked.connect(self.save)
-        layout.addSpacing(6)
-        layout.addWidget(save, 0, Qt.AlignLeft)
-
-        # ---- world (its buttons act right away; "Save" above is only for the settings)
+        # ---- world (its buttons act right away; the save bar below is only for the settings)
         layout.addSpacing(28)
         rule = QFrame()
         rule.setObjectName("Rule")
@@ -895,9 +889,53 @@ class SettingsTab(ServerTab):
         layout.addWidget(self.world)
         layout.addStretch()
 
+        # ---- save bar: always under the form (no jumping), says when something isn't saved yet
+        self.save_bar = QFrame()
+        self.save_bar.setObjectName("SaveBar")
+        bar = QHBoxLayout(self.save_bar)
+        bar.setContentsMargins(24, 10, 24, 10)
+        bar.setSpacing(10)
+        self.save_status = QLabel()
+        self.save_status.setWordWrap(True)
+        bar.addWidget(self.save_status, 1)
+        self.btn_undo = set_kind(QPushButton(t("Undo changes")), "ghost")
+        self.btn_undo.clicked.connect(lambda: self.refresh())  # back to what the files say
+        bar.addWidget(self.btn_undo)
+        self.btn_save = set_kind(QPushButton(t("Save server settings")), "primary")
+        self.btn_save.setMinimumHeight(34)
+        self.btn_save.clicked.connect(self.save)
+        bar.addWidget(self.btn_save)
+        for w in (self.name, self.motd):
+            w.textChanged.connect(self._update_save_bar)
+        for spin in list(self._spins().values()) + [self.ram]:
+            spin.valueChanged.connect(self._update_save_bar)
+        for cb in list(self.checks.values()) + [self.memory_saver]:
+            cb.toggled.connect(self._update_save_bar)
+        for combo in (self.gamemode, self.difficulty, self.autosave):
+            combo.currentIndexChanged.connect(self._update_save_bar)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(_scroll(body))
+        outer.setSpacing(0)
+        outer.addWidget(_scroll(body), 1)
+        outer.addWidget(self.save_bar)
+        self._update_save_bar()
+
+    def _update_save_bar(self, *_):
+        changed = self.has_unsaved()
+        if changed:
+            self.save_status.setText(t("You changed settings. They apply when the server restarts.")
+                                     if self.running else t("You changed settings."))
+        else:
+            self.save_status.setText(t("No unsaved changes"))
+        self.save_status.setObjectName("" if changed else "Muted")
+        self.btn_undo.setVisible(changed)
+        self.btn_save.setEnabled(changed)
+        if self.save_bar.property("dirty") != changed:
+            self.save_bar.setProperty("dirty", changed)
+            for w in (self.save_bar, self.save_status):
+                w.style().unpolish(w)
+                w.style().polish(w)
 
     @property
     def icon_path(self) -> Path:
@@ -972,12 +1010,14 @@ class SettingsTab(ServerTab):
             self._apply_form_state(state)
             self._loaded = loaded
             self._update_preview()
+            self._update_save_bar()
 
     def on_state(self):
         # only update the notice so unsaved edits are kept
         self.notice.setText(t("The server is running. Saved changes apply after a restart.") if self.running else "")
         self.notice.setVisible(self.running)
         self._refresh_bedrock()
+        self._update_save_bar()
         self.world.on_state()
 
     def _refresh_bedrock(self):
@@ -1046,6 +1086,7 @@ class SettingsTab(ServerTab):
     def forget_server(self) -> None:
         super().forget_server()
         self._loaded = None  # no unsaved edits carry over to whatever comes next
+        self._update_save_bar()
         self.world.forget_server()
 
     def _reload_keeping_edits(self):
@@ -1058,6 +1099,7 @@ class SettingsTab(ServerTab):
             state.update(edits)
             self._apply_form_state(state)
             self._update_preview()
+            self._update_save_bar()
 
     def _edit_all(self):
         if PropertiesDialog(self, self.meta.properties_path).exec():
@@ -1119,6 +1161,7 @@ class SettingsTab(ServerTab):
             # a running server keeps its own whitelist switch (and writes it back): change it now
             self.runner.send(self.key, "whitelist on" if state["white-list"] else "whitelist off")
         self._loaded = state
+        self._update_save_bar()
         self.on_changed()
         QMessageBox.information(self, t("Save"), t("Saved.") + ("\n" + t("Restart the server to apply.") if self.running else ""))
 
@@ -1134,6 +1177,7 @@ class WorldTab(ServerTab):
         body = QWidget()
         layout = QVBoxLayout(body)
 
+        layout.addWidget(hint(t("The buttons below run right away. The current world is backed up first.")))
         self.running_notice = warn_label(t("Stop the server to change the world or update it."))
         layout.addWidget(self.running_notice)
 
@@ -2258,23 +2302,28 @@ class AddonCard(QFrame):
 
 
 class DropZone(QFrame):
-    def __init__(self, on_files, on_browse):
+    def __init__(self, on_files, on_browse, compact: bool = False):
+        """compact=True: the text and the button on one line (under the empty-list message)."""
         super().__init__()
         self.setObjectName("DropZone")
         self.on_files = on_files
         self.setAcceptDrops(True)
-        v = QVBoxLayout(self)
-        v.setContentsMargins(16, 14, 16, 14)
+        v = QHBoxLayout(self) if compact else QVBoxLayout(self)
+        if compact:
+            v.setContentsMargins(14, 8, 10, 8)
+        else:
+            v.setContentsMargins(16, 14, 16, 14)
         self.title = QLabel()
         self.title.setObjectName("Muted")
-        self.title.setAlignment(Qt.AlignCenter)
-        v.addWidget(self.title)
+        self.title.setAlignment(Qt.AlignVCenter | Qt.AlignLeft if compact else Qt.AlignCenter)
+        v.addWidget(self.title, 1 if compact else 0)
         row = QHBoxLayout()
         row.addStretch()
         browse = QPushButton(t("Choose files..."))
         browse.clicked.connect(on_browse)
         row.addWidget(browse)
-        row.addStretch()
+        if not compact:
+            row.addStretch()
         v.addLayout(row)
         self._set_hover(False)
 
@@ -2318,8 +2367,8 @@ class AddonsTab(ServerTab):
         outer.addWidget(self.notice)
         seg = QHBoxLayout()
         seg.setSpacing(0)
-        self.btn_installed = set_kind(QPushButton(t("Installed")), "segment")
-        self.btn_browse = set_kind(QPushButton(t("Find more")), "segment")
+        self.btn_installed = set_kind(QPushButton(), "segment")  # named in refresh(): plugins or mods
+        self.btn_browse = set_kind(QPushButton(), "segment")
         self.pages = QButtonGroup(self)
         for i, b in enumerate((self.btn_installed, self.btn_browse)):
             b.setCheckable(True)
@@ -2341,7 +2390,9 @@ class AddonsTab(ServerTab):
         self.btn_installed.setChecked(True)
         self.drop = DropZone(self.add_files, self._browse)
         layout.addWidget(self.drop)
-        row = QHBoxLayout()
+        self.toolbar = QWidget()
+        row = QHBoxLayout(self.toolbar)
+        row.setContentsMargins(0, 0, 0, 0)
         self.summary = QLabel()
         self.summary.setObjectName("Hint")
         row.addWidget(self.summary)
@@ -2357,15 +2408,37 @@ class AddonsTab(ServerTab):
         open_btn = set_kind(QPushButton(t("Open folder")), "ghost")
         open_btn.clicked.connect(lambda: open_path(addons.addon_dir(self.meta)))
         row.addWidget(open_btn)
-        layout.addLayout(row)
+        layout.addWidget(self.toolbar)
         self.list = QListWidget()
         self.list.setObjectName("AddonList")
         self.list.setSelectionMode(QAbstractItemView.NoSelection)
         self.list.setSpacing(0)
         layout.addWidget(self.list, 1)
-        self.empty = hint("")
-        self.empty.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.empty)
+
+        # nothing installed: say it's fine (they're optional) and point to the search
+        self.empty = QWidget()
+        ev = QVBoxLayout(self.empty)
+        ev.setContentsMargins(0, 0, 0, 0)
+        ev.setSpacing(10)
+        ev.addStretch(2)
+        self.empty_title = QLabel()
+        self.empty_title.setObjectName("EmptyTitle")
+        self.empty_title.setAlignment(Qt.AlignCenter)
+        ev.addWidget(self.empty_title)
+        self.empty_text = hint("")
+        self.empty_text.setAlignment(Qt.AlignCenter)
+        ev.addWidget(self.empty_text)
+        ev.addSpacing(6)
+        self.btn_find = set_kind(QPushButton(), "primary")
+        self.btn_find.setMinimumHeight(34)
+        self.btn_find.clicked.connect(self._show_browser)
+        ev.addWidget(self.btn_find, 0, Qt.AlignHCenter)
+        ev.addSpacing(18)
+        self.empty_drop = DropZone(self.add_files, self._browse, compact=True)
+        self.empty_drop.setMaximumWidth(460)
+        ev.addWidget(self.empty_drop, 0, Qt.AlignHCenter)
+        ev.addStretch(3)
+        layout.addWidget(self.empty, 1)
 
     def label(self) -> str:
         return addons.kind_label(self.meta) if self.meta else ""
@@ -2378,6 +2451,10 @@ class AddonsTab(ServerTab):
     def refresh_installed(self):
         self.refresh()
 
+    def _show_browser(self):
+        self.btn_browse.setChecked(True)
+        self.stack.setCurrentIndex(1)
+
     def _check_updates(self):
         if self.meta:
             browse.check_updates(self, self.meta, self.refresh, self.running, self.btn_updates)
@@ -2385,7 +2462,15 @@ class AddonsTab(ServerTab):
     def refresh(self):
         if not self.meta or not self.label():
             return
-        self.drop.title.setText(t("Drag plugin .jar files here") if self.label() == "Plugins" else t("Drag mod .jar files here"))
+        plugin = self.label() == "Plugins"
+        self.btn_installed.setText(t("Installed plugins") if plugin else t("Installed mods"))
+        self.btn_browse.setText(t("Find plugins") if plugin else t("Find mods"))
+        self.btn_find.setText(self.btn_browse.text())
+        self.empty_title.setText(t("No plugins yet") if plugin else t("No mods yet"))
+        self.empty_text.setText(t("Plugins are optional. You can play with friends without any.") if plugin
+                                else t("Mods are optional. You can play with friends without any."))
+        for zone in (self.drop, self.empty_drop):
+            zone.title.setText(t("Drag plugin .jar files here") if plugin else t("Drag mod .jar files here"))
         self.list.clear()
         self.browser.invalidate_installed()
         items = addons.list_addons(self.meta)
@@ -2393,7 +2478,8 @@ class AddonsTab(ServerTab):
             self._add_card(a, addons.compatibility_warning(self.meta, a))
         on = sum(1 for a in items if a.enabled)
         self.summary.setText(t("{n} installed · {on} on", n=len(items), on=on))
-        self.empty.setText("" if items else t("Nothing installed yet."))
+        for w in (self.drop, self.toolbar, self.list):
+            w.setVisible(bool(items))
         self.empty.setVisible(not items)
         self.on_state()
         self._filter(self.search.text())

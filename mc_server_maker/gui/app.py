@@ -82,6 +82,26 @@ def server_icon(meta: srv.ServerMeta, size: int) -> QPixmap:
 class ServerItem(QWidget):
     """One server in the sidebar, with a ⋯ menu."""
 
+    class _Elided(QLabel):
+        """Long names end with "…" where the room ends, instead of pushing the ⋯ button out of
+        the sidebar. The full text shows when hovering."""
+
+        def __init__(self, text: str):
+            super().__init__()
+            self.full = text
+            self.setToolTip(text)
+            self.setMinimumWidth(1)
+            self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+        def resizeEvent(self, event):
+            super().resizeEvent(event)
+            self.setText(self.fontMetrics().elidedText(self.full, Qt.ElideRight, self.width()))
+
+        def changeEvent(self, event):
+            super().changeEvent(event)
+            if event.type() in (QEvent.FontChange, QEvent.StyleChange):  # bold names are wider
+                self.setText(self.fontMetrics().elidedText(self.full, Qt.ElideRight, self.width()))
+
     def __init__(self, meta: srv.ServerMeta, state: str, on_menu):
         super().__init__()
         self.meta = meta
@@ -94,14 +114,10 @@ class ServerItem(QWidget):
         row.addWidget(icon)
         col = QVBoxLayout()
         col.setSpacing(1)
-        name = QLabel()
+        name = self._Elided(meta.name)
         name.setObjectName("ItemName")
-        sub = QLabel()
+        sub = self._Elided(f"{meta.software_name} {meta.mc_version}")
         sub.setObjectName("ItemSub")
-        # long names end with "…" instead of pushing the ⋯ button out of the sidebar
-        for label, text in ((name, meta.name), (sub, f"{meta.software_name} {meta.mc_version}")):
-            label.setText(label.fontMetrics().elidedText(text, Qt.ElideRight, 112))
-            label.setToolTip(text)
         col.addWidget(name)
         col.addWidget(sub)
         row.addLayout(col, 1)
@@ -110,11 +126,13 @@ class ServerItem(QWidget):
         dot.setToolTip(text)
         dot.setStyleSheet(f"color: {color}; font-size: 8pt;")
         row.addWidget(dot)
+        row.addSpacing(-4)  # the dot and ⋯ belong together
         more = QToolButton()
         more.setText("⋯")
         more.setObjectName("MoreButton")
         more.setToolTip(t("Rename, duplicate, delete..."))
         more.setCursor(Qt.PointingHandCursor)
+        more.setFixedWidth(26)  # narrow: the room goes to the name
         more.clicked.connect(lambda: on_menu(meta, more.mapToGlobal(more.rect().bottomLeft())))
         row.addWidget(more)
 
@@ -588,7 +606,7 @@ class MainWindow(QMainWindow):
 
     def _tab_clicked(self, index: int):
         if index != self.tabs.currentIndex():
-            anim.crossfade(self.tabs, ms=anim.FAST)
+            anim.crossfade(self.tabs, ms=anim.TAB)
 
     def _go_tab(self, tab):
         if self.tabs.currentWidget() is not tab:
