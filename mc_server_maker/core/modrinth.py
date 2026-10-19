@@ -211,8 +211,17 @@ def install(meta, project_id: str, task: Optional[Task] = None) -> List[str]:
     task = task or Task()
     if not supported(meta):
         raise ModrinthError(t("{software} doesn't support plugins or mods.", software=meta.software_name))
+    return [p.name for p in _install(meta, project_id, None, task)]
+
+
+def _install(meta, project_id: str, version: Optional[dict], task: Task,
+             replace: Optional[Path] = None) -> List[Path]:
+    """Write a version (the best one if None) plus its missing required dependencies.
+    Returns the written jars, the project's own last."""
     have = installed(meta)
-    done: List[str] = []
+    if replace:
+        have[project_id] = replace
+    done: List[Path] = []
     seen: Set[str] = set()
 
     def add(pid: str, version: Optional[dict], is_dependency: bool):
@@ -241,9 +250,9 @@ def install(meta, project_id: str, task: Optional[Task] = None) -> List[str]:
         task.check()
         path = _write_version(meta, version, task, replace=have.get(pid))
         have[pid] = path
-        done.append(path.name)
+        done.append(path)
 
-    add(project_id, None, False)
+    add(project_id, version, False)
     return done
 
 
@@ -273,4 +282,6 @@ def check_updates(meta) -> Tuple[List[Update], int]:
 
 
 def apply_update(meta, update: Update, task: Optional[Task] = None) -> Path:
-    return _write_version(meta, update.new, task or Task(), replace=update.path)
+    """Replace the jar with the new version, installing required add-ons it newly needs."""
+    pid = update.new.get("project_id") or update.path.name
+    return _install(meta, pid, update.new, task or Task(), replace=update.path)[-1]

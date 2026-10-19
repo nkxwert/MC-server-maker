@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QDialogButtonBox,
     QFrame,
     QHBoxLayout,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QMainWindow,
     QMenu,
+    QProgressBar,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -36,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from mc_server_maker import APP_NAME, APP_VERSION
-from mc_server_maker.core import addons, network, paths, updater
+from mc_server_maker.core import addons, autostart, network, paths, updater
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.plugins import udp_ports
 from mc_server_maker.core.settings import AppSettings
@@ -55,12 +57,11 @@ from mc_server_maker.gui.tabs import (
 )
 from mc_server_maker.gui.tunnel_manager import TunnelManager
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
-from mc_server_maker.gui.widgets import with_note
+from mc_server_maker.gui.widgets import ask, with_note
 from mc_server_maker.gui.workers import TaskDialog, any_running, run_async, wait_all
 from mc_server_maker.i18n import LANGUAGES, set_language, t
 
 
-_starting = set()  # servers whose Start is waiting for the internet check
 _after_start: dict = {}  # server folder -> meta: tunnel/UPnP to do once its Java process runs
 
 
@@ -147,7 +148,7 @@ class UpdateDialog(FadeInDialog):
 
 
 class PreferencesDialog(FadeInDialog):
-    def __init__(self, parent, settings: AppSettings, on_check_updates=None):
+    def __init__(self, parent, settings: AppSettings, on_check_updates=None, servers=None):
         super().__init__(parent)
         self.setWindowTitle(t("App settings"))
         self.setMinimumWidth(360)
@@ -166,8 +167,24 @@ class PreferencesDialog(FadeInDialog):
         self.low_resource = QCheckBox(t("Low-resource mode"))
         self.low_resource.setChecked(settings.low_resource)
         form.addRow("", with_note(self.low_resource, t(
-            "Runs servers at lower priority with a smaller memory footprint, "
-            "and pauses the app's live updates while its window is hidden.")))
+            "Runs servers at lower priority with a smaller memory footprint, turns off screen "
+            "transition effects, and pauses the app's live updates while its window is hidden.")))
+        self.autostart = QCheckBox(t("Start Bartizan when Windows starts"))
+        self.autostart_min = QCheckBox(t("Start in the tray (no window)"))
+        self.autostart_server = QComboBox()
+        self.autostart_server.addItem(t("No server"), "")
+        for meta in servers or []:
+            self.autostart_server.addItem(meta.name, str(meta.folder))
+        if autostart.supported():
+            self.autostart.setChecked(autostart.enabled())
+            self.autostart_min.setChecked(autostart.minimized())
+            self.autostart_server.setCurrentIndex(max(0, self.autostart_server.findData(settings.autostart_server)))
+            form.addRow(t("Startup"), self.autostart)
+            form.addRow("", self.autostart_min)
+            form.addRow(t("Then start"), with_note(self.autostart_server, t(
+                "Starts this server too, so friends can join as soon as the PC is on.")))
+            self.autostart.toggled.connect(self._autostart_toggled)
+            self._autostart_toggled(self.autostart.isChecked())
         folder = QLabel(str(paths.BASE_DIR))
         folder.setWordWrap(True)
         folder.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -187,6 +204,58 @@ class PreferencesDialog(FadeInDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _autostart_toggled(self, on: bool):
+        self.autostart_min.setEnabled(on)
+        self.autostart_server.setEnabled(on)
+
+
+class OldCopiesDialog(FadeInDialog):
+    """Old downloaded Bartizan files, each with a checkbox; checked ones go to the Recycle Bin."""
+
+    def __init__(self, parent, files):
+        super().__init__(parent)
+        self.setWindowTitle(t("Old Bartizan files"))
+        self.setMinimumWidth(460)
+        layout = QVBoxLayout(self)
+        text = QLabel(t("These are older downloaded copies of Bartizan. You now use the installed app "
+                        "(Start menu), so they're no longer needed and make it hard to tell which one is "
+                        "current.\n\nMove the checked files to the Recycle Bin? Your servers and worlds "
+                        "are not affected."))
+        text.setWordWrap(True)
+        layout.addWidget(text)
+        self.boxes = []
+        for path in files:
+            try:
+                st = path.stat()
+                info = f"{st.st_size / 1e6:.0f} MB · {time.strftime('%Y-%m-%d', time.localtime(st.st_mtime))}"
+            except OSError:
+                info = ""
+            box = QCheckBox(f"{path.name}   ({info})" if info else path.name)
+            box.setToolTip(str(path))
+            box.setChecked(True)
+            layout.addWidget(box)
+            self.boxes.append((box, path))
+        buttons = QDialogButtonBox()
+        set_kind(buttons.addButton(t("Move to Recycle Bin"), QDialogButtonBox.AcceptRole), "primary")
+        buttons.addButton(t("Keep them"), QDialogButtonBox.RejectRole)
+        buttons.accepted.connect(self._remove)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _remove(self):
+        failed = []
+        for box, path in self.boxes:
+            if not box.isChecked():
+                continue
+            result = QFile.moveToTrash(str(path))
+            ok = result[0] if isinstance(result, tuple) else bool(result)
+            if not ok or path.exists():
+                failed.append(path.name)  # e.g. still running
+        if failed:
+            QMessageBox.warning(self, t("Old Bartizan files"), t(
+                "These couldn't be moved (close them if they're running):\n{files}", files="\n".join(failed)))
+        self.accept()
 
 
 class MainWindow(QMainWindow):
@@ -448,9 +517,42 @@ class MainWindow(QMainWindow):
             old.hide()
             old.deleteLater()
 
+    def _select_folder(self, folder):
+        for i, m in enumerate(self.servers):
+            if m.folder == folder:
+                self.list.setCurrentRow(i)
+                return
+
+    def _ask_unsaved(self):
+        """'save', 'discard' or None (cancel)."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(t("Unsaved changes"))
+        box.setText(t("'{name}' has settings you changed but haven't saved.", name=self.meta.name))
+        save = box.addButton(t("Save"), QMessageBox.AcceptRole)
+        discard = box.addButton(t("Don't save"), QMessageBox.DestructiveRole)
+        box.addButton(t("Cancel"), QMessageBox.RejectRole)
+        box.setDefaultButton(save)
+        box.exec()
+        clicked = box.clickedButton()
+        return "save" if clicked is save else "discard" if clicked is discard else None
+
     def _select(self, row: int):
         if row < 0 or row >= len(self.servers):
             return
+        target = self.servers[row].folder
+        if self.meta is not None and self.meta.folder != target and self.settings_tab.has_unsaved():
+            choice = self._ask_unsaved()
+            if choice != "discard":
+                prev = next((i for i, m in enumerate(self.servers) if m.folder == self.meta.folder), -1)
+                self.list.blockSignals(True)  # stay on the edited server
+                self.list.setCurrentRow(prev)
+                self.list.blockSignals(False)
+                if choice == "save":
+                    self.settings_tab.save()
+                    if not self.settings_tab.has_unsaved():
+                        QTimer.singleShot(0, lambda: self._select_folder(target))
+                return
         changed = self.meta is None or self.meta.folder != self.servers[row].folder or self.stack.currentIndex() != 1
         if changed:  # switching servers blends the old one into the new one
             anim.crossfade(self.stack)
@@ -499,7 +601,7 @@ class MainWindow(QMainWindow):
             f'{html.escape(m.software_name)} {html.escape(m.mc_version)}{sep}'
             + html.escape(t("Memory {n} GB", n=m.ram_mb // 1024)))
         running = self.runner.is_running(self.key)
-        self.btn_start.setEnabled(not running and self.key not in _starting)
+        self.btn_start.setEnabled(not running and self.key not in self.runner.pending)
         self.btn_stop.setEnabled(running)  # while stopping too: pressing again re-sends "stop"
         self.btn_stop.setText(t("Stopping...") if state == STOPPING else t("Stop"))
         self.btn_stop_more.setEnabled(running)
@@ -524,12 +626,24 @@ class MainWindow(QMainWindow):
             for tab in self.all_tabs:
                 tab.on_state()
 
+    def _refresh_tabs(self):
+        self._update_header()
+        for tab in self.all_tabs:
+            tab.on_state()
+
     # ------------------------------------------------------------------
 
     def open_preferences(self):
-        dlg = PreferencesDialog(self, self.settings, lambda: self.check_updates(manual=True))
+        dlg = PreferencesDialog(self, self.settings, lambda: self.check_updates(manual=True), self.servers)
         if not dlg.exec():
             return
+        if autostart.supported():
+            on = dlg.autostart.isChecked()
+            self.settings.autostart_server = dlg.autostart_server.currentData() if on else ""
+            try:
+                autostart.set_enabled(on, dlg.autostart_min.isChecked())
+            except OSError as e:
+                QMessageBox.warning(self, t("Startup"), t("Couldn't change the Windows startup setting: {err}", err=e))
         new_theme, new_lang = dlg.theme.currentData(), dlg.language.currentData()
         changed_lang = new_lang != self.settings.language
         self.settings.theme, self.settings.language = new_theme, new_lang
@@ -538,6 +652,7 @@ class MainWindow(QMainWindow):
         apply_low_resource(self.runner, self.settings.low_resource)
         if changed_lang:
             set_language(new_lang)  # before theme.apply: the font depends on the language
+            install_qt_translation(QApplication.instance(), new_lang)
         theme.apply(QApplication.instance(), new_theme)
         if changed_lang:
             # rebuild the window in the new language; running servers keep running
@@ -606,10 +721,8 @@ class MainWindow(QMainWindow):
         if not task_dlg.succeeded():
             return
         new_exe = task_dlg.result_value
-        if self.runner.any_running():
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            self.runner.stop_all()
-            QApplication.restoreOverrideCursor()
+        if not wait_for_stop(self):
+            return
         try:
             updater.install_and_restart(new_exe)
         except OSError as e:
@@ -641,23 +754,45 @@ class MainWindow(QMainWindow):
         run_async(lambda task: updater.check(current="0"), got,
                   lambda msg: QMessageBox.warning(self, t("Install Bartizan"), msg))
 
+    def offer_cleanup(self):
+        """The installed app looks once for old downloaded copies (Bartizan (1).exe, ...) that make
+        it hard to tell which one is current, and offers to move them to the Recycle Bin."""
+        if not updater.is_installed() or self.settings.old_exes_checked:
+            return
+
+        def found(files):
+            self.settings.old_exes_checked = True
+            self.settings.save()
+            if files:
+                OldCopiesDialog(self, files).exec()
+
+        run_async(lambda task: updater.old_copies(), found, lambda _m: None)
+
     def show_whats_new_if_updated(self):
-        """After an update, show the notes for this version once."""
+        """After an update, show the notes for this version once. Never again for it, and never
+        for an older copy started later (old downloaded EXEs would show theirs every time)."""
         previous = self.settings.last_run_version
+        seen = self.settings.notes_seen_version or previous
+        newer = updater.parse_version(APP_VERSION) > updater.parse_version(seen) if seen else False
         self.settings.last_run_version = APP_VERSION
+        if newer or not seen:
+            self.settings.notes_seen_version = APP_VERSION
         self.settings.save()
-        if previous and previous != APP_VERSION:
+        if newer:
             notes = updater.bundled_notes(APP_VERSION, self.settings.language)
             if notes:
                 UpdateDialog(self, t("What's new"), t("Updated to v{v}", v=APP_VERSION), notes).exec()
 
     def create_server(self):
         dlg = CreateServerDialog(self)
-        if not dlg.exec() or not dlg.options:
-            return
-        opts = dlg.options
-        task_dlg = TaskDialog(self, t("Creating server..."), lambda task: srv.create_server(opts, task))
-        task_dlg.exec()
+        while True:  # a failed attempt goes back to the filled-in form, nothing has to be typed again
+            if not dlg.exec() or not dlg.options:
+                return
+            opts = dlg.options
+            task_dlg = TaskDialog(self, t("Creating server..."), lambda task, o=opts: srv.create_server(o, task))
+            task_dlg.exec()
+            if task_dlg.succeeded():
+                break
         if task_dlg.succeeded():
             meta = task_dlg.result_value
             self.reload(select_folder=meta.folder)
@@ -669,7 +804,10 @@ class MainWindow(QMainWindow):
             )
 
     def start_server(self):
-        if not self.meta or self.runner.is_running(self.key) or self.key in _starting:
+        if not self.meta or self.runner.is_running(self.key) or self.key in self.runner.pending:
+            return
+        if self.key in self.runner.busy:  # a world import or upgrade is changing its files
+            QMessageBox.information(self, t("Start"), t("Wait until the current task on this server is finished."))
             return
         meta = self.meta
         srv.end_offline_session(meta)  # left over if the app closed while an offline run was going
@@ -679,14 +817,16 @@ class MainWindow(QMainWindow):
         # Online mode needs Mojang's sign-in servers. Without internet nobody could join
         # ("Authentication servers are down"), so offer an offline run first.
         key = str(meta.folder)
-        _starting.add(key)  # no second Start / Delete while we check
+        self.runner.pending.add(key)  # no second Start, Delete or world change while we check
         self.btn_start.setEnabled(False)
+        self._refresh_tabs()
 
         def checked(has_net):
-            _starting.discard(key)
+            self.runner.pending.discard(key)
+            win = current_window() or self  # the window may have been rebuilt (language change)
+            win._refresh_tabs()
             if not meta.folder.exists():
                 return  # deleted meanwhile
-            win = current_window() or self  # the window may have been rebuilt (language change)
             if win.key == key:
                 win._update_header()  # re-enable Start (the selected meta may be a newer object)
             if not has_net:
@@ -751,8 +891,9 @@ class MainWindow(QMainWindow):
             self.runner.system_line(key, t("Starting the playit.gg tunnel..."))
             self.tunnel.start()
         if meta.upnp:
-            port = meta.properties().get_int("server-port", 25565)
+            port = self.runner.port(key, meta)
             udp = udp_ports(meta)
+            _opened_ports[key] = (port, udp)
             self.runner.system_line(key, t("Opening router port {port} (UPnP)...", port=port))
 
             def done(res):
@@ -773,11 +914,13 @@ class MainWindow(QMainWindow):
     def _close_auto_port(self, meta: srv.ServerMeta):
         """The router mapping opened at start is removed again when the server stops, so the
         router doesn't keep forwarding to whatever device gets this PC's address later."""
-        try:
-            port = meta.properties().get_int("server-port", 25565)
-            udp = udp_ports(meta)
-        except OSError:
-            return
+        opened = _opened_ports.pop(str(meta.folder), None)
+        if opened is None:  # opened by an earlier run of the app: settings are the best guess
+            try:
+                opened = (meta.properties().get_int("server-port", 25565), udp_ports(meta))
+            except OSError:
+                return
+        port, udp = opened
         run_async(lambda task: network.close_port(port, udp_ports=udp), lambda _r: None, lambda _m: None)
 
     # ------------------------------------------------------- server list menu
@@ -821,7 +964,7 @@ class MainWindow(QMainWindow):
             self.reload(select_folder=dlg.result_value.folder)
 
     def delete_server(self, meta: srv.ServerMeta):
-        if self.runner.is_running(str(meta.folder)) or str(meta.folder) in _starting:
+        if self.runner.is_running(str(meta.folder)) or str(meta.folder) in self.runner.pending:
             return
         answer = QMessageBox.question(
             self, t("Delete server"),
@@ -859,16 +1002,16 @@ class MainWindow(QMainWindow):
     def _stop_slow(self, key: str):
         if key != self.key or not self.isVisible() or _quitting["now"]:
             return
-        if QMessageBox.question(self, t("Stop"), t(
+        if ask(self, t("Stop"), t(
                 "The server is still running a minute after Stop. A big world can take a while to save.\n\n"
-                "Force stop now? Changes since the last save can be lost.")) == QMessageBox.Yes:
+                "Force stop now? Changes since the last save can be lost."),
+                t("Force stop"), t("Keep waiting"), danger=True):
             if self.runner.is_running(key):
                 self.runner.kill(key)
 
     def _kill(self):
-        if QMessageBox.question(
-            self, t("Kill"), t("Force stop without saving? The world may be damaged.")
-        ) == QMessageBox.Yes:
+        if ask(self, t("Kill"), t("Force stop without saving? The world may be damaged."),
+               t("Force stop"), t("Keep running"), danger=True):
             self.runner.kill(self.key)
 
     def closeEvent(self, event):
@@ -895,8 +1038,10 @@ class MainWindow(QMainWindow):
             if box.clickedButton() is not stop:
                 event.ignore()
                 return
-        quit_app(self)
-        event.accept()
+        if quit_app(self):
+            event.accept()
+        else:
+            event.ignore()
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -918,6 +1063,7 @@ _windows: List[MainWindow] = []  # keep windows alive
 _tray: dict = {}
 _update: dict = {"info": None}  # newest release found by the update check
 _quitting = {"now": False}
+_opened_ports: dict = {}  # server folder -> (TCP port, UDP ports) opened on the router at start
 
 
 def current_window() -> Optional[MainWindow]:
@@ -947,16 +1093,63 @@ def show_window():
         win.activateWindow()
 
 
-def quit_app(win: Optional[MainWindow] = None):
-    """Stop servers safely and exit."""
+def wait_for_stop(win: MainWindow) -> bool:
+    """Ask every server to save and stop, and wait as long as saving takes: a big world can need
+    minutes. A force stop is offered after a while but never done without asking.
+    False = the user cancelled (the servers still stop)."""
+    runner = win.runner
+    runner.request_stop_all()
+    if not runner.any_running():
+        return True
+    dlg = QDialog(win)
+    dlg.setWindowTitle(t("Stopping servers"))
+    lay = QVBoxLayout(dlg)
+    label = QLabel(t("Saving the world and stopping the servers..."))
+    label.setWordWrap(True)
+    lay.addWidget(label)
+    bar = QProgressBar()
+    bar.setRange(0, 0)
+    bar.setTextVisible(False)
+    lay.addWidget(bar)
+    row = QHBoxLayout()
+    row.addStretch(1)
+    force = QPushButton(t("Force stop"))
+    force.setProperty("kind", "stop")
+    force.setVisible(False)
+    cancel = QPushButton(t("Cancel"))
+    row.addWidget(force)
+    row.addWidget(cancel)
+    lay.addLayout(row)
+    dlg.setMinimumWidth(420)
+
+    def slow():
+        label.setText(t("Still saving. A big world can take a few minutes.\n\n"
+                        "Force stop only if it seems stuck: changes since the last save can be lost."))
+        force.setVisible(True)
+
+    def kill_all():
+        for key in list(runner.procs):
+            runner.kill(key)
+
+    poll = QTimer(dlg)
+    poll.timeout.connect(lambda: runner.any_running() or dlg.accept())
+    poll.start(200)
+    patience = QTimer(dlg)
+    patience.setSingleShot(True)
+    patience.timeout.connect(slow)
+    patience.start(runner.STOP_PATIENCE_MS)
+    force.clicked.connect(kill_all)
+    cancel.clicked.connect(dlg.reject)
+    return dlg.exec() == QDialog.Accepted or not runner.any_running()
+
+
+def quit_app(win: Optional[MainWindow] = None) -> bool:
+    """Stop servers safely and exit. False = the user cancelled while servers were saving."""
     win = win or current_window()
     runner = win.runner if win else None
     if runner and runner.any_running():
-        if win:
-            win.setEnabled(False)
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        runner.stop_all()
-        QApplication.restoreOverrideCursor()
+        if win is None or not wait_for_stop(win):
+            return False
     if win and win.tunnel:
         win.tunnel.stop()
     wait_all()
@@ -1102,6 +1295,36 @@ def _selftest_log():
     return write
 
 
+_qt_translator: dict = {}
+
+
+def install_qt_translation(app: QApplication, lang: str) -> None:
+    """Qt's own words (Yes / No / Cancel / Close in standard dialogs) in the app's language."""
+    from PySide6.QtCore import QLibraryInfo, QTranslator
+
+    old = _qt_translator.pop("t", None)
+    if old is not None:
+        app.removeTranslator(old)
+    if lang == "en":
+        return
+    tr = QTranslator(app)
+    if tr.load(f"qtbase_{lang}", QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
+        app.installTranslator(tr)
+        _qt_translator["t"] = tr
+
+
+def _autostart_server(folder: str):
+    """Windows started the app: start the server chosen in the app settings."""
+    win = current_window()
+    if not win:
+        return
+    for meta in win.servers:
+        if str(meta.folder) == folder:
+            win._select_folder(meta.folder)
+            win.start_server()
+            return
+
+
 def main():
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     if sys.platform == "win32":
@@ -1125,6 +1348,7 @@ def main():
     if not _single_instance(app):
         return 0  # already running: that copy was asked to show its window
     app.setApplicationName(APP_NAME)
+    install_qt_translation(app, settings.language)
     app.setQuitOnLastWindowClosed(False)  # the tray keeps the app alive
     theme.apply(app, settings.theme)
     runner = ServerRunner(app)
@@ -1133,11 +1357,18 @@ def main():
     tunnel = TunnelManager(settings, app)
     win = MainWindow(runner, settings, tunnel)
     _windows.append(win)
+    startup = autostart.STARTUP_FLAG in sys.argv  # started by Windows at sign-in
+    autostart.refresh_path()
     # Windows logoff/shutdown or any other way out of the event loop: still stop servers with a save
     app.aboutToQuit.connect(lambda: runner.any_running() and runner.stop_all(20000))
     app.commitDataRequest.connect(lambda _m: runner.any_running() and runner.stop_all(20000))
-    win.show()
+    if startup and autostart.MINIMIZED_FLAG in sys.argv and QSystemTrayIcon.isSystemTrayAvailable():
+        tray_message(t("{app} is running. Open it from the tray icon.", app=APP_NAME))
+    else:
+        win.show()
     selftest("window shown")
+    if startup and settings.autostart_server:
+        QTimer.singleShot(3000, lambda: _autostart_server(settings.autostart_server))
     if os.environ.pop("BARTIZAN_UPDATE_FAILED", ""):
         QTimer.singleShot(500, lambda: QMessageBox.warning(win, t("Update"), t(
             "The update couldn't replace Bartizan.exe (the file was locked, e.g. by antivirus). "
@@ -1146,6 +1377,7 @@ def main():
     QTimer.singleShot(400, win.show_whats_new_if_updated)
     if not os.environ.get("BARTIZAN_SELFTEST"):
         QTimer.singleShot(1500, lambda: current_window() and current_window().offer_install())
+        QTimer.singleShot(2500, lambda: current_window() and current_window().offer_cleanup())
     if not os.environ.get("BARTIZAN_SELFTEST") and settings.last_update_check != time.strftime("%Y-%m-%d"):
         QTimer.singleShot(4000, lambda: current_window() and current_window().check_updates(manual=False))
     if moved:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QCursor, QGuiApplication, QImage
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMessageBox, QToolButton, QVBoxLayout, QWidget
 from mc_server_maker.core import paths
 from mc_server_maker.gui import theme
 from mc_server_maker.i18n import t
@@ -83,6 +83,21 @@ def with_note(widget, text: str) -> QWidget:
 
 
 STATUS_COLORS = {"ok": "ok", "wait": "warn", "warn": "warn", "fail": "danger", "off": "disabled"}
+
+
+def ask(parent, title: str, text: str, yes: str, no: str, danger: bool = False) -> bool:
+    """A confirmation whose buttons say what they do ("Force stop" / "Keep running"), not Yes / No."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Warning if danger else QMessageBox.Question)
+    box.setWindowTitle(title)
+    box.setText(text)
+    ok = box.addButton(yes, QMessageBox.AcceptRole)
+    if danger:
+        ok.setProperty("kind", "stop")
+    cancel = box.addButton(no, QMessageBox.RejectRole)
+    box.setDefaultButton(cancel if danger else ok)  # Enter never does the risky thing
+    box.exec()
+    return box.clickedButton() is ok
 
 
 def set_status(label: QLabel, state: str, text: str, rich: bool = False) -> None:

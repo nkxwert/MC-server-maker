@@ -321,7 +321,7 @@ def create_server(opts: CreateOptions, task: Optional[Task] = None) -> ServerMet
 
         if opts.world.mode == "import":
             task.log(t("Importing world..."))
-            import_world(folder, Path(opts.world.import_path), "world")
+            import_world(folder, Path(opts.world.import_path), "world", opts.software, task)
 
         meta = ServerMeta(
             name=opts.name,
@@ -433,10 +433,13 @@ def upgrade_server(
 def _merge_dimensions(meta: ServerMeta, task: Task) -> None:
     """Paper keeps the Nether and End in world_nether/DIM-1 and world_the_end/DIM1; vanilla
     and mod loaders expect them inside world/. Move them back so they aren't regenerated."""
-    level = level_name(meta)
-    world = meta.folder / level
+    _merge_dimensions_in(meta.folder, level_name(meta), task)
+
+
+def _merge_dimensions_in(base: Path, level: str, task: Task) -> None:
+    world = base / level
     for folder, dim in ((f"{level}_nether", "DIM-1"), (f"{level}_the_end", "DIM1")):
-        src = meta.folder / folder / dim
+        src = base / folder / dim
         if not src.is_dir():
             continue
         dest = world / dim
@@ -447,12 +450,42 @@ def _merge_dimensions(meta: ServerMeta, task: Task) -> None:
         if dest.exists():
             dest.rmdir()
         shutil.move(str(src), str(dest))
-        leftover = meta.folder / folder
+        leftover = base / folder
         try:  # only Paper's bookkeeping files are left; the backup has them anyway
             shutil.rmtree(leftover)
         except OSError:
             pass
         task.log(t("Moved {folder} into {world}.", folder=folder, world=level))
+
+
+def _split_dimensions_in(base: Path, level: str, task: Task) -> None:
+    """The reverse, for Paper/Purpur: world/DIM-1 -> world_nether/DIM-1, world/DIM1 -> world_the_end/DIM1."""
+    world = base / level
+    for folder, dim in ((f"{level}_nether", "DIM-1"), (f"{level}_the_end", "DIM1")):
+        src = world / dim
+        if not src.is_dir():
+            continue
+        dest = base / folder / dim
+        if dest.exists() and any(dest.iterdir()):
+            task.log(t("{dim} already exists in {world}; left {folder} as it is.",
+                       dim=dim, world=folder, folder=f"{level}/{dim}"))
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            dest.rmdir()
+        shutil.move(str(src), str(dest))
+        # like Paper's own migration: the dimension world gets the seed etc. from level.dat
+        if (world / "level.dat").is_file() and not (dest.parent / "level.dat").exists():
+            shutil.copy2(world / "level.dat", dest.parent / "level.dat")
+        task.log(t("Moved {folder} into {world}.", folder=f"{level}/{dim}", world=folder))
+
+
+def _fit_dimensions(base: Path, level: str, software: str, task: Task) -> None:
+    """Put an imported world's Nether/End where this server's software reads them."""
+    if software in SPLIT_DIMENSIONS:
+        _split_dimensions_in(base, level, task)
+    else:
+        _merge_dimensions_in(base, level, task)
 
 
 def change_java(meta: ServerMeta, auto_java: bool, task: Optional[Task] = None) -> ServerMeta:
@@ -496,7 +529,7 @@ def backup_server(meta: ServerMeta, label: str = "", worlds_only: bool = False, 
     backups.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     safe_label = re.sub(r"[^\w.-]", "_", label)
-    dest = backups / f"{stamp}{'-' + safe_label if safe_label else ''}.zip"
+    base = f"{stamp}{'-' + safe_label if safe_label else ''}"
     if worlds_only:
         roots = [d for d in world_dirs(meta) if d.exists()]
     else:
@@ -508,10 +541,22 @@ def backup_server(meta: ServerMeta, label: str = "", worlds_only: bool = False, 
         else:
             files.extend(p for p in root.rglob("*") if p.is_file())
     task.log(t("Backing up... ({n} files)", n=len(files)))
-    part = dest.with_name(dest.name + ".part")  # renamed only when complete
+    # two backups in the same second get -2, -3...: never overwrite one
+    n = 1
+    while True:
+        dest = backups / f"{base}{'-' + str(n) if n > 1 else ''}.zip"
+        part = dest.with_name(dest.name + ".part")  # renamed only when complete
+        if not dest.exists():
+            try:
+                # strict_timestamps=False: a file dated before 1980 (from a jar, a wrong clock) mustn't stop the backup
+                # "x": another backup writing this name right now keeps it
+                zf = zipfile.ZipFile(part, "x", zipfile.ZIP_DEFLATED, strict_timestamps=False)
+                break
+            except FileExistsError:
+                pass
+        n += 1
     try:
-        # strict_timestamps=False: a file dated before 1980 (from a jar, a wrong clock) mustn't stop the backup
-        with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as z:
+        with zf as z:
             for i, f in enumerate(files):
                 task.check()
                 if f.name == "session.lock":
@@ -534,6 +579,38 @@ def list_backups(meta: ServerMeta) -> List[Path]:
 # ------------------------------------------------------------------ worlds
 
 
+WORLD_SEARCH_DEPTH = 8  # how deep to look for level.dat (a picked home folder mustn't be walked forever)
+
+
+def _world_rank(rel: str):
+    """Sort key for a folder holding level.dat: shallowest first, the overworld before
+    world_nether / world_the_end (a backup holds all three), then by name."""
+    parts = [p for p in rel.split("/") if p]
+    return len(parts), bool(parts) and parts[-1].endswith(("_nether", "_the_end")), rel
+
+
+def _safe_member(name: str) -> bool:
+    parts = name.replace("\\", "/").split("/")
+    return not (name.startswith(("/", "\\")) or ":" in name or ".." in parts)
+
+
+def _find_world_dir(src: Path) -> Optional[Path]:
+    """The shallowest folder under src (src included) that holds level.dat."""
+    level = [src]
+    for _ in range(WORLD_SEARCH_DEPTH + 1):
+        hits = [d for d in level if (d / "level.dat").is_file()]
+        if hits:
+            return min(hits, key=lambda d: _world_rank(d.relative_to(src).as_posix() if d != src else ""))
+        below = []
+        for d in level:
+            try:
+                below.extend(s for s in d.iterdir() if s.is_dir() and not s.is_symlink())
+            except OSError:
+                pass  # unreadable folder
+        level = below
+    return None
+
+
 def find_world_root(src: Path) -> Path:
     """Locate level.dat inside a folder or zip (returns the folder, or the zip path)."""
     if not str(src).strip():
@@ -542,51 +619,63 @@ def find_world_root(src: Path) -> Path:
     if not src.exists():
         raise ServerError(t("World path does not exist: {path}", path=src))
     if src.is_dir():
-        if (src / "level.dat").exists():
-            return src
-        subs = [s for s in sorted(src.iterdir()) if s.is_dir() and (s / "level.dat").exists()]
-        # a backup holds world, world_nether and world_the_end: the overworld is the main one
-        main = [s for s in subs if not s.name.endswith(("_nether", "_the_end"))]
-        if main or subs:
-            return (main or subs)[0]
+        found = _find_world_dir(src)
+        if found:
+            return found
         raise ServerError(t("No level.dat found in that folder. Choose a world folder."))
     if zipfile.is_zipfile(src):
         with zipfile.ZipFile(src) as z:
-            if not any(n.endswith("level.dat") and n.count("/") <= 1 for n in z.namelist()):
+            # any depth: a server with level-name "worlds/main" backs up worlds/main/level.dat
+            if not any((n == "level.dat" or n.endswith("/level.dat")) and _safe_member(n)
+                       and n.count("/") <= WORLD_SEARCH_DEPTH for n in z.namelist()):
                 raise ServerError(t("The zip file has no level.dat."))
         return src
     raise ServerError(t("A world must be a folder or a .zip file."))
 
 
-def import_world(server_dir: Path, src: Path, level_name: str = "world") -> None:
+def import_world(server_dir: Path, src: Path, level_name: str = "world", software: str = "",
+                 task: Optional[Task] = None) -> None:
+    """Copy a world (folder or zip) in. With software, its Nether/End are moved to where that
+    software reads them (Paper: world_nether/DIM-1, the others: world/DIM-1)."""
+    task = task or Task()
     root = find_world_root(src)
     dest = Path(server_dir) / level_name
     if dest.exists():
         shutil.rmtree(dest)
     if root.is_dir():
-        _copy_world(root, Path(server_dir), level_name)
-        return
-    with tempfile.TemporaryDirectory(dir=server_dir) as tmp:
-        tmp_path = Path(tmp).resolve()
-        with zipfile.ZipFile(root) as z:
-            for name in z.namelist():
-                if not (tmp_path / name).resolve().is_relative_to(tmp_path):
-                    raise ServerError(t("The archive contains an invalid path."))
-            z.extractall(tmp_path)
-        _copy_world(find_world_root(tmp_path), Path(server_dir), level_name)
+        _copy_world(root, Path(server_dir), level_name, task)
+    else:
+        with tempfile.TemporaryDirectory(dir=server_dir) as tmp:
+            tmp_path = Path(tmp).resolve()
+            with zipfile.ZipFile(root) as z:
+                for name in z.namelist():
+                    if not (tmp_path / name).resolve().is_relative_to(tmp_path):
+                        raise ServerError(t("The archive contains an invalid path."))
+                for info in z.infolist():
+                    task.check()
+                    z.extract(info, tmp_path)
+            _copy_world(find_world_root(tmp_path), Path(server_dir), level_name, task)
+    if software:
+        _fit_dimensions(Path(server_dir), level_name, software, task)
 
 
-def _copy_world(root: Path, server_dir: Path, level_name: str) -> None:
+def _copy_world(root: Path, server_dir: Path, level_name: str, task: Optional[Task] = None) -> None:
     """Copy a world folder, plus "<name>_nether" / "<name>_the_end" next to it (Paper/Spigot layout)."""
+    task = task or Task()
     ignore = shutil.ignore_patterns("session.lock")
-    shutil.copytree(root, server_dir / level_name, ignore=ignore)
+
+    def copy(s, d):
+        task.check()  # cancelled: stop between files
+        return shutil.copy2(s, d)
+
+    shutil.copytree(root, server_dir / level_name, ignore=ignore, copy_function=copy)
     for suffix in ("_nether", "_the_end"):
         extra = root.with_name(root.name + suffix)
         if extra.is_dir() and extra != root:
             target = server_dir / (level_name + suffix)
             if target.exists():
                 shutil.rmtree(target)
-            shutil.copytree(extra, target, ignore=ignore)
+            shutil.copytree(extra, target, ignore=ignore, copy_function=copy)
 
 
 def _remove_worlds(meta: ServerMeta) -> None:
@@ -608,7 +697,8 @@ def replace_world_with_import(meta: ServerMeta, src: Path, task: Optional[Task] 
     # copy/extract next to the server first; the current world is removed only once that worked
     with tempfile.TemporaryDirectory(dir=meta.folder, prefix=".import-") as tmp:
         staging = Path(tmp)
-        import_world(staging, src, level)
+        import_world(staging, src, level, meta.software, task)
+        task.check()  # last chance to cancel: the old world is untouched until here
         _remove_worlds(meta)
         for name in (level, f"{level}_nether", f"{level}_the_end"):  # level-name may be "worlds/main"
             if (staging / name).exists():

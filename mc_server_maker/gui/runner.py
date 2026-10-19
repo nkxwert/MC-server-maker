@@ -54,6 +54,10 @@ class ServerRunner(QObject):
         self.low_priority = True  # run servers below normal priority (low-resource mode)
         self._partial: Dict[str, str] = {}
         self._decoders: Dict[str, codecs.IncrementalDecoder] = {}  # keeps characters split across reads
+        self.pending: Set[str] = set()  # servers whose Start waits for the internet check
+        self.busy: Set[str] = set()  # servers whose files are being changed (world import, upgrade...)
+        self._killed: Set[str] = set()
+        self.ports: Dict[str, int] = {}  # the port each server was started with (settings may change meanwhile)
 
     # ------------------------------------------------------------------ state
 
@@ -198,6 +202,10 @@ class ServerRunner(QObject):
         self.player_ips[key] = {}
         self._partial[key] = ""
         self._decoders.pop(key, None)
+        try:
+            self.ports[key] = meta.properties().get_int("server-port", 25565)
+        except OSError:
+            self.ports.pop(key, None)
         self.started_at[key] = time.time()
         self._counted_until[key] = self.started_at[key]
         self.system_line(key, t("Starting: {cmd}", cmd=" ".join(cmd)))
@@ -224,7 +232,15 @@ class ServerRunner(QObject):
         self._count_uptime(key)
         self._counted_until.pop(key, None)
         self._last_autosave.pop(key, None)
-        self.system_line(key, t("Server stopped (exit code {code}).", code=code))
+        if key in self._killed:
+            self.system_line(key, t("Server force stopped."))
+        elif code == 0 or self.state(key) == STOPPING:
+            self.system_line(key, t("Server stopped (exit code {code}).", code=code))
+        else:  # nobody asked it to stop: a crash or a failed start
+            self.system_line(key, t(
+                "The server stopped unexpectedly (exit code {code}). The red lines above usually say why; "
+                "to ask for help, copy the log.", code=code))
+        self._killed.discard(key)
         self.players[key] = set()
         self.players_changed.emit(key)
         self._set_state(key, STOPPED)
@@ -270,6 +286,7 @@ class ServerRunner(QObject):
 
     def kill(self, key: str) -> None:
         if self.is_running(key):
+            self._killed.add(key)
             self.procs[key].kill()
 
     def clear_log(self, key: str) -> None:
@@ -282,8 +299,22 @@ class ServerRunner(QObject):
         if self.procs.get(key) is not None:
             self.procs[key].deleteLater()
         for store in (self.logs, self.players, self.player_ips, self.started_at, self._counted_until,
-                      self._totals, self.metas, self._partial, self._decoders, self.status, self.procs):
+                      self._totals, self.metas, self.ports, self._partial, self._decoders, self.status, self.procs):
             store.pop(key, None)
+
+    def request_stop_all(self) -> None:
+        """Ask every running server to save and stop, without waiting."""
+        for key in list(self.procs):
+            if self.is_running(key) and self.state(key) != STOPPING:
+                self.system_line(key, t("Stopping: saving the world..."))
+                self.send(key, "stop")
+                self._set_state(key, STOPPING)
+
+    def port(self, key: str, meta: srv.ServerMeta) -> int:
+        """The port the server listens on: the one it started with while it runs."""
+        if self.is_running(key) and key in self.ports:
+            return self.ports[key]
+        return meta.properties().get_int("server-port", 25565)
 
     def stop_all(self, timeout_ms: int = 30000) -> None:
         for key in list(self.procs):

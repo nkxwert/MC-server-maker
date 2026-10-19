@@ -70,6 +70,33 @@ def is_public(ip: str) -> bool:
         return False
 
 
+_CARRIER_NAT = ipaddress.ip_network("100.64.0.0/10")
+
+
+def is_carrier_nat(ip: str) -> bool:
+    """An address the internet provider shares between many homes (phone hotspots, some lines)."""
+    try:
+        return ipaddress.ip_address(ip) in _CARRIER_NAT
+    except ValueError:
+        return False
+
+
+def connection_kind(lan: str) -> str:
+    """How this PC reaches the internet, judged from its own address:
+    'direct' (a public address: no router, nothing to forward), 'carrier' (the provider's shared
+    address: forwarding can't work) or 'router' (a home router's private address)."""
+    if is_public(lan):
+        return "direct"
+    if is_carrier_nat(lan):
+        return "carrier"
+    return "router"
+
+
+def hide_public(ip: str) -> str:
+    """Mask an address only when it's a public one (private ones identify nobody)."""
+    return mask_ip(ip) if is_public(ip) else ip
+
+
 def has_internet(timeout: float = 2.0) -> bool:
     """Can we reach Mojang's login servers? (Needed for online-mode sign-in.)"""
     for host in ("sessionserver.mojang.com", "api.minecraftservices.com"):
@@ -387,6 +414,14 @@ class RouterCheck:
     wan_ip: str = ""  # the router's own internet address (UPnP), "" if unknown
     public_ip: str = ""  # this connection's address as the internet sees it
     double_nat: bool = False  # the router's internet side is private: another router / carrier NAT
+
+    @property
+    def kind(self) -> str:
+        """'direct', 'carrier' or 'router' (see connection_kind); a carrier-NAT router counts as 'carrier'."""
+        kind = connection_kind(self.lan_ip) if self.lan_ip else "router"
+        if kind == "router" and is_carrier_nat(self.wan_ip):
+            return "carrier"
+        return kind
 
     @property
     def guide_key(self) -> str:

@@ -3,6 +3,44 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.24.0
+### en
+- **No more data loss on quit or update**: servers are no longer force-stopped after 30 seconds. Bartizan waits while a big world is saving and only offers a force stop (never does it on its own).
+- **Direct internet connection** (no router, the PC has a public address): the Network tab says so, no port forwarding is needed, and it tells you what to check instead. A provider-shared address (carrier NAT, phone hotspots) points you to the tunnel.
+- Diagnostic info no longer shows the PC's real address when it is a public one.
+- New in App settings: **start Bartizan when Windows starts**, optionally in the tray and starting a chosen server.
+- The installed app offers once to move old downloaded copies (Bartizan (1).exe, ...) to the Recycle Bin.
+- "What's new" is shown only once per version, also when an old copy was opened in between.
+- Fixed: cancelling a world import still replaced the world.
+- Fixed: Nether and End went missing when importing a Paper world into a Vanilla/Fabric/Forge server (and the other way round).
+- Fixed: two backups in the same second overwrote each other; backups of a world in a sub-folder couldn't be imported.
+- Fixed: a world import or upgrade could overlap with a server start.
+- Fixed: mod/plugin updates now install newly required dependencies.
+- Fixed: the tunnel address of another server was shown after switching servers.
+- Fixed: changing the port while running closed the wrong router port at stop.
+- Fixed: unsaved settings were lost when switching servers (you're now asked to save).
+- Fixed: turning the whitelist off while the server runs now takes effect right away.
+- Clearer failures: a plain cause with **Try again**, the create form comes back filled in, and a crash is told apart from a normal stop.
+- Design: readable white text on dark-theme buttons, keyboard focus is visible, private addresses can be shown with a button, Qt dialogs (Yes/No/Cancel) in Korean, the first start follows the system language, and Korean texts use one friendly tone.
+### ko
+- **종료·업데이트 때 데이터 손실 방지**: 30초 뒤 서버를 강제로 끄지 않아요. 큰 월드가 저장되는 동안 기다리고, 강제 종료는 물어보기만 해요 (스스로 하지 않아요).
+- **공유기 없이 인터넷에 직접 연결된 PC**: 네트워크 탭이 이를 알려 주고, 포트포워딩 없이 무엇을 확인하면 되는지 안내해요. 통신사가 나눠 쓰는 주소(통신사 NAT, 휴대폰 핫스팟)면 터널을 쓰라고 안내해요.
+- 진단 정보 복사에서 이 PC 주소가 공인 IP일 때 더 이상 그대로 보이지 않아요.
+- 앱 설정에 **Windows를 켜면 Bartizan 실행** 추가: 트레이에서 조용히 시작하고, 고른 서버도 같이 켤 수 있어요.
+- 설치형 앱이 예전에 다운로드한 파일(Bartizan (1).exe 등)을 휴지통으로 옮길지 한 번 물어봐요.
+- "새로운 기능"은 버전마다 한 번만 나와요 (중간에 예전 파일을 켰더라도).
+- 고침: 월드 가져오기를 취소해도 월드가 바뀌던 문제.
+- 고침: Paper 월드를 Vanilla/Fabric/Forge 서버로 가져오면 네더·엔드가 사라지던 문제 (반대 방향도).
+- 고침: 같은 초에 만든 백업이 서로 덮어쓰던 문제, 하위 폴더 월드의 백업을 다시 가져오지 못하던 문제.
+- 고침: 월드 가져오기·업데이트와 서버 시작이 겹칠 수 있던 문제.
+- 고침: 모드·플러그인 업데이트 때 새로 필요해진 의존성도 설치해요.
+- 고침: 서버를 바꿨는데 다른 서버의 터널 주소가 보이던 문제.
+- 고침: 실행 중 포트를 바꾸면 중지할 때 엉뚱한 공유기 포트를 닫던 문제.
+- 고침: 서버를 바꾸면 저장 안 한 설정이 사라지던 문제 (이제 저장할지 물어봐요).
+- 고침: 서버 실행 중 화이트리스트를 끄면 바로 적용돼요.
+- 실패 안내 개선: 쉬운 원인과 **다시 시도** 버튼, 서버 만들기에 실패하면 입력한 내용 그대로 돌아가고, 비정상 종료와 정상 중지를 구분해요.
+- 디자인 개선: 다크 테마 버튼 글자 대비 개선, 키보드 포커스 표시, 가려진 주소를 버튼으로 보기, 기본 대화상자 버튼(예/아니요/취소) 한국어화, 첫 실행 때 시스템 언어 따르기, 한국어 말투 통일(~해요).
+
 ## 1.23.0
 ### en
 - **Installer**: Bartizan now comes as `Bartizan-Setup.exe`. It installs for your user (no administrator prompt) with Start menu and desktop shortcuts, and can be removed in Windows Settings → Apps. Updates run the installer silently and restart the app.

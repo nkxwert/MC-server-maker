@@ -9,7 +9,7 @@ from collections import deque
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import QEasingCurve, QPointF, Qt, QTimer, QUrl, QVariantAnimation, Signal
+from PySide6.QtCore import QEasingCurve, QPointF, QRectF, Qt, QTimer, QUrl, QVariantAnimation, Signal
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
@@ -170,6 +170,11 @@ class ServerTab(QWidget):
     def running(self) -> bool:
         return bool(self.meta) and self.runner.is_running(self.key)
 
+    @property
+    def locked(self) -> bool:
+        """Running, or about to start: its files must not be changed now."""
+        return self.running or (bool(self.meta) and self.key in self.runner.pending)
+
     def set_server(self, meta: srv.ServerMeta) -> None:
         self.meta = meta
         self.refresh()
@@ -186,8 +191,16 @@ class ServerTab(QWidget):
         self.refresh()
 
     def run_task(self, title: str, fn) -> bool:
-        dlg = TaskDialog(self, title, fn)
-        dlg.exec()
+        key = self.key
+        if key and key in self.runner.busy:
+            return False
+        if key:
+            self.runner.busy.add(key)  # Start waits until the files are changed
+        try:
+            dlg = TaskDialog(self, title, fn)
+            dlg.exec()
+        finally:
+            self.runner.busy.discard(key)
         return dlg.succeeded()
 
 
@@ -750,7 +763,7 @@ class SettingsTab(ServerTab):
              "Turn it off to let non-premium accounts join (anyone can then use any name)."),
             ("pvp", "PvP", ""),
             ("hardcore", "Hardcore", "One life: players become spectators when they die."),
-            ("white-list", "Whitelist only", "Only players on the whitelist (Players tab) can join."),
+            ("white-list", "Whitelist only", "Only players on the whitelist can join. Add a friend in the console: whitelist add <name>"),
             ("allow-flight", "Allow flight", "Stops the server from kicking players for flying. "
              "Turn it on if mods or plugins let players fly."),
             ("enable-command-block", "Command blocks", ""),
@@ -920,9 +933,9 @@ class SettingsTab(ServerTab):
         else:
             set_status(self.bedrock_status, "off", t("Not enabled"))
         self.btn_bedrock.setText(t("Update Geyser") if installed else t("Enable Bedrock join"))
-        self.btn_bedrock.setEnabled(not self.running)
+        self.btn_bedrock.setEnabled(not self.locked)
         self.btn_bedrock_remove.setVisible(installed)
-        self.btn_bedrock_remove.setEnabled(not self.running)
+        self.btn_bedrock_remove.setEnabled(not self.locked)
 
     def _memory_saver_toggled(self, on: bool):
         if on:
@@ -965,6 +978,10 @@ class SettingsTab(ServerTab):
             self._reload_keeping_edits()
         else:
             super().set_server(meta)
+
+    def has_unsaved(self) -> bool:
+        loaded = getattr(self, "_loaded", None)
+        return self.meta is not None and loaded is not None and self._form_state() != loaded
 
     def forget_server(self) -> None:
         super().forget_server()
@@ -1038,6 +1055,10 @@ class SettingsTab(ServerTab):
             self.meta.autosave_minutes = int(self.autosave.currentData() or 0)
         self.meta.save()
         srv.write_start_scripts(self.meta)
+        if self.running and "white-list" in changed:
+            # a running server keeps its own whitelist switch (and writes it back): change it now
+            self.runner.send(self.key, "whitelist on" if state["white-list"] else "whitelist off")
+        self._loaded = state
         self.on_changed()
         QMessageBox.information(self, t("Save"), t("Saved.") + ("\n" + t("Restart the server to apply.") if self.running else ""))
 
@@ -1168,7 +1189,7 @@ class WorldTab(ServerTab):
         self.backup_info.setText(
             t("{n} backups", n=len(backups)) + (f" · {t('latest')}: {backups[0].name}" if backups else "")
         )
-        running = self.running
+        running = self.locked
         self.running_notice.setVisible(running)
         for w in (self.btn_new, self.btn_import_dir, self.btn_import_zip, self.btn_backup):
             w.setEnabled(not running)
@@ -1267,12 +1288,19 @@ class AddressRow(QWidget):
         self.value.setObjectName("Address")
         self.value.setTextInteractionFlags(Qt.TextSelectableByMouse)
         row.addWidget(self.value)
-        self.copy = QPushButton(t("Copy"))
-        self.copy.clicked.connect(self._copy)
-        row.addWidget(self.copy)
-        if private:  # click the address to show it, click again to blur it
+        self.show_btn = None
+        if private:  # click the address (or Show) to show it, again to blur it
             self.value.setCursor(Qt.PointingHandCursor)
             self.value.clicked.connect(self._toggle_shown)
+            self.show_btn = set_kind(QPushButton(t("Show")), "ghost")  # reachable with the keyboard too
+            self.show_btn.setAccessibleName(f"{t('Show')} — {title}")
+            self.show_btn.clicked.connect(self._toggle_shown)
+            row.addWidget(self.show_btn)
+        self.copy = QPushButton(t("Copy"))
+        self.copy.setAccessibleName(f"{t('Copy')} — {title}")  # several Copy buttons: say which address
+        self.copy.clicked.connect(self._copy)
+        row.addWidget(self.copy)
+        if private:
             self._render()
 
     def _copy(self):
@@ -1300,6 +1328,9 @@ class AddressRow(QWidget):
     def _render(self, animate: bool = False):
         hide = self._private and not self._shown and self._real
         self.value.setText(self._text)
+        if self.show_btn is not None:
+            self.show_btn.setText(t("Show") if hide else t("Hide"))
+            self.show_btn.setVisible(self._real)
         if self._blur_anim is not None:
             self._blur_anim.stop()
             self._blur_anim = None
@@ -1415,6 +1446,13 @@ class NetworkTab(ServerTab):
             "Allow in Windows Firewall lets other devices through this PC's firewall (one administrator "
             "prompt). The rules stay until you remove them, but they only matter while the server is "
             "running: when it's off, nothing on this PC answers on that port."))
+        # no router at all (a public address on this PC) or the provider's shared address:
+        # say so first, the router steps below don't apply
+        self.direct_note = QLabel()
+        self.direct_note.setWordWrap(True)
+        self.direct_note.setTextFormat(Qt.RichText)
+        self.direct_note.setVisible(False)
+        v.addWidget(self.direct_note)
         self.port_status = QLabel()
         self.port_status.setWordWrap(True)
         v.addWidget(self.port_status)
@@ -1551,6 +1589,12 @@ class NetworkTab(ServerTab):
                 "No router found. Is this PC connected by Wi-Fi or cable to a home router?"))
             self.btn_admin.setEnabled(False)
             return
+        self._render_kind(r.kind)
+        if r.kind == "direct":
+            set_status(self.router_status, "ok", t(
+                "No router: this PC has a public internet address. There's nothing to forward."), rich=True)
+            self.btn_admin.setEnabled(False)
+            return
         name = esc(r.brand) if r.brand else esc(t("Router"))
         lines = [t("{name} at <b>{ip}</b>", name=name, ip=esc(r.gateway))]
         admin = r.upnp_admin or (r.admin_urls[0] if r.admin_urls else "")
@@ -1585,6 +1629,9 @@ class NetworkTab(ServerTab):
         udp = plugins.udp_ports(self.meta)
         ports = f"TCP {self.port}" + "".join(f", UDP {u}" for u in udp)
         r = self._router
+        if r is not None and r.kind == "direct":
+            self.manual.setText(NetworkTab._direct_text())
+            return
         guides = {
             "iptime": t("ipTIME: Admin tools → Advanced setup → NAT/Router management → Port forward setup"),
             "kt": t("KT: Device settings → Traffic management → Port forwarding"),
@@ -1662,10 +1709,15 @@ class NetworkTab(ServerTab):
             f"OS: {platform.system()} {platform.release()} ({platform.version()})",
             t("Server") + f": {meta.software_name} {meta.mc_version} · " + t("port") + f" TCP {port}"
             + "".join(f", UDP {u}" for u in udp) + " · " + (t("running") if running else t("stopped")),
-            t("This PC (LAN IP)") + f": {r.lan_ip or unknown}",
-            t("Default gateway") + f": {r.gateway or unknown}",
+            t("Connection") + ": " + {"direct": t("direct, no router (public address on this PC)"),
+                                      "carrier": t("internet provider's shared address (carrier NAT)"),
+                                      }.get(r.kind, t("through a router")),
+            # a public address here would identify the person: hide it like the others
+            t("This PC (LAN IP)") + f": {network.hide_public(r.lan_ip) if r.lan_ip else unknown}",
+            t("Default gateway") + f": {network.hide_public(r.gateway) if r.gateway else unknown}",
             t("Router model") + f": {r.brand or unknown}",
-            t("Router settings page") + f": {', '.join(r.admin_urls) or (r.upnp_admin or t('no answer on usual ports'))}",
+            t("Router settings page") + ": " + (", ".join(r.admin_urls) or r.upnp_admin or t("no answer on usual ports"))
+            .replace(r.gateway or "\0", network.hide_public(r.gateway or "")),
             t("UPnP router found") + f": {yes if r.wan_ip else no}",
             t("Router internet IP") + f": {network.mask_ip(r.wan_ip) if r.wan_ip else unknown}"
             + (f" ({t('private')})" if r.wan_ip and not network.is_public(r.wan_ip) else ""),
@@ -1713,7 +1765,7 @@ class NetworkTab(ServerTab):
 
     @property
     def port(self) -> int:
-        return self.meta.properties().get_int("server-port", 25565) if self.meta else 25565
+        return self.runner.port(self.key, self.meta) if self.meta else 25565
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1747,7 +1799,7 @@ class NetworkTab(ServerTab):
         self.auto_tunnel.setChecked(self.meta.tunnel)
         self.auto_tunnel.blockSignals(False)
         if self.tunnel:
-            self.tunnel.server_port = self.port  # several tunnels: show the one for this server
+            self.tunnel.set_server_port(self.port)  # several tunnels: show the one for this server
         self._refresh_tunnel()
         if self.key != getattr(self, "_status_key", None):  # another server: its own port status
             self._status_key = self.key
@@ -1755,7 +1807,26 @@ class NetworkTab(ServerTab):
         if not self.port_status.text():
             set_status(self.port_status, "off", t("Port not opened yet."))
         self.port_check_status.clear()
+        self._render_kind(self._router.kind if self._router else network.connection_kind(network.lan_ip()))
         self._render_manual()
+
+    def _render_kind(self, kind: str):
+        if kind == "direct":
+            set_status(self.direct_note, "ok", NetworkTab._direct_text(), rich=True)
+        elif kind == "carrier":
+            set_status(self.direct_note, "warn", t(
+                "<b>This connection uses an address shared by your internet provider</b> (carrier NAT, common "
+                "with phone hotspots). Friends from other homes can't reach it directly and port forwarding "
+                "can't work: use the <b>tunnel</b> above."), rich=True)
+        self.direct_note.setVisible(kind in ("direct", "carrier"))
+
+    @staticmethod
+    def _direct_text() -> str:
+        return t(
+            "<b>This PC is connected to the internet directly, without a router.</b> No port forwarding is "
+            "needed: friends join with the <b>Internet</b> address above. If they can't, check the firewall "
+            "of your antivirus (e.g. V3) and that Windows Firewall doesn't \"block all incoming connections\". "
+            "If it still doesn't work, the building or provider blocks incoming connections: use the tunnel.")
 
     def _show_public(self, ip: str):
         self.addr_public.set(self._fmt(ip))
@@ -1831,7 +1902,13 @@ class NetworkTab(ServerTab):
         state, text = texts.get(tm.state, ("off", ""))
         java_tunnels = [x for x in (tm.tunnels or []) if x.address and not x.disabled
                         and "bedrock" not in x.kind and x.port_type != "udp"]
-        if tm.state == tmod.RUNNING and tm.tunnels is not None and not java_tunnels:
+        for_port = [x for x in java_tunnels if x.local_port in (None, port)]
+        if tm.state == tmod.RUNNING and tm.tunnels is not None and java_tunnels and not for_port:
+            state, text = "warn", t(
+                "No tunnel points to this server's port <b>{port}</b> yet (the existing ones lead to another "
+                "server). On the playit.gg dashboard add a tunnel: <b>Minecraft Java</b>, local port <b>{port}</b>.",
+                port=port)
+        elif tm.state == tmod.RUNNING and tm.tunnels is not None and not java_tunnels:
             # the agent runs, but the playit account has no (working) Minecraft Java tunnel yet
             state, text = "warn", t(
                 "The agent is running, but there is no Minecraft Java tunnel yet. On the playit.gg dashboard "
@@ -1959,6 +2036,11 @@ class ToggleSwitch(QAbstractButton):
         p.setPen(Qt.NoPen)
         p.setBrush(track)
         p.drawRoundedRect(0, 0, self.width(), self.height(), 11, 11)
+        if self.hasFocus():  # keyboard users see where they are
+            p.setPen(QPen(QColor(theme.C["text"]), 1.5))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(QRectF(0.75, 0.75, self.width() - 1.5, self.height() - 1.5), 10.25, 10.25)
+            p.setPen(Qt.NoPen)
         p.setBrush(QColor("#ffffff"))
         x = 3 + (self.width() - 22) * k
         p.drawEllipse(QPointF(x + 8, 11), 8, 8)
@@ -1988,8 +2070,12 @@ class AddonCard(QFrame):
         if warning:
             col.addWidget(warn_label(warning))
         row.addLayout(col, 1)
+        self.off_label = hint(t("Off"))  # said in words, not only by fading the row
+        self.off_label.setVisible(not addon.enabled)
+        row.addWidget(self.off_label)
         self.switch = ToggleSwitch(addon.enabled)
         self.switch.setToolTip(t("On / off"))
+        self.switch.setAccessibleName(f"{addon.name} — {t('On / off')}")
         self.switch.toggled.connect(lambda on: on_toggle(self, on))
         row.addWidget(self.switch)
         remove = set_kind(QPushButton(t("Remove")), "ghost")
@@ -1998,7 +2084,10 @@ class AddonCard(QFrame):
         self.setOpacity(addon.enabled)
 
     def setOpacity(self, enabled: bool):
-        self.setStyleSheet("" if enabled else "QLabel { color: %s; }" % theme.C["disabled"])
+        # muted, not "disabled" grey: the row can still be switched back on, so it must stay readable
+        self.setStyleSheet("" if enabled else "QLabel { color: %s; }" % theme.C["muted"])
+        if hasattr(self, "off_label"):
+            self.off_label.setVisible(not enabled)
 
 
 class DropZone(QFrame):
@@ -2807,7 +2896,7 @@ class UpgradeSection(ServerTab):
         m = self.meta
         self.cur_version.setText(f"{m.software_name} {m.mc_version}" + ("  " + t("(build {b})", b=m.build) if m.build else ""))
         self.cur_java.setText(f"Java {m.java_major} — {m.java_path}")
-        running = self.running
+        running = self.locked
         self.btn_upgrade.setEnabled(not running)
         self.btn_java.setEnabled(not running)
         if self._loaded_for is None or self._loaded_for[0] != m.folder:

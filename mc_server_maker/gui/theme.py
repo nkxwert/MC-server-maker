@@ -14,6 +14,9 @@ DARK = {
     "bg": "#121315", "surface": "#18191c", "surface2": "#1f2024", "surface3": "#28292e",
     "hover": "#2c2e33", "border": "#2a2c30", "text": "#e6e7e9", "muted": "#8e9198",
     "disabled": "#5d6068", "accent": "#3d7bff", "accent_hover": "#5a90ff", "accent_text": "#ffffff",
+    # filled buttons are a shade darker than the logo blue / red so white text stays readable (4.5:1)
+    "button": "#2e64d8", "button_hover": "#2858c4", "stop": "#d4373c", "stop_hover": "#bb2d32",
+    "placeholder": "#8e9198",
     "accent_soft": "#1b2436", "danger": "#e5484d", "danger_hover": "#ef5f63", "danger_soft": "#3a1f22",
     "warn": "#d9a441", "ok": "#3ecf7a", "info": "#8fb4ff", "scroll": "#33353b",
     "console_bg": "#0d0e10", "console_text": "#b9bcc2",
@@ -22,6 +25,8 @@ LIGHT = {
     "bg": "#f6f6f7", "surface": "#ffffff", "surface2": "#efeff1", "surface3": "#e5e6e9",
     "hover": "#e1e2e5", "border": "#e2e3e6", "text": "#18191b", "muted": "#6a6e75",
     "disabled": "#a2a5ab", "accent": "#1f5be0", "accent_hover": "#184cc0", "accent_text": "#ffffff",
+    "button": "#1f5be0", "button_hover": "#184cc0", "stop": "#d4373c", "stop_hover": "#bb2d32",
+    "placeholder": "#6a6e75",
     "accent_soft": "#e6edfc", "danger": "#d4373c", "danger_hover": "#bb2d32", "danger_soft": "#fbe8e8",
     "warn": "#9a6a00", "ok": "#1f9d55", "info": "#1f5be0", "scroll": "#c9cbd0",
     "console_bg": "#0d0e10", "console_text": "#b9bcc2",
@@ -64,8 +69,8 @@ QMenu::item:disabled {{ color: {disabled}; }}
 #Muted {{ color: {muted}; }}
 #Hint {{ color: {muted}; font-size: 9.5pt; }}
 #Help {{
-    background: transparent; color: {muted}; border: 1px solid {border}; border-radius: 8px;
-    min-width: 15px; max-width: 15px; min-height: 15px; max-height: 15px; padding: 0;
+    background: transparent; color: {muted}; border: 1px solid {border}; border-radius: 10px;
+    min-width: 19px; max-width: 19px; min-height: 19px; max-height: 19px; padding: 0;
     font-size: 8pt; font-weight: 600;
 }}
 #Help:hover, #Help:checked {{ color: {text}; border-color: {muted}; }}
@@ -102,14 +107,17 @@ QPushButton {{
 }}
 QPushButton:hover {{ background: {hover}; }}
 QPushButton:disabled {{ color: {disabled}; background: {surface2}; border-color: {surface2}; }}
-QPushButton[kind="primary"] {{ background: {accent}; border-color: {accent}; color: {accent_text}; font-weight: 600; }}
-QPushButton[kind="primary"]:hover {{ background: {accent_hover}; border-color: {accent_hover}; }}
+QPushButton:focus {{ border-color: {accent}; }}
+QPushButton[kind="primary"]:focus, QPushButton[kind="stop"]:focus {{ border-color: {text}; }}
+QPushButton[kind="ghost"]:focus, QPushButton[kind="link"]:focus {{ color: {text}; }}
+QPushButton[kind="primary"] {{ background: {button}; border-color: {button}; color: {accent_text}; font-weight: 600; }}
+QPushButton[kind="primary"]:hover {{ background: {button_hover}; border-color: {button_hover}; }}
 QPushButton[kind="primary"]:disabled {{ background: {surface3}; border-color: {surface3}; color: {disabled}; }}
 QPushButton[kind="danger"] {{ background: transparent; border-color: {border}; color: {danger}; }}
 QPushButton[kind="danger"]:hover {{ background: {danger_soft}; }}
 QPushButton[kind="danger"]:disabled {{ color: {disabled}; }}
-QPushButton[kind="stop"] {{ background: {danger}; border-color: {danger}; color: #ffffff; font-weight: 600; }}
-QPushButton[kind="stop"]:hover {{ background: {danger_hover}; border-color: {danger_hover}; }}
+QPushButton[kind="stop"] {{ background: {stop}; border-color: {stop}; color: #ffffff; font-weight: 600; }}
+QPushButton[kind="stop"]:hover {{ background: {stop_hover}; border-color: {stop_hover}; }}
 QPushButton[kind="stop"]:disabled {{ background: {surface3}; border-color: {surface3}; color: {disabled}; }}
 QPushButton[kind="ghost"] {{ background: transparent; border-color: transparent; color: {muted}; }}
 QPushButton[kind="ghost"]:hover {{ background: {surface2}; color: {text}; }}
@@ -240,7 +248,7 @@ def apply(app: QApplication, mode: str = "dark") -> None:
         (QPalette.HighlightedText, "accent_text"),
         (QPalette.ToolTipBase, "surface3"),
         (QPalette.ToolTipText, "text"),
-        (QPalette.PlaceholderText, "disabled"),
+        (QPalette.PlaceholderText, "placeholder"),
         (QPalette.Link, "info"),
     ):
         pal.setColor(role, QColor(colors[key]))

@@ -18,7 +18,7 @@ INDIRECT = [
     "Players must sign in with a real Minecraft account. "
     "Turn it off to let non-premium accounts join (anyone can then use any name).",
     "One life: players become spectators when they die.",
-    "Only players on the whitelist (Players tab) can join.",
+    "Only players on the whitelist can join. Add a friend in the console: whitelist add <name>",
     "Stops the server from kicking players for flying. Turn it on if mods or plugins let players fly.",
     "Relevance", "Most downloads", "Recently updated",
     "Plugins", "Mods", "Bukkit/Paper plugin", "Fabric mod", "Quilt mod", "Forge mod", "NeoForge mod", "Unknown",

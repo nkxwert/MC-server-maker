@@ -80,6 +80,17 @@ class TunnelManager(QObject):
     def open_dashboard(self):
         QDesktopServices.openUrl(QUrl(tunnel.DASHBOARD))
 
+    def set_server_port(self, port: int) -> None:
+        """Another server was selected: show the tunnel for its port right away."""
+        if port == self.server_port:
+            return
+        self.server_port = port
+        if self.tunnels is None or (getattr(self.settings, "tunnel_address_manual", False) and self.address):
+            return
+        addr = tunnel.java_address(self.tunnels, port)
+        if addr != self.address:
+            self.set_address(addr)
+
     def set_address(self, address: str, manual: bool = False):
         """manual=True: typed by the user; then the address from playit's API doesn't replace it."""
         self.address = address.strip()
@@ -112,7 +123,7 @@ class TunnelManager(QObject):
             addr = tunnel.java_address(tunnels, self.server_port)
             known = {x.address for x in tunnels}
             manual = getattr(self.settings, "tunnel_address_manual", False) and self.address
-            if addr and addr != self.address and not (manual and self.address in known):
+            if addr != self.address and not (manual and (self.address in known or not addr)):
                 self.set_address(addr)
             if self.state in (STARTING, WAITING_CLAIM):
                 self._set(RUNNING)

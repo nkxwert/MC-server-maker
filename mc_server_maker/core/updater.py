@@ -268,3 +268,49 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+# Bytes only Bartizan's files carry: the app's own package name (single-file EXEs) and the
+# product name in the Windows file details (UTF-16, the installer and newer EXEs).
+_MARKERS = (b"mc_server_maker", "Bartizan".encode("utf-16-le"))
+_OLD_NAME_RE = re.compile(r"^bartizan.*\.exe(\.old)?$", re.IGNORECASE)
+
+
+def _is_bartizan_file(path: Path) -> bool:
+    keep = max(len(m) for m in _MARKERS)
+    tail = b""
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                data = tail + chunk
+                if any(m in data for m in _MARKERS):
+                    return True
+                tail = data[-keep:]
+    except OSError:
+        pass
+    return False
+
+
+def old_copies(folders: Optional[List[Path]] = None) -> List[Path]:
+    """Downloaded Bartizan files lying around after moving to the installed app:
+    'Bartizan (1).exe', 'Bartizan-Setup (2).exe', '...exe.old'. Only files that really are
+    Bartizan (checked by content, not just the name); never the running app."""
+    if folders is None:
+        home = Path.home()
+        folders = [home / "Downloads", home / "Desktop", home / "OneDrive" / "Desktop"]
+    me = Path(sys.executable).resolve()
+    found: List[Path] = []
+    for folder in folders:
+        try:
+            entries = list(folder.iterdir())
+        except OSError:
+            continue
+        for path in entries:
+            try:
+                if not _OLD_NAME_RE.match(path.name) or not path.is_file() or path.resolve() == me:
+                    continue
+            except OSError:
+                continue
+            if _is_bartizan_file(path):
+                found.append(path)
+    return sorted(found, key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)

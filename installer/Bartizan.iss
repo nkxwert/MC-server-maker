@@ -98,3 +98,10 @@ begin
   if CurStep = ssPostInstall then
     DeleteOldExe();
 end;
+
+// "Start Bartizan when Windows starts" (set in the app) goes away with the app
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Bartizan');
+end;

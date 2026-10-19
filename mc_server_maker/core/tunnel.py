@@ -193,9 +193,11 @@ def java_address(tunnels: List[PlayitTunnel], server_port: Optional[int] = None)
             return False
         return True
 
-    usable = [tun for tun in tunnels if is_java(tun)]
+    # a tunnel to another local port leads to another server: never offer it for this one
+    usable = [tun for tun in tunnels if is_java(tun)
+              and (server_port is None or tun.local_port in (None, server_port))]
     usable.sort(key=lambda tun: (
-        server_port is not None and tun.local_port not in (None, server_port),  # wrong port last
+        tun.local_port is None,  # the one known to point at this port first
         "minecraft-java" not in tun.kind,
     ))
     return usable[0].address if usable else ""

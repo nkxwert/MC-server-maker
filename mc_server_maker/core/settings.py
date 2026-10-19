@@ -7,6 +7,21 @@ from dataclasses import asdict, dataclass
 from mc_server_maker.core import paths
 
 
+def system_language() -> str:
+    """'ko' on a Korean system, else 'en'."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            return "ko" if ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF == 0x12 else "en"
+        import locale
+
+        lang = locale.getlocale()[0] or os.environ.get("LANG", "")
+        return "ko" if lang.lower().startswith("ko") else "en"
+    except (AttributeError, OSError, ValueError):
+        return "en"
+
+
 @dataclass
 class AppSettings:
     theme: str = "dark"  # dark | light
@@ -18,6 +33,9 @@ class AppSettings:
     notified_version: str = ""  # newest version we already told the user about
     last_run_version: str = ""  # to show "What's new" once after an update
     install_offered: bool = False  # the portable EXE asked once to move to the installed app
+    notes_seen_version: str = ""  # newest version whose "What's new" was shown (never again, never older)
+    autostart_server: str = ""  # server folder to start when Windows starts the app
+    old_exes_checked: bool = False  # the installed app looked once for old downloaded Bartizan EXEs
 
     @property
     def path(self):
@@ -26,6 +44,8 @@ class AppSettings:
     @classmethod
     def load(cls) -> "AppSettings":
         s = cls()
+        if not s.path.exists():  # first run: speak the system's language
+            s.language = system_language()
         try:
             data = json.loads(s.path.read_text(encoding="utf-8"))
             for k, default in asdict(cls()).items():

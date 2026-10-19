@@ -129,6 +129,22 @@ def wait_all(timeout_ms: int = 3000) -> None:
         thread.wait(timeout_ms)
 
 
+def friendly_error(msg: str) -> str:
+    """A short, plain cause for a failed task; the technical message stays in the log below."""
+    low = msg.lower()
+    if "cancel" in low:
+        return t("Cancelled.")
+    if any(k in low for k in ("no space", "errno 28", "disk full", "not enough space")):
+        return t("There isn't enough free disk space. Free some space and try again.")
+    if any(k in low for k in ("permission", "access is denied", "being used by another process", "winerror 32",
+                              "winerror 5")):
+        return t("A file is in use or protected. Close programs that may use it (or the antivirus scan) and try again.")
+    if any(k in low for k in ("urlopen", "timed out", "timeout", "connection", "getaddrinfo", "name or service",
+                              "http error", "http 5", "ssl", "network", "unreachable", "download")):
+        return t("Couldn't download the files. Check the internet connection and try again.")
+    return t("The task couldn't be finished. The details are below.")
+
+
 class TaskDialog(FadeInDialog):
     """Dialog that runs a job and shows its log and progress."""
 
@@ -155,7 +171,19 @@ class TaskDialog(FadeInDialog):
         layout.addWidget(self.buttons)
 
         self._finished = False
+        self._fn = fn
         self.worker = run_async(fn, self._done, self._fail, self._log, self._progress)
+
+    def _retry(self):
+        self._finished = False
+        self.error = None
+        self.status.setText(t("Working..."))
+        self.bar.setRange(0, 0)
+        self.bar.setVisible(True)
+        self.buttons.clear()
+        self.buttons.addButton(QDialogButtonBox.Cancel)
+        self._log("\n" + t("Trying again..."))
+        self.worker = run_async(self._fn, self._done, self._fail, self._log, self._progress)
 
     def _log(self, msg: str):
         self.log_view.appendPlainText(msg)
@@ -182,8 +210,12 @@ class TaskDialog(FadeInDialog):
 
     def _fail(self, msg: str):
         self.error = msg
-        self._finish("❌ " + t("Failed."))
+        self._finish("❌ " + friendly_error(msg))
+        self.bar.setVisible(False)  # a full bar would look like success
         self._log("\n" + t("Error: {msg}", msg=msg))
+        if not self.worker.task.cancelled:
+            retry = self.buttons.addButton(t("Try again"), QDialogButtonBox.ActionRole)
+            retry.clicked.connect(self._retry)
 
     def _cancel_or_close(self):
         if self._finished:
