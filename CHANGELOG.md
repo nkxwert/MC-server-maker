@@ -3,6 +3,22 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.25.0
+### en
+- **After a start, the console says whether friends can join**: "The server is on. Friends elsewhere can't join yet" with a button to open it to the internet, or "Friends can join" with the address and **Copy invitation**.
+- **Network tab**: the address list (This PC, Same Wi-Fi, Internet, Bedrock) marks the one to **send to friends**, and **Copy invitation** copies the game version, that address and "only while the server PC is on". The tunnel and router steps are now one section, **Open to the internet**, with a switch between **playit.gg tunnel (recommended)** and **Open a router port**.
+- **New server**: name, server type, version and memory first; world and game settings are folded away. The EULA stays visible above the buttons, and a missing field is marked right where it is.
+- **Plugins / Mods**: when nothing is installed yet, a short note says they're optional, with a button to find some.
+- **Settings**: a bar at the bottom shows unsaved changes with **Undo changes** and **Save server settings**; the World part says its buttons run right away.
+- Polish: server names use the full sidebar width, clearer arrows on drop-downs and number fields, faster tab switching, tidier console numbers.
+### ko
+- **서버를 켜면 콘솔이 친구 접속 상태를 알려 줘요**: "서버는 켜졌어요 · 다른 곳의 친구는 아직 못 들어와요"와 [인터넷으로 열기] 버튼, 또는 "친구가 들어올 수 있어요"와 주소, **초대 안내 복사**.
+- **네트워크 탭**: 접속 주소(이 PC, 같은 와이파이, 인터넷, 베드락)에 **친구에게 보낼 주소**를 표시하고, **초대 안내 복사**로 게임 버전·그 주소·"서버 PC가 켜져 있을 때만"을 한 번에 복사해요. 터널과 공유기 설정은 **인터넷으로 열기** 한 곳으로 합치고, **playit.gg 터널 (추천)** / **공유기 포트 열기** 중에서 골라요.
+- **새 서버 만들기**: 이름·서버 종류·버전·메모리만 먼저 보이고, 월드·게임 설정은 접어 뒀어요. EULA는 버튼 바로 위에 늘 보이고, 빠진 항목은 그 자리에 바로 표시해요.
+- **플러그인 / 모드**: 아무것도 없을 때 "없어도 돼요" 안내와 찾기 버튼을 보여 줘요.
+- **설정**: 아래쪽 바에 저장 안 한 변경과 **바꾼 내용 되돌리기**, **서버 설정 저장** 버튼이 있어요. 월드 영역에는 "누르면 바로 실행돼요" 안내를 넣었어요.
+- 다듬기: 서버 이름이 사이드바 폭을 다 써요, 선택 상자·숫자 칸 화살표가 잘 보여요, 탭 전환이 빨라졌어요, 콘솔 옆 숫자를 위로 모았어요.
+
 ## 1.24.0
 ### en
 - **No more data loss on quit or update**: servers are no longer force-stopped after 30 seconds. Bartizan waits while a big world is saving and only offers a force stop (never does it on its own).
