@@ -3,6 +3,24 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.26.0
+### en
+- **Backup manager** (Settings → World → Manage backups): see every backup with its date, kind and size and **restore** one. The current world is backed up first, and only the world is restored. Optional: **back up automatically when the server stops**, keeping the last N automatic backups (yours are never deleted).
+- **Player manager** (console → Show list): add friends to the whitelist by nickname (even before they ever joined), turn the whitelist on or off, give or remove OP, kick, ban and unban, without typing commands.
+- **Crash helper**: when a server stops unexpectedly, the console says why in plain words when the log shows it (port in use, wrong Java, memory, missing mod, EULA, damaged world) with a one-click fix, and can copy the log for asking help (addresses hidden).
+- **Log search and filter**: search the console, or show only warnings or errors.
+- **Check before starting**: a port already in use (by another server or program) or too little memory / disk space is shown before the start, with a fix.
+- **Save and restart** in the Stop ▾ menu.
+- The console follows the light theme too.
+### ko
+- **백업 관리** (설정 → 월드 → 백업 관리): 모든 백업의 날짜·종류·크기를 보고 원하는 시점으로 **복원**해요. 지금 월드를 먼저 백업하고, 월드만 되돌려요. 선택: **서버를 끌 때 자동 백업** (최근 N개만 남기고, 직접 만든 백업은 지우지 않아요).
+- **플레이어 관리** (콘솔 → 목록 보기): 닉네임으로 화이트리스트 추가(접속한 적 없어도 돼요), 화이트리스트 켜기/끄기, OP 주기·빼기, 킥, 밴·밴 풀기를 명령어 없이.
+- **오류 도우미**: 서버가 예상치 못하게 꺼지면 로그에서 확인되는 원인(포트 사용 중, Java 버전, 메모리, 빠진 모드, EULA, 월드 손상)을 쉬운 말로 알려 주고 바로 고치는 버튼을 보여 줘요. 도움 요청용 로그 복사(주소는 가려요)도 있어요.
+- **로그 검색과 필터**: 콘솔 검색, 경고만 / 오류만 보기.
+- **시작 전 점검**: 포트가 이미 쓰이고 있거나(다른 서버·프로그램) 메모리·디스크가 부족하면 시작 전에 알려 주고 고칠 수 있게 해요.
+- 중지 ▾ 메뉴에 **저장하고 재시작**.
+- 밝은 테마에서 콘솔도 밝게 나와요.
+
 ## 1.25.1
 ### en
 - Fixed: the numbers next to the console (online, uptime, total uptime) overlapped their dividers.

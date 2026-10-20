@@ -998,7 +998,7 @@ class MainWindow(QMainWindow):
                 self.console_tab.on_state()
         elif diag.action == "backups":
             self._go_tab(self.settings_tab)
-            opener = getattr(self.settings_tab.world, "open_backups", None)
+            opener = getattr(self.settings_tab.world, "_manage_backups", None)
             if opener:
                 opener()
 

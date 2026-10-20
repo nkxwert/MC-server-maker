@@ -857,7 +857,6 @@ KO = {
     "A mod needs {name} ({id}), which isn't installed.": '어떤 모드가 {name}({id}) 모드를 필요로 하는데 설치돼 있지 않아요.',
     'A required mod is missing': '필요한 모드가 빠져 있어요',
     'Agree to the EULA': 'EULA 동의하기',
-    'All': '전체',
     "Another program (or another server) already uses this port, so the server can't open it.": '다른 프로그램(또는 다른 서버)이 이 포트를 쓰고 있어서 서버가 열 수 없어요.',
     'Before starting': '시작하기 전에',
     'Change memory': '메모리 바꾸기',
