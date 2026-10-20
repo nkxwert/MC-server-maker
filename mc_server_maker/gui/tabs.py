@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QTextCharFormat,
     QTextCursor,
 )
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGraphicsBlurEffect,
     QGridLayout,
+    QGraphicsOpacityEffect,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -58,7 +60,7 @@ from PySide6.QtWidgets import (
 
 from mc_server_maker.core import addons, joincheck, net, network, plugins, property_catalog, stats, versions
 from mc_server_maker.core import server as srv
-from mc_server_maker.core import crashhelp
+from mc_server_maker.core import crashhelp, modrinth
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import PROVIDERS, get_provider
 from mc_server_maker.gui import anim, browse, theme
@@ -109,6 +111,18 @@ def set_spin(spin: QSpinBox, value) -> None:
     except (TypeError, ValueError):
         value = spin.minimum()
     spin.setValue(max(spin.minimum(), min(spin.maximum(), value)))
+
+
+def _section_head(title: str, help_text: str) -> QHBoxLayout:
+    """The title row of a section: its name and a (?) with the explanation."""
+    head = QHBoxLayout()
+    head.setSpacing(8)
+    label = QLabel(title)
+    label.setObjectName("SectionTitle")
+    head.addWidget(label)
+    head.addWidget(HelpButton(help_text))
+    head.addStretch()
+    return head
 
 
 def help_section(title: str, help_text: str, first: bool = False):
@@ -856,18 +870,11 @@ class SettingsTab(ServerTab):
         for i, (key, label, help_text) in enumerate((
             ("online-mode", "Online mode", "Players must sign in with a real Minecraft account. "
              "Turn it off to let non-premium accounts join (anyone can then use any name)."),
-            ("pvp", "PvP", ""),
-            ("hardcore", "Hardcore", "One life: players become spectators when they die."),
             ("white-list", "Whitelist only", "Only players on the whitelist can join. Add a friend in the console: whitelist add <name>"),
-            ("allow-flight", "Allow flight", "Stops the server from kicking players for flying. "
-             "Turn it on if mods or plugins let players fly."),
-            ("enable-command-block", "Command blocks", ""),
-        )):
+        )):  # PvP, hardcore, flight, command blocks...: in "Edit all server.properties"
             cb = QCheckBox(t(label))
-            if help_text:
-                cb.setToolTip(t(help_text))
             self.checks[key] = cb
-            rules.addWidget(cb, i // 2, i % 2)
+            rules.addWidget(with_help(cb, t(help_text)), i // 2, i % 2)
         rules.setColumnStretch(2, 1)
         rules_w = QWidget()
         rules_w.setLayout(rules)
@@ -885,7 +892,7 @@ class SettingsTab(ServerTab):
         form.addRow(t("Auto-save"), self.autosave)
         self.memory_saver = QCheckBox(t("Use less memory"))
         self.memory_saver.toggled.connect(self._memory_saver_toggled)
-        form.addRow("", with_note(self.memory_saver, t(
+        form.addRow("", with_help(self.memory_saver, t(
             "Usually saves a third to half of the memory. Sets view distance 6 and simulation distance 4, "
             "unloads spawn chunks and returns unused memory sooner. Far-away farms only run while someone is nearby.")))
         all_props = set_kind(QPushButton(t("Edit all server.properties...")), "ghost")
@@ -1755,8 +1762,11 @@ class NetworkTab(ServerTab):
                 self.way_stack.widget(i).setSizePolicy(
                     QSizePolicy.Preferred, QSizePolicy.Preferred if i == index else QSizePolicy.Ignored)
             self.way_stack.adjustSize()
-        if anim.enabled() and self.isVisible() and self.way_stack.currentIndex() != index:
-            anim.crossfade(self.way_stack.parentWidget(), switch, ms=anim.FAST)
+        same_height = abs(self.way_stack.widget(index).sizeHint().height() - self.way_stack.height()) < 8
+        if anim.enabled() and self.isVisible() and self.way_stack.currentIndex() != index and same_height:
+            # only the part that changes, and only when nothing below it moves: a picture of the
+            # old page over content that shifts underneath looked smeared
+            anim.crossfade(self.way_stack, switch, ms=anim.FAST)
         else:
             switch()
 
@@ -1800,10 +1810,7 @@ class NetworkTab(ServerTab):
 
     def _show_manual(self, on: bool):
         self.btn_manual.setText(t("If automatic doesn't work") + ("  ▴" if on else "  ▾"))
-        if on and anim.enabled():
-            anim.crossfade(self.manual_box.parentWidget(), lambda: self.manual_box.setVisible(True), ms=anim.FAST)
-        else:
-            self.manual_box.setVisible(on)
+        self.manual_box.setVisible(on)  # at once: a fade over content that moves down looked smeared
         if on and self._router is None:
             self._check_router()  # the first time it's opened: find the router right away
 
@@ -2308,6 +2315,27 @@ class ToggleSwitch(QAbstractButton):
         p.drawEllipse(QPointF(x + 8, 11), 8, 8)
 
 
+def _letter_tile(name: str, size: int) -> QPixmap:
+    """A colored square with the first letter: the picture for a plugin that has none."""
+    import zlib
+
+    hues = (210, 160, 30, 280, 350, 190, 120, 260)
+    color = QColor.fromHsv(hues[zlib.crc32(name.lower().encode()) % len(hues)], 120, 170)
+    pix = QPixmap(size * 2, size * 2)
+    pix.fill(color)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    font = QFont()
+    font.setPixelSize(size)
+    font.setBold(True)
+    painter.setFont(font)
+    painter.setPen(QColor("#ffffff"))
+    letter = next((ch for ch in name if ch.isalnum()), "?").upper()
+    painter.drawText(pix.rect(), Qt.AlignCenter, letter)
+    painter.end()
+    return pix
+
+
 class AddonCard(QFrame):
     def __init__(self, addon, warning: str, on_toggle, on_remove):
         super().__init__()
@@ -2316,6 +2344,13 @@ class AddonCard(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 10, 0, 10)
         row.setSpacing(12)
+        self.icon = QLabel()
+        self.icon.setFixedSize(self.ICON, self.ICON)
+        data = addons.icon_bytes(addon)
+        pix = QPixmap()
+        self.has_icon = bool(data) and pix.loadFromData(data)
+        self.set_icon(pix if self.has_icon else _letter_tile(addon.name, self.ICON))
+        row.addWidget(self.icon)
         col = QVBoxLayout()
         col.setSpacing(1)
         name = QLabel(html.escape(addon.name) + (f"&nbsp;&nbsp;<span style='color:{theme.C['muted']}; font-weight:400'>"
@@ -2345,7 +2380,30 @@ class AddonCard(QFrame):
         row.addWidget(remove)
         self.setOpacity(addon.enabled)
 
+    ICON = 40
+
+    def set_icon(self, pix: QPixmap):
+        ratio = max(1.0, self.devicePixelRatioF())
+        size = round(self.ICON * ratio)
+        pix = pix.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        rounded = QPixmap(size, size)  # rounded corners, like the server icons
+        rounded.fill(Qt.transparent)
+        painter = QPainter(rounded)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, size, size, 6 * ratio, 6 * ratio)
+        painter.setClipPath(path)
+        painter.drawPixmap((size - pix.width()) // 2, (size - pix.height()) // 2, pix)
+        painter.end()
+        rounded.setDevicePixelRatio(ratio)
+        self.icon.setPixmap(rounded)
+
     def setOpacity(self, enabled: bool):
+        if hasattr(self, "icon"):
+            fx = QGraphicsOpacityEffect(self.icon) if not enabled else None
+            if fx:
+                fx.setOpacity(0.45)
+            self.icon.setGraphicsEffect(fx)
         # muted, not "disabled" grey: the row can still be switched back on, so it must stay readable
         self.setStyleSheet("" if enabled else "QLabel { color: %s; }" % theme.C["muted"])
         if hasattr(self, "off_label"):
@@ -2527,6 +2585,7 @@ class AddonsTab(ServerTab):
         items = addons.list_addons(self.meta)
         for a in items:
             self._add_card(a, addons.compatibility_warning(self.meta, a))
+        self._load_icons()
         on = sum(1 for a in items if a.enabled)
         self.summary.setText(t("{n} installed · {on} on", n=len(items), on=on))
         for w in (self.drop, self.toolbar, self.list):
@@ -2537,6 +2596,36 @@ class AddonsTab(ServerTab):
 
     def on_state(self):
         self.notice.setVisible(self.running)
+
+    def _cards(self):
+        return [self.list.itemWidget(self.list.item(i)) for i in range(self.list.count())]
+
+    def _load_icons(self):
+        """Plugins have no picture in the jar: use the project's picture from Modrinth (saved,
+        so it's fetched once). Cached pictures show at once, the rest when they arrive."""
+        need = [c for c in self._cards() if c and not c.has_icon]
+        later = []
+        for c in need:
+            f = modrinth.cached_icon(c.addon.path)
+            pix = QPixmap(str(f)) if f else QPixmap()
+            if not pix.isNull():
+                c.set_icon(pix)
+            else:
+                later.append(c.addon.path)
+        if not later:
+            return
+        key = self.key
+
+        def got(found):
+            if key != self.key:
+                return
+            for c in self._cards():
+                f = found.get(c.addon.path) if c else None
+                pix = QPixmap(str(f)) if f else QPixmap()
+                if not pix.isNull():
+                    c.set_icon(pix)
+
+        run_async(lambda task: modrinth.fetch_icons(later, task), got, lambda _m: None)
 
     def _add_card(self, addon, warning: str):
         item = QListWidgetItem()
@@ -2759,10 +2848,13 @@ class JoinCheckBox(QGroupBox):
     INTERVAL_MS = 60_000
 
     def __init__(self, tab: "StatusTab"):
-        super().__init__(t("Can players join?"))
+        super().__init__()
+        self.setObjectName("Section")  # a title with (?) like the other sections
         self.setProperty("first", True)
         self.tab = tab
         v = QVBoxLayout(self)
+        v.addLayout(_section_head(t("Can players join?"), t(
+            "Internet checks are done from outside by mcsrvstat.us and can lag a few minutes behind.")))
         self.rows = {
             "local": CheckRow(t("This PC")),
             "lan": CheckRow(t("Same Wi-Fi")),
@@ -2780,8 +2872,6 @@ class JoinCheckBox(QGroupBox):
         self.when = hint("")
         row.addWidget(self.when, 1)
         v.addLayout(row)
-        v.addWidget(hint(t(
-            "Internet checks are done from outside by mcsrvstat.us and can lag a few minutes behind.")))
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.run)
         self._busy = False
@@ -2927,8 +3017,11 @@ class StatusTab(ServerTab):
         layout = QVBoxLayout(body)
         self.join = JoinCheckBox(self)
         layout.addWidget(self.join)
-        usage = QGroupBox(t("Usage"))
+        usage = QGroupBox()
+        usage.setObjectName("Section")
         uv = QVBoxLayout(usage)
+        uv.addLayout(_section_head(t("Usage"), t(
+            "Download/upload are for the whole PC. Ping is measured from this PC to each player (some networks block it).")))
         uv.setSpacing(10)
         self.notice = hint("")
         uv.addWidget(self.notice)
@@ -2946,8 +3039,6 @@ class StatusTab(ServerTab):
         for i, tile in enumerate((self.cpu, self.mem, self.down, self.up, self.ping, self.disk)):
             grid.addWidget(tile, i // 3, i % 3)
         uv.addWidget(tiles)
-        uv.addWidget(hint(t(
-            "Download/upload are for the whole PC. Ping is measured from this PC to each player (some networks block it).")))
         layout.addWidget(usage)
         layout.addStretch()
         outer = QVBoxLayout(self)

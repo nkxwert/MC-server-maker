@@ -79,3 +79,28 @@ class PreflightTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AddonIconTest(unittest.TestCase):
+    def test_icon_from_fabric_and_forge_jars(self):
+        import json
+        import zipfile
+
+        from mc_server_maker.core import addons
+        d = Path(tempfile.mkdtemp())
+        fab = d / "a.jar"
+        with zipfile.ZipFile(fab, "w") as z:
+            z.writestr("fabric.mod.json", json.dumps({"id": "a", "name": "A", "icon": {"16": "s.png", "128": "assets/a/big.png"}}))
+            z.writestr("assets/a/big.png", b"PNGDATA")
+        info = addons.read_info(fab)
+        self.assertEqual(info.icon, "assets/a/big.png")
+        self.assertEqual(addons.icon_bytes(info), b"PNGDATA")
+        forge = d / "b.jar"
+        with zipfile.ZipFile(forge, "w") as z:
+            z.writestr("META-INF/mods.toml", 'logoFile="logo.png"\n[[mods]]\nmodId="b"\ndisplayName="B"\nversion="1"\n')
+            z.writestr("logo.png", b"L")
+        self.assertEqual(addons.icon_bytes(addons.read_info(forge)), b"L")
+        plugin = d / "c.jar"
+        with zipfile.ZipFile(plugin, "w") as z:
+            z.writestr("plugin.yml", "name: C\nversion: 1\nmain: x.C\n")
+        self.assertEqual(addons.icon_bytes(addons.read_info(plugin)), b"")

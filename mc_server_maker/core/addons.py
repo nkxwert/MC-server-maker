@@ -42,6 +42,7 @@ class Addon:
     kind: str = "unknown"
     enabled: bool = True
     size: int = 0
+    icon: str = ""  # picture inside the jar (mods name one), "" if none
 
     @property
     def file_name(self) -> str:
@@ -118,6 +119,11 @@ def read_info(path: Path) -> Addon:
                 if isinstance(authors, dict):
                     authors = list(authors)
                 info.authors = [a["name"] if isinstance(a, dict) else str(a) for a in authors]
+                icon = data.get("icon")
+                if isinstance(icon, dict) and icon:  # sizes: take the biggest
+                    icon = icon[max(icon, key=lambda k: int(k) if str(k).isdigit() else 0)]
+                if isinstance(icon, str) and icon.lstrip("/") in names:
+                    info.icon = icon.lstrip("/")
             elif "META-INF/neoforge.mods.toml" in names or "META-INF/mods.toml" in names:
                 neo = "META-INF/neoforge.mods.toml" in names
                 text = z.read("META-INF/neoforge.mods.toml" if neo else "META-INF/mods.toml").decode("utf-8", "replace")
@@ -127,6 +133,9 @@ def read_info(path: Path) -> Addon:
                 info.version = _manifest_version(z) if version.startswith("${") else version
                 author = _toml_value(text, "authors")
                 info.authors = [a.strip() for a in author.split(",") if a.strip()]
+                logo = _toml_value(text, "logoFile").lstrip("/")
+                if logo and logo in names:
+                    info.icon = logo
             elif "plugin.yml" in names or "paper-plugin.yml" in names:
                 text = z.read("paper-plugin.yml" if "paper-plugin.yml" in names else "plugin.yml").decode("utf-8", "replace")
                 info.kind = "plugin"
@@ -136,6 +145,18 @@ def read_info(path: Path) -> Addon:
     except (OSError, zipfile.BadZipFile, ValueError, KeyError):
         pass
     return info
+
+
+def icon_bytes(addon: Addon) -> bytes:
+    """The picture inside the jar, b"" if it has none (plugins usually don't)."""
+    if not addon.icon:
+        return b""
+    try:
+        with zipfile.ZipFile(addon.path) as z:
+            data = z.read(addon.icon)
+        return data if len(data) < (2 << 20) else b""
+    except (OSError, zipfile.BadZipFile, KeyError):
+        return b""
 
 
 # ------------------------------------------------------------------- manage

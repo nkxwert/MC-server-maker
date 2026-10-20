@@ -3,6 +3,20 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.26.2
+### en
+- Windows open at their full size right away (the fade-in of dialog windows is gone; it made them show small first).
+- Installed plugins and mods show a picture: the mod's own icon, the project picture from Modrinth (saved after the first look-up), or a colored letter.
+- Server status: the explanations moved into (?) next to "Can players join?" and "Usage".
+- Settings: only Online mode and Whitelist only stay as rules (the others are in Edit all server.properties); the memory saver explanation moved into (?). The new-server dialog no longer asks about PvP.
+- Network: switching between the tunnel and the router port, and opening folded parts, no longer look smeared.
+### ko
+- 창이 처음부터 제 크기로 열려요 (대화상자 창의 페이드인을 없앴어요. 그 때문에 작게 떴다가 커졌어요).
+- 설치된 플러그인·모드에 그림이 나와요: 모드에 들어 있는 아이콘, Modrinth의 프로젝트 그림(처음 한 번 받아 저장), 없으면 첫 글자 색 네모.
+- 서버 상태: 긴 설명을 "접속 가능 여부"와 "사용량" 옆 (?) 안으로 옮겼어요.
+- 설정: 규칙은 정품 인증과 화이트리스트 전용만 남겼어요 (나머지는 server.properties 전체 편집에 있어요). 메모리 절약 설명도 (?) 안으로 옮겼어요. 새 서버 만들기에서도 PvP를 묻지 않아요.
+- 네트워크: 터널 ↔ 공유기 전환과 접힌 영역 열기가 더 이상 뭉개져 보이지 않아요.
+
 ## 1.26.1
 ### en
 - The player window opens at its full size (no small window growing; Windows' own zoom animation is off under our fade-in).

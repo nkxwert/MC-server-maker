@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from mc_server_maker.core import plugins
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.providers import PROVIDERS
-from mc_server_maker.gui import anim, theme
+from mc_server_maker.gui import theme
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import amp_to_section, color_help, with_help, with_note
 from mc_server_maker.gui.workers import run_async
@@ -268,9 +268,6 @@ class CreateServerDialog(FadeInDialog):
             "Players must sign in with a real Minecraft account. "
             "Turn it off to let non-premium accounts join (anyone can then use any name)."))
         form.addRow("", self.online_mode)
-        self.pvp = QCheckBox("PvP")
-        self.pvp.setChecked(True)
-        form.addRow("", self.pvp)
         self.bedrock = QCheckBox(t("Let Bedrock players join"))
         self.bedrock.setToolTip(t(
             "Installs Geyser + Floodgate so Bedrock Edition players can join with their Xbox account."))
@@ -359,10 +356,7 @@ class CreateServerDialog(FadeInDialog):
 
     def _show_more(self, on: bool, animate: bool = True):
         self.btn_more.setText(t("More world and game settings") + ("  ▴" if on else "  ▾"))
-        if on and animate and anim.enabled():
-            anim.crossfade(self.more_box.parentWidget(), lambda: self.more_box.setVisible(True), ms=anim.FAST)
-        else:
-            self.more_box.setVisible(on)
+        self.more_box.setVisible(on)  # at once: a fade over content that moves down looked smeared
 
     def _field_of(self, label: QLabel) -> QWidget:
         return {self.name_error: self.name, self.version_error: self.version, self.seed_error: self.seed,
@@ -441,7 +435,7 @@ class CreateServerDialog(FadeInDialog):
             gamemode=self.gamemode.currentData(),
             difficulty=self.difficulty.currentData(),
             online_mode=self.online_mode.isChecked(),
-            pvp=self.pvp.isChecked(),
+            pvp=True,  # changed later in Settings → Edit all server.properties
             port=self.port.value(),
             eula_accepted=True,
             bedrock=self.bedrock.isChecked(),

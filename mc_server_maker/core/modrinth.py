@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from mc_server_maker.core import addons, net
+from mc_server_maker.core import addons, net, paths
 from mc_server_maker.core.tasks import Task
 from mc_server_maker.i18n import t
 
@@ -163,6 +163,51 @@ def installed(meta) -> Dict[str, Path]:
         return {}
     found = _post("/version_files", {"hashes": list(by_hash), "algorithm": "sha1"})
     return {v["project_id"]: by_hash[h] for h, v in (found or {}).items() if h in by_hash and v.get("project_id")}
+
+
+def icon_cache() -> Path:
+    return paths.BASE_DIR / "cache" / "icons"
+
+
+def cached_icon(path: Path) -> Optional[Path]:
+    """The project picture saved for this jar earlier, if any."""
+    try:
+        f = icon_cache() / (sha1_of(path) + ".img")
+    except OSError:
+        return None
+    return f if f.exists() else None
+
+
+def fetch_icons(jars: List[Path], task: Optional[Task] = None) -> Dict[Path, Path]:
+    """Project pictures from Modrinth for jars it knows, saved under the cache (looked up once:
+    an empty marker remembers jars without one). jar -> picture file."""
+    folder = icon_cache()
+    folder.mkdir(parents=True, exist_ok=True)
+    by_hash = {}
+    for p in jars:
+        try:
+            by_hash[sha1_of(p)] = p
+        except OSError:
+            continue
+    todo = [h for h in by_hash if not (folder / (h + ".img")).exists() and not (folder / (h + ".none")).exists()]
+    if todo:
+        found = _post("/version_files", {"hashes": todo, "algorithm": "sha1"}) or {}
+        projects = {v.get("project_id") for v in found.values() if v.get("project_id")}
+        icons = {}
+        if projects:
+            for pr in _get("/projects", ids=json.dumps(sorted(projects))) or []:
+                icons[pr.get("id")] = pr.get("icon_url") or ""
+        for h in todo:
+            if task is not None and task.cancelled:
+                break
+            url = icons.get((found.get(h) or {}).get("project_id"), "")
+            try:
+                data = net.get_bytes(url) if url else b""
+            except Exception:  # noqa: BLE001 - a picture is not worth an error
+                data = b""
+            target = folder / (h + (".img" if data else ".none"))
+            target.write_bytes(data)
+    return {p: folder / (h + ".img") for h, p in by_hash.items() if (folder / (h + ".img")).exists()}
 
 
 def _write_version(meta, version: dict, task: Task, replace: Optional[Path] = None) -> Path:
