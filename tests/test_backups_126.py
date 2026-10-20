@@ -171,12 +171,18 @@ class AutoBackupTest(_ServerCase):
         runner.line.connect(lambda key, text: lines.append(text))
         key = str(self.meta.folder)
         self.meta.save()
+        runner.exits[key] = "stopped"
         self.assertFalse(manage.auto_backup_after_stop(runner, key))  # off by default
+        import os
         for day in range(1, 4):
-            self.fake(f"2025010{day}-120000-auto.zip", {"world/level.dat": b"a"})
+            z = self.fake(f"2025010{day}-120000-auto.zip", {"world/level.dat": b"a"})
+            os.utime(z, (1735732800 + day * 86400,) * 2)  # files as old as their names
         self.fake("20240101-120000-world.zip", {"world/level.dat": b"m"})
         self.meta.auto_backup, self.meta.auto_backup_keep = True, 3
         self.meta.save()
+        runner.exits[key] = "crash"
+        self.assertFalse(manage.auto_backup_after_stop(runner, key))  # a crash never rotates backups out
+        runner.exits[key] = "stopped"
         self.assertTrue(manage.auto_backup_after_stop(runner, key))
         self.assertIn(key, runner.busy)  # Start waits
         self.assertTrue(manage.auto_backups_running())
@@ -194,3 +200,29 @@ class AutoBackupTest(_ServerCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Review126Test(_ServerCase):
+    def test_prune_keeps_the_new_backup_even_if_its_name_sorts_older(self):
+        import os
+        for day in range(1, 4):
+            z = self.fake(f"2025010{day}-120000-auto.zip", {"world/level.dat": b"a"})
+            os.utime(z, (1735732800 + day * 86400,) * 2)
+        new = self.fake("20241231-090000-auto.zip", {"world/level.dat": b"n"})  # clock was set back
+        srv.prune_auto_backups(self.meta, 3, protect=new)
+        names = [b.path.name for b in srv.backup_infos(self.meta)]
+        self.assertIn(new.name, names)
+        self.assertEqual(sum(1 for n in names if n.endswith("-auto.zip")), 3)
+
+    def test_failed_swap_puts_the_old_world_back(self):
+        from unittest import mock
+        level = srv.level_name(self.meta)
+        before = sorted(p.name for p in (self.meta.folder / level).iterdir())
+        staging = self.meta.folder / ".staging-test"
+        (staging / level).mkdir(parents=True)
+        (staging / level / "level.dat").write_bytes(b"new")
+        with mock.patch("shutil.move", side_effect=OSError("locked")):
+            with self.assertRaises(OSError):
+                srv._swap_in_world(self.meta, staging, level, srv.Task())
+        self.assertEqual(sorted(p.name for p in (self.meta.folder / level).iterdir()), before)
+        self.assertFalse(any(p.name.startswith(f".{level}.old-") for p in self.meta.folder.iterdir()))

@@ -639,11 +639,19 @@ def backup_infos(meta: ServerMeta) -> List[BackupInfo]:
     return out
 
 
-def prune_auto_backups(meta: ServerMeta, keep: int) -> List[Path]:
-    """Delete automatic backups beyond the newest `keep`. Other kinds are never touched."""
-    autos = [b for b in backup_infos(meta) if b.kind == "auto"]
+def prune_auto_backups(meta: ServerMeta, keep: int, protect: Optional[Path] = None) -> List[Path]:
+    """Delete automatic backups beyond the newest `keep`. Other kinds are never touched, nor
+    `protect` (the one just made, even if the clock was set back and its name sorts older)."""
+    def mtime(b):
+        try:
+            return b.path.stat().st_mtime
+        except OSError:
+            return 0
+    autos = sorted((b for b in backup_infos(meta) if b.kind == "auto"
+                    and not (protect and b.path.resolve() == Path(protect).resolve())), key=mtime, reverse=True)
+    keep = max(1, keep) - (1 if protect else 0)
     removed = []
-    for b in autos[max(1, keep):]:
+    for b in autos[max(0, keep):]:
         try:
             b.path.unlink()
             removed.append(b.path)
@@ -819,11 +827,31 @@ def replace_world_with_import(meta: ServerMeta, src: Path, task: Optional[Task] 
 def _swap_in_world(meta: ServerMeta, staging: Path, level: str, task: Task) -> None:
     """Replace the world with the one ready in `staging`."""
     task.check()  # last chance to cancel: the old world is untouched until here
-    _remove_worlds(meta)
-    for name in (level, f"{level}_nether", f"{level}_the_end"):  # level-name may be "worlds/main"
-        if (staging / name).exists():
-            (meta.folder / name).parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(staging / name), str(meta.folder / name))
+    # move the old folders aside first: a rename fails as a whole (a locked file on Windows), so
+    # nothing is half deleted; they are removed only once the new world is in place
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    aside = []
+    try:
+        for d in world_dirs(meta):
+            if d.exists():
+                old = d.with_name(f".{d.name}.old-{stamp}")
+                os.replace(d, old)
+                aside.append((d, old))
+        for name in (level, f"{level}_nether", f"{level}_the_end"):  # level-name may be "worlds/main"
+            if (staging / name).exists():
+                (meta.folder / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(staging / name), str(meta.folder / name))
+    except BaseException:
+        for d, old in reversed(aside):  # put the old world back
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
+            try:
+                os.replace(old, d)
+            except OSError:
+                pass
+        raise
+    for _d, old in aside:
+        shutil.rmtree(old, ignore_errors=True)
 
 
 def restore_backup(meta: ServerMeta, path: Path, task: Optional[Task] = None) -> None:

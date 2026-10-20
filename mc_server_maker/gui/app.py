@@ -1005,7 +1005,15 @@ class MainWindow(QMainWindow):
     def _restart(self):
         meta = self.meta
         if meta and self.runner.is_running(self.key):
-            self.runner.restart(self.key, lambda m=meta: (current_window() or self).start_server(m))
+            key, runner = self.key, self.runner
+
+            def again(m=meta):
+                if key in runner.busy:  # e.g. the automatic backup after the stop: start right after it
+                    QTimer.singleShot(500, again)
+                    return
+                (current_window() or self).start_server(m)
+
+            runner.restart(key, again)
 
     def _ask_offline(self, meta: srv.ServerMeta):
         """No internet: True = start in offline mode, False = start as is, None = cancel."""
@@ -1122,6 +1130,9 @@ class MainWindow(QMainWindow):
             self.reload()
 
     def duplicate_server(self, meta: srv.ServerMeta):
+        if str(meta.folder) in self.runner.busy:
+            QMessageBox.information(self, t("Duplicate"), t("Wait until the current task on this server is finished."))
+            return
         name, ok = QInputDialog.getText(self, t("Duplicate"), t("Name of the copy:"), text=t("{name} (copy)", name=meta.name))
         name = name.strip()
         if not ok or not name:
@@ -1133,6 +1144,9 @@ class MainWindow(QMainWindow):
 
     def delete_server(self, meta: srv.ServerMeta):
         if self.runner.is_running(str(meta.folder)) or str(meta.folder) in self.runner.pending:
+            return
+        if str(meta.folder) in self.runner.busy:  # e.g. its automatic backup is being written
+            QMessageBox.information(self, t("Delete server"), t("Wait until the current task on this server is finished."))
             return
         answer = QMessageBox.question(
             self, t("Delete server"),

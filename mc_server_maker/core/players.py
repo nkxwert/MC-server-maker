@@ -117,7 +117,18 @@ def known_uuid(server_dir: Path, name: str) -> Optional[tuple]:
 def _resolve(server_dir: Path, name: str, online_mode: bool) -> tuple:
     if not online_mode:  # computed from the name, nothing to look up
         return lookup_uuid(name, False)
-    return known_uuid(server_dir, name) or lookup_uuid(name, True)
+    known = known_uuid(server_dir, name)
+    if known and _offline_id(known[1]):
+        known = None  # left from an offline run: the real account has another UUID
+    return known or lookup_uuid(name, True)
+
+
+def _offline_id(pid: str) -> bool:
+    """A name-based (version 3) UUID: what offline mode gives, never a real Minecraft account."""
+    try:
+        return uuid.UUID(str(pid)).version == 3
+    except ValueError:
+        return False
 
 
 def ban(server_dir: Path, name: str, online_mode: bool, reason: str = "") -> str:

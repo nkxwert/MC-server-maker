@@ -93,3 +93,21 @@ class PlayerFilesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OfflineUuidTest(unittest.TestCase):
+    def test_online_mode_ignores_offline_uuid_from_files(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from mc_server_maker.core import players
+        d = Path(tempfile.mkdtemp())
+        offline = players.lookup_uuid("Griefer", False)[1]
+        (d / "usercache.json").write_text(json.dumps([{"name": "Griefer", "uuid": offline}]), encoding="utf-8")
+        real = "069a79f4-44e9-4726-a5be-fca90e38aaf5"
+        with mock.patch.object(players, "lookup_uuid", return_value=("Griefer", real)):
+            players.ban(d, "Griefer", True)
+        data = json.loads((d / "banned-players.json").read_text(encoding="utf-8"))
+        self.assertEqual(data[0]["uuid"], real)

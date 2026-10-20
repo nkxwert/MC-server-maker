@@ -100,15 +100,40 @@ def auto_backup_running(key: str) -> bool:
     return key in _auto
 
 
+def _world_changed_since_auto(meta) -> bool:
+    """Something in the world is newer than the newest automatic backup (or there is none)."""
+    autos = [b for b in srv.backup_infos(meta) if b.kind == "auto"]
+    if not autos:
+        return True
+    try:
+        last = max(b.path.stat().st_mtime for b in autos)
+    except OSError:
+        return True
+    for d in srv.world_dirs(meta):
+        if not d.is_dir():
+            continue
+        for f in d.rglob("*"):
+            try:
+                if f.is_file() and f.stat().st_mtime > last:
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def auto_backup_after_stop(runner: ServerRunner, key: str) -> bool:
     """Back up the world in the background if the server has automatic backups on.
 
     The server is marked busy meanwhile, so Start waits; quitting waits for it too (wait_for_stop)."""
     if key in _auto or key in runner.busy or runner.is_running(key):
         return False
+    if runner.exits.get(key) != "stopped":
+        return False  # a crash, a failed start or a force stop: don't push good backups out
     try:  # from disk: the switch may have changed while it ran
         meta = srv.ServerMeta.load(Path(key))
         if not meta.auto_backup or not srv.world_dirs(meta)[0].is_dir():
+            return False
+        if not _world_changed_since_auto(meta):
             return False
     except (OSError, ValueError, TypeError, srv.ServerError):
         return False
@@ -116,7 +141,7 @@ def auto_backup_after_stop(runner: ServerRunner, key: str) -> bool:
 
     def work(task):
         path = srv.backup_server(meta, srv.AUTO_LABEL, worlds_only=True, task=task)
-        srv.prune_auto_backups(meta, keep)  # only once the new one is safely written
+        srv.prune_auto_backups(meta, keep, protect=path)  # only once the new one is safely written
         return path
 
     def finish(line: str):
