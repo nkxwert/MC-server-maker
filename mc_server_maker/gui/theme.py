@@ -22,7 +22,7 @@ DARK = {
     "placeholder": "#8e9198",
     "accent_soft": "#1b2436", "danger": "#e5484d", "danger_hover": "#ef5f63", "danger_soft": "#3a1f22",
     "warn": "#d9a441", "ok": "#3ecf7a", "info": "#8fb4ff", "scroll": "#33353b",
-    "console_bg": "#0d0e10", "console_text": "#b9bcc2",
+    "console_bg": "#0d0e10", "console_text": "#b9bcc2", "chat": "#ffffff",
 }
 LIGHT = {
     "bg": "#f6f6f7", "surface": "#ffffff", "surface2": "#efeff1", "surface3": "#e5e6e9",
@@ -32,7 +32,7 @@ LIGHT = {
     "placeholder": "#6a6e75",
     "accent_soft": "#e6edfc", "danger": "#d4373c", "danger_hover": "#bb2d32", "danger_soft": "#fbe8e8",
     "warn": "#9a6a00", "ok": "#1f9d55", "info": "#1f5be0", "scroll": "#c9cbd0",
-    "console_bg": "#0d0e10", "console_text": "#b9bcc2",
+    "console_bg": "#fbfbfc", "console_text": "#2f3237", "chat": "#111214",
 }
 THEMES = {"dark": DARK, "light": LIGHT}
 

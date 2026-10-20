@@ -57,6 +57,8 @@ class ServerRunner(QObject):
         self.pending: Set[str] = set()  # servers whose Start waits for the internet check
         self.busy: Set[str] = set()  # servers whose files are being changed (world import, upgrade...)
         self._killed: Set[str] = set()
+        self.exits: Dict[str, str] = {}  # how the last run ended: stopped / killed / crash
+        self._restart: Dict[str, object] = {}  # servers to start again once stopped: key -> callback
         self.ports: Dict[str, int] = {}  # the port each server was started with (settings may change meanwhile)
 
     # ------------------------------------------------------------------ state
@@ -206,6 +208,7 @@ class ServerRunner(QObject):
             self.ports[key] = meta.properties().get_int("server-port", 25565)
         except OSError:
             self.ports.pop(key, None)
+        self.exits.pop(key, None)
         self.started_at[key] = time.time()
         self._counted_until[key] = self.started_at[key]
         self.system_line(key, t("Starting: {cmd}", cmd=" ".join(cmd)))
@@ -233,14 +236,20 @@ class ServerRunner(QObject):
         self._counted_until.pop(key, None)
         self._last_autosave.pop(key, None)
         if key in self._killed:
+            self.exits[key] = "killed"
             self.system_line(key, t("Server force stopped."))
         elif code == 0 or self.state(key) == STOPPING:
+            self.exits[key] = "stopped"
             self.system_line(key, t("Server stopped (exit code {code}).", code=code))
         else:  # nobody asked it to stop: a crash or a failed start
+            self.exits[key] = "crash"
             self.system_line(key, t(
                 "The server stopped unexpectedly (exit code {code}). The red lines above usually say why; "
                 "to ask for help, copy the log.", code=code))
         self._killed.discard(key)
+        again = self._restart.pop(key, None)
+        if again is not None and self.exits.get(key) == "stopped":
+            QTimer.singleShot(800, again)  # "save and restart": start it again once it really stopped
         self.players[key] = set()
         self.players_changed.emit(key)
         self._set_state(key, STOPPED)
@@ -251,6 +260,7 @@ class ServerRunner(QObject):
             self.system_line(key, t("Could not start the server: {err}", err=proc.errorString()))
             # always tell the window, even when the state was already "stopped" (Windows fails
             # inside start()), so offline mode is switched back and the buttons are right
+            self.exits[key] = "crash"
             self.status[key] = STOPPED
             self.state_changed.emit(key, STOPPED)
 
@@ -284,7 +294,16 @@ class ServerRunner(QObject):
         if self.procs.get(key) is proc and self.is_running(key) and self.state(key) == STOPPING:
             self.stop_slow.emit(key)
 
+    def restart(self, key: str, start_again) -> None:
+        """Save and stop, then call start_again() once the server has really stopped."""
+        if not self.is_running(key):
+            return
+        self._restart[key] = start_again
+        self.system_line(key, t("Restarting: saving and stopping first..."))
+        self.stop(key)
+
     def kill(self, key: str) -> None:
+        self._restart.pop(key, None)
         if self.is_running(key):
             self._killed.add(key)
             self.procs[key].kill()
@@ -299,11 +318,12 @@ class ServerRunner(QObject):
         if self.procs.get(key) is not None:
             self.procs[key].deleteLater()
         for store in (self.logs, self.players, self.player_ips, self.started_at, self._counted_until,
-                      self._totals, self.metas, self.ports, self._partial, self._decoders, self.status, self.procs):
+                      self._totals, self.metas, self.ports, self.exits, self._partial, self._decoders, self.status, self.procs):
             store.pop(key, None)
 
     def request_stop_all(self) -> None:
         """Ask every running server to save and stop, without waiting."""
+        self._restart.clear()  # quitting: nothing starts again
         for key in list(self.procs):
             if self.is_running(key) and self.state(key) != STOPPING:
                 self.system_line(key, t("Stopping: saving the world..."))

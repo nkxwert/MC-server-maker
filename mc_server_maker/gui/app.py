@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from mc_server_maker import APP_NAME, APP_VERSION
-from mc_server_maker.core import addons, autostart, network, paths, updater
+from mc_server_maker.core import addons, autostart, network, paths, preflight, updater
 from mc_server_maker.core import server as srv
 from mc_server_maker.core.plugins import udp_ports
 from mc_server_maker.core.settings import AppSettings
@@ -228,6 +228,58 @@ class PreferencesDialog(FadeInDialog):
         self.autostart_server.setEnabled(on)
 
 
+class PreflightDialog(FadeInDialog):
+    """Problems found before a start, each with its one-click fix; Start anyway or Cancel."""
+
+    def __init__(self, parent, meta, issues, apply_fix):
+        super().__init__(parent)
+        self.setWindowTitle(t("Before starting"))
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        head = QLabel(t("Check these before starting '{name}':", name=meta.name))
+        head.setWordWrap(True)
+        layout.addWidget(head)
+        for issue in issues:
+            row = QHBoxLayout()
+            text = QLabel()
+            text.setWordWrap(True)
+            text.setTextFormat(Qt.RichText)
+            color = theme.C["danger"] if issue.error else theme.C["warn"]
+            text.setText(f"<span style='color:{color}'>●</span>&nbsp; <b>{html.escape(issue.title)}</b><br>"
+                         f"<span style='color:{theme.C['muted']}'>{html.escape(issue.detail)}</span>")
+            row.addWidget(text, 1)
+            if issue.fix:
+                btn = QPushButton(issue.fix_label)
+                if issue.error:
+                    set_kind(btn, "primary")
+
+                def fix(_c=False, i=issue, b=btn, label=text):
+                    apply_fix(meta, i.fix, i.value)
+                    b.setEnabled(False)
+                    b.setText(t("Done"))
+                    label.setText(f"<span style='color:{theme.C['ok']}'>●</span>&nbsp; <b>{html.escape(i.fix_label)}</b>")
+                    if i.error:
+                        self._errors -= 1
+                        self._update_buttons()
+                btn.clicked.connect(fix)
+                row.addWidget(btn, 0, Qt.AlignTop)
+            layout.addLayout(row)
+        self._errors = sum(1 for i in issues if i.error)
+        buttons = QDialogButtonBox()
+        self.start_btn = buttons.addButton(t("Start anyway"), QDialogButtonBox.AcceptRole)
+        buttons.addButton(t("Cancel"), QDialogButtonBox.RejectRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._update_buttons()
+
+    def _update_buttons(self):
+        fixed = self._errors <= 0
+        self.start_btn.setText(t("Start") if fixed else t("Start anyway"))
+        set_kind(self.start_btn, "primary" if fixed else "")
+
+
 class OldCopiesDialog(FadeInDialog):
     """Old downloaded Bartizan files, each with a checkbox; checked ones go to the Recycle Bin."""
 
@@ -402,6 +454,8 @@ class MainWindow(QMainWindow):
             "QPushButton { padding: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }"
             " QPushButton::menu-indicator { image: none; width: 0px; }")
         stop_menu = QMenu(self.btn_stop_more)
+        self.act_restart = stop_menu.addAction(t("Save and restart"), self._restart)
+        stop_menu.addSeparator()
         self.act_kill = stop_menu.addAction(t("Force stop (without saving)"), self._kill)
         self.btn_stop_more.setMenu(stop_menu)
         stop_group = QHBoxLayout()
@@ -433,6 +487,7 @@ class MainWindow(QMainWindow):
         self.network_tab.friend_changed.connect(self.console_tab.set_friend)
         self.console_tab.open_network = lambda: self._go_tab(self.network_tab)
         self.console_tab.copy_invite = self.network_tab.copy_invite
+        self.console_tab.on_fix = self._fix_crash
         tab_wrap = QWidget()
         tw = QVBoxLayout(tab_wrap)
         tw.setContentsMargins(0, 0, 0, 0)
@@ -633,6 +688,7 @@ class MainWindow(QMainWindow):
         self.btn_stop.setText(t("Stopping...") if state == STOPPING else t("Stop"))
         self.btn_stop_more.setEnabled(running)
         self.act_kill.setEnabled(running)
+        self.act_restart.setEnabled(running and state != STOPPING)
 
     def _on_state_changed(self, key: str, state: str):
         if state == STOPPED:
@@ -681,6 +737,7 @@ class MainWindow(QMainWindow):
             set_language(new_lang)  # before theme.apply: the font depends on the language
             install_qt_translation(QApplication.instance(), new_lang)
         theme.apply(QApplication.instance(), new_theme)
+        self.console_tab.refresh()  # log lines carry their colors: draw them again in the new theme
         if changed_lang:
             # rebuild the window in the new language; running servers keep running
             retranslate_tray()
@@ -830,20 +887,24 @@ class MainWindow(QMainWindow):
                   "To play with friends in other homes, see the Network tab.", name=meta.name),
             )
 
-    def start_server(self):
-        if not self.meta or self.runner.is_running(self.key) or self.key in self.runner.pending:
+    def start_server(self, meta=None):
+        meta = meta or self.meta  # (the button passes False)
+        if not meta:
             return
-        if self.key in self.runner.busy:  # a world import or upgrade is changing its files
+        key = str(meta.folder)
+        if self.runner.is_running(key) or key in self.runner.pending:
+            return
+        if key in self.runner.busy:  # a world import, backup or upgrade is changing its files
             QMessageBox.information(self, t("Start"), t("Wait until the current task on this server is finished."))
             return
-        meta = self.meta
+        if not self._preflight(meta):
+            return
         srv.end_offline_session(meta)  # left over if the app closed while an offline run was going
         if not meta.properties().get_bool("online-mode", True):
             self._launch(meta)
             return
         # Online mode needs Mojang's sign-in servers. Without internet nobody could join
         # ("Authentication servers are down"), so offer an offline run first.
-        key = str(meta.folder)
         self.runner.pending.add(key)  # no second Start, Delete or world change while we check
         self.btn_start.setEnabled(False)
         self._refresh_tabs()
@@ -865,6 +926,83 @@ class MainWindow(QMainWindow):
             win._launch(meta)
 
         run_async(lambda task: network.has_internet(), checked, lambda m: checked(True))
+
+    def _preflight(self, meta: srv.ServerMeta) -> bool:
+        """Port taken, too little memory or disk: say so before starting. False = don't start."""
+        key = str(meta.folder)
+        try:
+            port = meta.properties().get_int("server-port", 25565)
+        except OSError:
+            return True
+        running = {m.name: self.runner.port(str(m.folder), m) for m in self.servers
+                   if str(m.folder) != key and self.runner.is_running(str(m.folder))}
+        others = []
+        for m in self.servers:
+            if str(m.folder) != key:
+                try:
+                    others.append(m.properties().get_int("server-port", 25565))
+                except OSError:
+                    pass
+        issues = preflight.check(port, meta.ram_mb, meta.folder, running, others)
+        if not issues:
+            return True
+        return PreflightDialog(self, meta, issues, self._apply_fix).exec() == QDialog.Accepted
+
+    def _apply_fix(self, meta: srv.ServerMeta, fix: str, value: int) -> None:
+        """A one-click fix from the start check or the crash helper."""
+        if fix == "port":
+            props = meta.properties()
+            props.set("server-port", value)
+            props.save()
+            srv.write_start_scripts(meta)
+        elif fix == "memory":
+            meta.ram_mb = value * 1024
+            meta.save()
+            srv.write_start_scripts(meta)
+        self.reload()
+
+    def _fix_crash(self, diag) -> None:
+        """The crash helper's button."""
+        meta = self.meta
+        if not meta:
+            return
+        if diag.action == "port":
+            port = meta.properties().get_int("server-port", 25565)
+            taken = [m.properties().get_int("server-port", 25565) for m in self.servers if m.folder != meta.folder]
+            new = preflight.next_free_port(port, taken)
+            if new and ask(self, t("Use another port"), t(
+                    "Change this server's port from {old} to {new}? Friends then need the new address "
+                    "(the Network tab shows it).", old=port, new=new), t("Use port {port}", port=new), t("Cancel")):
+                self._apply_fix(meta, "port", new)
+        elif diag.action == "java":
+            self._go_tab(self.settings_tab)
+            self.settings_tab.world.upgrade._fix_java()
+        elif diag.action == "memory":
+            self._go_tab(self.settings_tab)
+            self.settings_tab.ram.setFocus()
+        elif diag.action == "mod":
+            self._go_tab(self.addons_tab)
+            self.addons_tab.pages.button(1).click()
+            self.addons_tab.browser.query.setText(diag.mod)
+        elif diag.action == "eula":
+            if ask(self, t("Agree to the EULA"), t(
+                    "Do you agree to the Minecraft EULA (https://aka.ms/MinecraftEULA)? "
+                    "The server can't run without it."), t("I agree"), t("Cancel")):
+                (meta.folder / "eula.txt").write_text(
+                    "# https://aka.ms/MinecraftEULA (accepted in Bartizan)\neula=true\n", encoding="utf-8")
+                self.runner.system_line(self.key, t("EULA accepted. Press Start again."))
+                self.runner.exits.pop(self.key, None)
+                self.console_tab.on_state()
+        elif diag.action == "backups":
+            self._go_tab(self.settings_tab)
+            opener = getattr(self.settings_tab.world, "open_backups", None)
+            if opener:
+                opener()
+
+    def _restart(self):
+        meta = self.meta
+        if meta and self.runner.is_running(self.key):
+            self.runner.restart(self.key, lambda m=meta: (current_window() or self).start_server(m))
 
     def _ask_offline(self, meta: srv.ServerMeta):
         """No internet: True = start in offline mode, False = start as is, None = cancel."""

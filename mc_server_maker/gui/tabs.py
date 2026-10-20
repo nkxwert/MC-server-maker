@@ -58,6 +58,7 @@ from PySide6.QtWidgets import (
 
 from mc_server_maker.core import addons, joincheck, net, network, plugins, property_catalog, stats, versions
 from mc_server_maker.core import server as srv
+from mc_server_maker.core import crashhelp
 from mc_server_maker.core.properties import Properties
 from mc_server_maker.core.providers import PROVIDERS, get_provider
 from mc_server_maker.gui import anim, browse, theme
@@ -214,18 +215,17 @@ _CONSOLE_RULES = [
     (re.compile(r"WARN"), "warn", False),
     (re.compile(r"joined the game"), "ok", False),
     (re.compile(r"left the game"), "warn", False),
-    (re.compile(r": <[^>]+> "), "#ffffff", True),  # chat
+    (re.compile(r": <[^>]+> "), "chat", True),
     (re.compile(r"Done \("), "ok", True),
 ]
 
 
 def _line_format(line: str) -> QTextCharFormat:
     fmt = QTextCharFormat()
-    fmt.setForeground(QColor(theme.DARK["console_text"]))
+    fmt.setForeground(QColor(theme.C["console_text"]))
     for pattern, color, bold in _CONSOLE_RULES:
         if pattern.search(line):
-            # the console background is always dark, so use the dark palette
-            fmt.setForeground(QColor(theme.DARK.get(color, color)))
+            fmt.setForeground(QColor(theme.C.get(color, color)))  # the console follows the theme
             if bold:
                 fmt.setFontWeight(QFont.Bold)
             break
@@ -361,6 +361,48 @@ class ConsoleTab(ServerTab):
         fb.addWidget(self.friend_btn)
         self.friend_bar.setVisible(False)
         left.addWidget(self.friend_bar)
+        # after a crash: the cause in plain words when the log shows it, and what to do
+        self.crash_bar = QFrame()
+        self.crash_bar.setObjectName("CrashBar")
+        cb = QVBoxLayout(self.crash_bar)
+        cb.setContentsMargins(14, 10, 12, 10)
+        cb.setSpacing(6)
+        self.crash_text = QLabel()
+        self.crash_text.setWordWrap(True)
+        self.crash_text.setTextFormat(Qt.RichText)
+        cb.addWidget(self.crash_text)
+        crow = QHBoxLayout()
+        self.crash_fix = set_kind(QPushButton(), "primary")
+        self.crash_fix.clicked.connect(lambda: self._diag and self.on_fix and self.on_fix(self._diag))
+        self.crash_copy = set_kind(QPushButton(t("Copy the log to ask for help")), "ghost")
+        self.crash_copy.setToolTip(t("Copies the end of the log. Addresses and your user folder are hidden."))
+        self.crash_copy.clicked.connect(self._copy_help_log)
+        crow.addWidget(self.crash_fix)
+        crow.addWidget(self.crash_copy)
+        crow.addStretch()
+        cb.addLayout(crow)
+        self.crash_bar.setVisible(False)
+        left.addWidget(self.crash_bar)
+        self._diag = None
+        self.on_fix = None  # set by the main window: does what a Diagnosis' button says
+        # find in the log: text search and "warnings / errors only"
+        frow = QHBoxLayout()
+        frow.setSpacing(6)
+        self.search = QLineEdit(placeholderText=t("Search the log"))
+        self.search.setClearButtonEnabled(True)
+        self.search.setMaximumWidth(240)
+        self.search.textChanged.connect(lambda _t: self._filter_changed())
+        frow.addWidget(self.search)
+        self.filter_group = QButtonGroup(self)
+        for i, label in enumerate((t("All"), t("Warnings"), t("Errors only"))):
+            b = set_kind(QPushButton(label), "segment")
+            b.setCheckable(True)
+            b.setChecked(i == 0)
+            self.filter_group.addButton(b, i)
+            frow.addWidget(b)
+        self.filter_group.idClicked.connect(lambda _i: self._filter_changed())
+        frow.addStretch()
+        left.addLayout(frow)
         self._friend = ("", "lan")  # address and kind, from the Network tab
         self.open_network = None  # set by the main window: shows the Network tab
         self.copy_invite = None  # set by the main window: copies the invitation text
@@ -479,7 +521,7 @@ class ConsoleTab(ServerTab):
 
     def _redraw(self, lines, clear: bool):
         """Add many lines in one go (one edit, one repaint) instead of one by one."""
-        lines = list(lines)[-self.view.maximumBlockCount():]
+        lines = [ln for ln in lines if self._keep(ln)][-self.view.maximumBlockCount():]
         bar = self.view.verticalScrollBar()
         at_bottom = clear or bar.value() >= bar.maximum() - 4
         self.view.setUpdatesEnabled(False)
@@ -520,6 +562,49 @@ class ConsoleTab(ServerTab):
         self._on_players(self.key)
         self._tick()
         self._render_friend()
+        self._render_crash()
+
+    _WARN = re.compile(r"WARN|ERROR|SEVERE|Exception|^\s+at |^»» ")
+    _ERR = re.compile(r"ERROR|SEVERE|Exception|^\s+at |^»» ")
+
+    def _keep(self, line: str) -> bool:
+        mode = self.filter_group.checkedId() if hasattr(self, "filter_group") else 0
+        if mode == 1 and not self._WARN.search(line):
+            return False
+        if mode == 2 and not self._ERR.search(line):
+            return False
+        q = self.search.text().strip().lower() if hasattr(self, "search") else ""
+        return not q or q in line.lower()
+
+    def _filter_changed(self):
+        self._dirty = True
+        self.refresh()
+
+    def _render_crash(self):
+        diag = None
+        if self.meta and not self.running and self.runner.exits.get(self.key) == "crash":
+            diag = crashhelp.diagnose(list(self.runner.log_lines(self.key)))
+            if diag is None:
+                diag = crashhelp.Diagnosis("", t("The server stopped unexpectedly"),
+                                           t("The red lines in the log usually say why. To ask someone for help, copy the log."))
+        self._diag = diag
+        self.crash_bar.setVisible(diag is not None)
+        if diag is None:
+            return
+        c = theme.C
+        self.crash_text.setText(f"<span style='color:{c['danger']}'>●</span>&nbsp; <b>{html.escape(diag.title)}</b><br>"
+                                + html.escape(diag.detail))
+        self.crash_fix.setVisible(bool(diag.action))
+        self.crash_fix.setText(diag.action_label)
+        col = QColor(c["danger"])
+        rgb = f"{col.red()}, {col.green()}, {col.blue()}"
+        self.crash_bar.setStyleSheet(
+            f"#CrashBar {{ background: rgba({rgb}, 0.09); border: 1px solid rgba({rgb}, 0.40); border-radius: 8px; }}")
+
+    def _copy_help_log(self):
+        QGuiApplication.clipboard().setText(crashhelp.shareable_log(list(self.runner.log_lines(self.key))))
+        self.crash_copy.setText(t("Copied"))
+        QTimer.singleShot(1200, lambda: self.crash_copy.setText(t("Copy the log to ask for help")))
 
     def set_friend(self, address: str, kind: str) -> None:
         """The address friends should use (from the Network tab): 'tunnel', 'internet' or 'lan'."""
