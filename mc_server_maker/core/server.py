@@ -529,6 +529,12 @@ def backup_server(meta: ServerMeta, label: str = "", worlds_only: bool = False, 
     task = task or Task()
     backups = meta.folder / BACKUP_DIR
     backups.mkdir(exist_ok=True)
+    for old in backups.glob("*.zip.part"):  # cut off earlier (PC shut down mid-backup): only clutter
+        try:
+            if time.time() - old.stat().st_mtime > 3600:
+                old.unlink()
+        except OSError:
+            pass
     stamp = time.strftime("%Y%m%d-%H%M%S")
     safe_label = re.sub(r"[^\w.-]", "_", label)
     base = f"{stamp}{'-' + safe_label if safe_label else ''}"

@@ -58,6 +58,8 @@ class ServerRunner(QObject):
         self.busy: Set[str] = set()  # servers whose files are being changed (world import, upgrade...)
         self._killed: Set[str] = set()
         self.exits: Dict[str, str] = {}  # how the last run ended: stopped / killed / crash
+        self.run_log: Dict[str, Deque[str]] = {}  # this run's lines only (the crash helper reads them)
+        self.quitting = False  # the app is closing: nothing starts again
         self._restart: Dict[str, object] = {}  # servers to start again once stopped: key -> callback
         self.ports: Dict[str, int] = {}  # the port each server was started with (settings may change meanwhile)
 
@@ -141,6 +143,8 @@ class ServerRunner(QObject):
 
     def _emit_line(self, key: str, text: str):
         self.logs.setdefault(key, deque(maxlen=MAX_LINES)).append(text)
+        if key in self.run_log:
+            self.run_log[key].append(text)
         self.line.emit(key, text)
         if self.state(key) == STARTING and DONE_RE.search(text):
             self._set_state(key, RUNNING)
@@ -209,6 +213,7 @@ class ServerRunner(QObject):
         except OSError:
             self.ports.pop(key, None)
         self.exits.pop(key, None)
+        self.run_log[key] = deque(maxlen=400)
         self.started_at[key] = time.time()
         self._counted_until[key] = self.started_at[key]
         self.system_line(key, t("Starting: {cmd}", cmd=" ".join(cmd)))
@@ -302,6 +307,10 @@ class ServerRunner(QObject):
         self.system_line(key, t("Restarting: saving and stopping first..."))
         self.stop(key)
 
+    def cancel_restart(self, key: str) -> None:
+        """Stop pressed while "save and restart" runs: it stays stopped."""
+        self._restart.pop(key, None)
+
     def kill(self, key: str) -> None:
         self._restart.pop(key, None)
         if self.is_running(key):
@@ -318,12 +327,13 @@ class ServerRunner(QObject):
         if self.procs.get(key) is not None:
             self.procs[key].deleteLater()
         for store in (self.logs, self.players, self.player_ips, self.started_at, self._counted_until,
-                      self._totals, self.metas, self.ports, self.exits, self._partial, self._decoders, self.status, self.procs):
+                      self._totals, self.metas, self.ports, self.exits, self.run_log, self._partial, self._decoders, self.status, self.procs):
             store.pop(key, None)
 
     def request_stop_all(self) -> None:
         """Ask every running server to save and stop, without waiting."""
         self._restart.clear()  # quitting: nothing starts again
+        self.quitting = True
         for key in list(self.procs):
             if self.is_running(key) and self.state(key) != STOPPING:
                 self.system_line(key, t("Stopping: saving the world..."))

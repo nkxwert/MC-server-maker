@@ -534,7 +534,7 @@ class ConsoleTab(ServerTab):
     def _render_crash(self):
         diag = None
         if self.meta and not self.running and self.runner.exits.get(self.key) == "crash":
-            diag = crashhelp.diagnose(list(self.runner.log_lines(self.key)))
+            diag = crashhelp.diagnose(list(self.runner.run_log.get(self.key, ())))  # this run only
             if diag is None:
                 diag = crashhelp.Diagnosis("", t("The server stopped unexpectedly"),
                                            t("The red lines in the log usually say why. To ask someone for help, copy the log."))

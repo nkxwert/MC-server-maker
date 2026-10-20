@@ -30,6 +30,16 @@ class DiagnoseTest(unittest.TestCase):
         ])
         self.assertEqual((d.kind, d.mod), ("mod", "sodium"))
 
+    def test_last_cause_wins_and_plugin_bind_errors_are_not_the_port(self):
+        d = crashhelp.diagnose([
+            "[Geyser] java.net.BindException: Address already in use",  # a plugin's own port
+            "Exception in thread \"Server thread\" java.lang.OutOfMemoryError: Java heap space",
+        ])
+        self.assertEqual(d.kind, "memory")
+        d = crashhelp.diagnose(["You need to agree to the EULA in order to run the server.",
+                                "java.lang.UnsupportedClassVersionError: class file version 65.0"])
+        self.assertEqual(d.kind, "java")
+
     def test_unknown_is_none(self):
         self.assertIsNone(crashhelp.diagnose(["[12:00:00 INFO]: Done (3.2s)!", "Stopping server"]))
 

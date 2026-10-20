@@ -4,6 +4,7 @@ Only real problems are reported: a port that is taken (error), and memory or dis
 small (warnings, since what's free changes all the time). Nothing is changed or stopped here.
 """
 
+import os
 import shutil
 import socket
 from dataclasses import dataclass
@@ -29,6 +30,13 @@ def port_free(port: int) -> bool:
     """Can a server listen on this TCP port right now?"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
+            # like the server itself: closed connections (TIME_WAIT) don't block a restart, but a
+            # program listening there does
+            if os.name == "nt":
+                if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(("0.0.0.0", port))
             return True
         except OSError:

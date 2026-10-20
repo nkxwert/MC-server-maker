@@ -445,7 +445,7 @@ class MainWindow(QMainWindow):
         self.btn_stop = set_kind(QPushButton(t("Stop")), "stop")
         self.btn_stop.setMinimumSize(80, 36)
         self.btn_stop.setStyleSheet("QPushButton { border-top-right-radius: 0; border-bottom-right-radius: 0; }")
-        self.btn_stop.clicked.connect(lambda: self.runner.stop(self.key))
+        self.btn_stop.clicked.connect(lambda: (self.runner.cancel_restart(self.key), self.runner.stop(self.key)))
         # ▾ next to Stop: rarely needed "force stop" lives in its menu
         self.btn_stop_more = set_kind(QPushButton("▾"), "stop")
         self.btn_stop_more.setToolTip(t("More stop options"))
@@ -703,7 +703,8 @@ class MainWindow(QMainWindow):
                     self._close_auto_port(m)
             from mc_server_maker.gui import manage
 
-            manage.auto_backup_after_stop(self.runner, key)  # only if it's switched on for this server
+            if not _quitting["now"]:
+                manage.auto_backup_after_stop(self.runner, key)  # only if it's switched on for this server
         for i, m in enumerate(self.servers):
             if str(m.folder) == key:
                 self._add_item(m, i)
@@ -890,7 +891,8 @@ class MainWindow(QMainWindow):
                   "To play with friends in other homes, see the Network tab.", name=meta.name),
             )
 
-    def start_server(self, meta=None):
+    def start_server(self, meta=None, interactive: bool = True):
+        """interactive=False (Windows sign-in, restart): only real problems may stop it with a question."""
         meta = meta or self.meta  # (the button passes False)
         if not meta:
             return
@@ -900,7 +902,7 @@ class MainWindow(QMainWindow):
         if key in self.runner.busy:  # a world import, backup or upgrade is changing its files
             QMessageBox.information(self, t("Start"), t("Wait until the current task on this server is finished."))
             return
-        if not self._preflight(meta):
+        if not self._preflight(meta, interactive):
             return
         srv.end_offline_session(meta)  # left over if the app closed while an offline run was going
         if not meta.properties().get_bool("online-mode", True):
@@ -930,7 +932,7 @@ class MainWindow(QMainWindow):
 
         run_async(lambda task: network.has_internet(), checked, lambda m: checked(True))
 
-    def _preflight(self, meta: srv.ServerMeta) -> bool:
+    def _preflight(self, meta: srv.ServerMeta, interactive: bool = True) -> bool:
         """Port taken, too little memory or disk: say so before starting. False = don't start."""
         key = str(meta.folder)
         try:
@@ -947,6 +949,10 @@ class MainWindow(QMainWindow):
                 except OSError:
                     pass
         issues = preflight.check(port, meta.ram_mb, meta.folder, running, others)
+        if not interactive and not any(i.error for i in issues):
+            for i in issues:  # nobody may be at the PC: note warnings in the console instead
+                self.runner.system_line(key, f"{i.title}. {i.detail}")
+            return True
         if not issues:
             return True
         return PreflightDialog(self, meta, issues, self._apply_fix).exec() == QDialog.Accepted
@@ -970,8 +976,12 @@ class MainWindow(QMainWindow):
         if not meta:
             return
         if diag.action == "port":
-            port = meta.properties().get_int("server-port", 25565)
-            taken = [m.properties().get_int("server-port", 25565) for m in self.servers if m.folder != meta.folder]
+            try:
+                port = meta.properties().get_int("server-port", 25565)
+                taken = [m.properties().get_int("server-port", 25565) for m in self.servers if m.folder != meta.folder]
+            except OSError as e:
+                QMessageBox.warning(self, t("Use another port"), str(e))
+                return
             new = preflight.next_free_port(port, taken)
             if new and ask(self, t("Use another port"), t(
                     "Change this server's port from {old} to {new}? Friends then need the new address "
@@ -1008,10 +1018,16 @@ class MainWindow(QMainWindow):
             key, runner = self.key, self.runner
 
             def again(m=meta):
+                if runner.quitting or _quitting["now"]:
+                    return
                 if key in runner.busy:  # e.g. the automatic backup after the stop: start right after it
                     QTimer.singleShot(500, again)
                     return
-                (current_window() or self).start_server(m)
+                try:  # settings saved while it was stopping count
+                    m = srv.ServerMeta.load(m.folder)
+                except (OSError, ValueError, TypeError, srv.ServerError):
+                    pass
+                (current_window() or self).start_server(m, interactive=False)
 
             runner.restart(key, again)
 
@@ -1318,6 +1334,9 @@ def wait_for_stop(win: MainWindow) -> bool:
 
     def busy() -> bool:
         if runner.any_running():
+            runner.request_stop_all()  # one that started meanwhile is asked too
+            if not patience.isActive() and not manage.auto_backups_running():
+                force.setVisible(True)
             return True
         if manage.auto_backups_running():  # the servers are down; only the backup is left
             label.setText(t("Saving the automatic backup..."))
@@ -1335,7 +1354,10 @@ def wait_for_stop(win: MainWindow) -> bool:
     patience.start(runner.STOP_PATIENCE_MS)
     force.clicked.connect(kill_all)
     cancel.clicked.connect(dlg.reject)
-    return dlg.exec() == QDialog.Accepted or not (runner.any_running() or manage.auto_backups_running())
+    done = dlg.exec() == QDialog.Accepted or not (runner.any_running() or manage.auto_backups_running())
+    if not done:
+        runner.quitting = False  # quit cancelled: restarts and backups work again
+    return done
 
 
 def quit_app(win: Optional[MainWindow] = None) -> bool:
@@ -1518,7 +1540,7 @@ def _autostart_server(folder: str):
     for meta in win.servers:
         if str(meta.folder) == folder:
             win._select_folder(meta.folder)
-            win.start_server()
+            win.start_server(meta, interactive=False)
             return
 
 
@@ -1557,8 +1579,14 @@ def main():
     startup = autostart.STARTUP_FLAG in sys.argv  # started by Windows at sign-in
     autostart.refresh_path()
     # Windows logoff/shutdown or any other way out of the event loop: still stop servers with a save
-    app.aboutToQuit.connect(lambda: runner.any_running() and runner.stop_all(20000))
-    app.commitDataRequest.connect(lambda _m: runner.any_running() and runner.stop_all(20000))
+    def session_end(*_a):
+        _quitting["now"] = True  # no automatic backup or restart now: the process ends right after
+        runner.quitting = True
+        if runner.any_running():
+            runner.stop_all(20000)
+
+    app.aboutToQuit.connect(session_end)
+    app.commitDataRequest.connect(session_end)
     if startup and autostart.MINIMIZED_FLAG in sys.argv and QSystemTrayIcon.isSystemTrayAvailable():
         tray_message(t("{app} is running. Open it from the tray icon.", app=APP_NAME))
     else:

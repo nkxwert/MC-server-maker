@@ -3,6 +3,24 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.26.1
+### en
+- The player window opens at its full size (no small window growing; Windows' own zoom animation is off under our fade-in).
+- Backups: no automatic backup after a crash, a failed start or a force stop, or when the world hasn't changed, so good backups aren't pushed out. The backup just made is never pruned, even if the PC clock was set back. Restoring moves the old world aside first and puts it back if anything fails (a file locked by antivirus or OneDrive). Delete / duplicate wait while a backup is being written. Leftovers of a backup cut off by a shutdown are cleaned up.
+- Players: on online servers, ban / OP / whitelist use the player's real account ID even if an offline run left another one.
+- Save and restart: waits for the automatic backup, can be cancelled with Stop, and never starts a server again while the app is closing.
+- Crash helper: looks at the last run only and picks the cause that stopped it (a plugin's busy port, e.g. Geyser, no longer reads as "port in use").
+- Start check: a server's own port right after a stop isn't reported as taken.
+- Windows startup: starts the chosen server without waiting on a question for mere warnings (they go to the console).
+### ko
+- 플레이어 창이 처음부터 제 크기로 열려요 (작은 창이 커지던 현상: 우리 페이드인 아래에서 Windows 자체 확대 애니메이션을 껐어요).
+- 백업: 크래시·시작 실패·강제 종료 뒤나 월드가 바뀌지 않았을 때는 자동 백업을 만들지 않아서 좋은 백업이 밀려 지워지지 않아요. 방금 만든 백업은 PC 시계가 뒤로 가도 지우지 않아요. 복원할 때 기존 월드를 먼저 옆으로 옮겨 두고, 실패하면(백신·OneDrive가 파일을 잠근 경우 등) 원래대로 되돌려요. 백업 중에는 서버 삭제·복제를 기다려요. 컴퓨터가 꺼져 중간에 끊긴 백업 조각은 정리해요.
+- 플레이어: 정품 인증 서버에서 밴·OP·화이트리스트가 오프라인 실행 때 남은 ID가 아니라 진짜 계정 ID를 써요.
+- 저장하고 재시작: 자동 백업이 끝나면 켜요. 중지를 누르면 취소되고, 앱을 끄는 중에는 다시 켜지 않아요.
+- 오류 도우미: 이번 실행의 로그만 보고, 실제로 서버를 멈춘 원인을 골라요 (Geyser 같은 플러그인 포트 문제를 "포트 사용 중"으로 착각하지 않아요).
+- 시작 전 점검: 방금 끈 서버의 포트를 "사용 중"으로 잘못 알리지 않아요.
+- Windows 시작 시 실행: 단순 경고 때문에 질문 창에서 멈추지 않고 고른 서버를 켜요 (경고는 콘솔에 남겨요).
+
 ## 1.26.0
 ### en
 - **Backup manager** (Settings → World → Manage backups): see every backup with its date, kind and size and **restore** one. The current world is backed up first, and only the world is restored. Optional: **back up automatically when the server stops**, keeping the last N automatic backups (yours are never deleted).
