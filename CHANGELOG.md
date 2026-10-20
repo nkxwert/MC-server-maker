@@ -3,6 +3,12 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.25.1
+### en
+- Fixed: the numbers next to the console (online, uptime, total uptime) overlapped their dividers.
+### ko
+- 고침: 콘솔 옆 숫자(접속 중, 가동 시간, 총 가동 시간)가 구분선과 겹쳐 보이던 문제.
+
 ## 1.25.0
 ### en
 - **After a start, the console says whether friends can join**: "The server is on. Friends elsewhere can't join yet" with a button to open it to the internet, or "Friends can join" with the address and **Copy invitation**.
