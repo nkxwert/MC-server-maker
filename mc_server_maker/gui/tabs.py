@@ -64,6 +64,7 @@ from mc_server_maker.gui import anim, browse, theme
 from mc_server_maker.gui.anim import FadeInDialog
 from mc_server_maker.gui.browse import ModrinthBrowser
 from mc_server_maker.gui.create_dialog import VersionLoader, random_seed
+from mc_server_maker.gui.manage import BackupsDialog, PlayersDialog, backups_changed
 from mc_server_maker.gui.runner import ServerRunner
 from mc_server_maker.gui.theme import fit_to_screen, form_layout, set_kind
 from mc_server_maker.gui.widgets import (
@@ -279,61 +280,11 @@ def format_total(secs: float) -> str:
     return t("{s}s", s=s)
 
 
-class OnlinePlayersDialog(FadeInDialog):
-    """Online players with Kick / Ban (updates live)."""
+class OnlinePlayersDialog(PlayersDialog):
+    """The console's player list opens the full player manager (gui/manage.py)."""
 
     def __init__(self, parent, runner: ServerRunner, key: str):
-        super().__init__(parent)
-        self.runner, self.key = runner, key
-        self.setWindowTitle(t("Online players"))
-        fit_to_screen(self, 360, 420)
-        layout = QVBoxLayout(self)
-        self.count = QLabel()
-        self.count.setObjectName("Big")
-        layout.addWidget(self.count)
-        self.list = QListWidget()
-        layout.addWidget(self.list, 1)
-        self.reason = QLineEdit(placeholderText=t("Reason (optional)"))
-        layout.addWidget(self.reason)
-        row = QHBoxLayout()
-        self.btn_kick = QPushButton(t("Kick"))
-        self.btn_kick.clicked.connect(lambda: self._act("kick"))
-        self.btn_ban = set_kind(QPushButton(t("Ban")), "danger")
-        self.btn_ban.clicked.connect(lambda: self._act("ban"))
-        row.addWidget(self.btn_kick)
-        row.addWidget(self.btn_ban)
-        row.addStretch()
-        close = set_kind(QPushButton(t("Close")), "ghost")
-        close.clicked.connect(self.accept)
-        row.addWidget(close)
-        layout.addLayout(row)
-        runner.players_changed.connect(self._refresh)
-        self._refresh(key)
-
-    def _refresh(self, key: str):
-        if key != self.key:
-            return
-        names = self.runner.online_players(key)
-        current = self.list.currentItem().text() if self.list.currentItem() else None
-        self.list.clear()
-        self.list.addItems(names)
-        if current in names:
-            self.list.setCurrentRow(names.index(current))
-        self.count.setText(t("{n} online", n=len(names)))
-        has = bool(names) and self.runner.is_running(key)
-        self.btn_kick.setEnabled(has)
-        self.btn_ban.setEnabled(has)
-
-    def _act(self, cmd: str):
-        item = self.list.currentItem()
-        if not item:
-            QMessageBox.information(self, t("Online players"), t("Select a player first."))
-            return
-        name = item.text()
-        if cmd == "ban" and QMessageBox.question(self, t("Ban"), t("Ban {name} from this server?", name=name)) != QMessageBox.Yes:
-            return
-        reason = self.reason.text().strip()
-        self.runner.send(self.key, f"{cmd} {name}" + (f" {reason}" if reason else ""))
+        super().__init__(parent, runner, key)
 
 
 class ConsoleTab(ServerTab):
@@ -1251,12 +1202,16 @@ class WorldTab(ServerTab):
         self.btn_backup.clicked.connect(self._backup)
         open_btn = set_kind(QPushButton(t("Open backups folder")), "ghost")
         open_btn.clicked.connect(lambda: open_path(self.meta.folder / srv.BACKUP_DIR))
+        manage_btn = QPushButton(t("Manage backups..."))
+        manage_btn.clicked.connect(self._manage_backups)
         row.addWidget(self.btn_backup)
+        row.addWidget(manage_btn)
         row.addWidget(open_btn)
         row.addStretch()
         v.addLayout(row)
         layout.addWidget(box)
         layout.addStretch()
+        backups_changed.changed.connect(self._backups_changed)  # an automatic backup finished
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1288,9 +1243,9 @@ class WorldTab(ServerTab):
             self.seed.clear()
         exists = (self.meta.folder / level / "level.dat").exists()
         self.info_exists.setText(t("Generated") if exists else t("Not yet (created on first start)"))
-        backups = srv.list_backups(self.meta)
+        backups = srv.backup_infos(self.meta)  # newest first by the time in the name
         self.backup_info.setText(
-            t("{n} backups", n=len(backups)) + (f" · {t('latest')}: {backups[0].name}" if backups else "")
+            t("{n} backups", n=len(backups)) + (f" · {t('latest')}: {backups[0].path.name}" if backups else "")
         )
         running = self.locked
         self.running_notice.setVisible(running)
@@ -1346,8 +1301,20 @@ class WorldTab(ServerTab):
         if not any(d.exists() for d in worlds):
             QMessageBox.information(self, t("Backups"), t("There is no world yet."))
             return
-        self.run_task(t("Backups"), lambda task: srv.backup_server(meta, "world", worlds_only=True, task=task))
+        self.run_task(t("Backups"), lambda task: srv.backup_server(meta, srv.MANUAL_LABEL, worlds_only=True, task=task))
         self.refresh()
+
+    def _manage_backups(self):
+        if not self.meta:
+            return
+        dlg = BackupsDialog(self, self.runner, self.meta)
+        dlg.exec()
+        dlg.deleteLater()
+        self.refresh()
+
+    def _backups_changed(self, key: str):
+        if key == self.key:
+            self.refresh()
 
 
 # =================================================================== network
