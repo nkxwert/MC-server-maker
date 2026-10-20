@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -387,6 +387,7 @@ class PlayersDialog(FadeInDialog):
         self.filter = "all"
         self.setWindowTitle(t("Players"))
         fit_to_screen(self, 720, 600)
+        self.setMinimumSize(self.size().boundedTo(QSize(720, 520)))  # opens at its full size right away
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)

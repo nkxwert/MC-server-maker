@@ -4,6 +4,8 @@ Kept short (about 0.2 s) so the app feels smooth, never slow. Turned off in
 low-resource mode, where every animation just jumps to its end.
 """
 
+import sys
+
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtWidgets import QDialog, QGraphicsOpacityEffect, QLabel, QWidget
 
@@ -84,9 +86,27 @@ def fade_window_in(window: QWidget, ms: int = FAST) -> None:
     anim.start(QAbstractAnimation.DeleteWhenStopped)
 
 
+def _no_system_animation(window: QWidget) -> None:
+    """Windows plays its own "zoom open" animation for new windows; with our fade on top the
+    dialog seems to start tiny and then grow. Turn the system one off for this window."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        off = ctypes.c_int(1)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            ctypes.c_void_p(int(window.winId())), 3, ctypes.byref(off), ctypes.sizeof(off))  # 3 = DWMWA_TRANSITIONS_FORCEDISABLED
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
 class FadeInDialog(QDialog):
     """A dialog that fades in when it opens."""
 
     def showEvent(self, event):
+        if not getattr(self, "_dwm_done", False):
+            self._dwm_done = True
+            _no_system_animation(self)
         super().showEvent(event)
         fade_window_in(self)
