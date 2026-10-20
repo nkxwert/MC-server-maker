@@ -701,6 +701,9 @@ class MainWindow(QMainWindow):
             for m in self.servers:
                 if str(m.folder) == key and m.upnp:
                     self._close_auto_port(m)
+            from mc_server_maker.gui import manage
+
+            manage.auto_backup_after_stop(self.runner, key)  # only if it's switched on for this server
         for i, m in enumerate(self.servers):
             if str(m.folder) == key:
                 self._add_item(m, i)
@@ -1260,11 +1263,14 @@ def show_window():
 
 def wait_for_stop(win: MainWindow) -> bool:
     """Ask every server to save and stop, and wait as long as saving takes: a big world can need
-    minutes. A force stop is offered after a while but never done without asking.
-    False = the user cancelled (the servers still stop)."""
+    minutes. A force stop is offered after a while but never done without asking. Automatic
+    backups (started when a server stops) are waited for too, and never cut off.
+    False = the user cancelled (the servers still stop, the backups still finish)."""
+    from mc_server_maker.gui import manage
+
     runner = win.runner
     runner.request_stop_all()
-    if not runner.any_running():
+    if not runner.any_running() and not manage.auto_backups_running():
         return True
     dlg = QDialog(win)
     dlg.setWindowTitle(t("Stopping servers"))
@@ -1296,8 +1302,18 @@ def wait_for_stop(win: MainWindow) -> bool:
         for key in list(runner.procs):
             runner.kill(key)
 
+    def busy() -> bool:
+        if runner.any_running():
+            return True
+        if manage.auto_backups_running():  # the servers are down; only the backup is left
+            label.setText(t("Saving the automatic backup..."))
+            force.setVisible(False)
+            patience.stop()
+            return True
+        return False
+
     poll = QTimer(dlg)
-    poll.timeout.connect(lambda: runner.any_running() or dlg.accept())
+    poll.timeout.connect(lambda: busy() or dlg.accept())
     poll.start(200)
     patience = QTimer(dlg)
     patience.setSingleShot(True)
@@ -1305,14 +1321,16 @@ def wait_for_stop(win: MainWindow) -> bool:
     patience.start(runner.STOP_PATIENCE_MS)
     force.clicked.connect(kill_all)
     cancel.clicked.connect(dlg.reject)
-    return dlg.exec() == QDialog.Accepted or not runner.any_running()
+    return dlg.exec() == QDialog.Accepted or not (runner.any_running() or manage.auto_backups_running())
 
 
 def quit_app(win: Optional[MainWindow] = None) -> bool:
     """Stop servers safely and exit. False = the user cancelled while servers were saving."""
     win = win or current_window()
+    from mc_server_maker.gui import manage
+
     runner = win.runner if win else None
-    if runner and runner.any_running():
+    if runner and (runner.any_running() or manage.auto_backups_running()):
         if win is None or not wait_for_stop(win):
             return False
     if win and win.tunnel:

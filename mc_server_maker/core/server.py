@@ -64,6 +64,8 @@ class ServerMeta:
     saved_distances: dict = field(default_factory=dict)  # distances before memory saver, to restore
     autosave_minutes: int = 0  # save the world every N minutes while running (0 = off)
     offline_session: bool = False  # online-mode was turned off for one run without internet; turn back on after
+    auto_backup: bool = False  # back up the world each time the server stops
+    auto_backup_keep: int = 5  # how many automatic backups to keep (the others are never deleted)
     folder: Path = field(default=None, compare=False)
 
     def save(self) -> None:
@@ -576,6 +578,118 @@ def list_backups(meta: ServerMeta) -> List[Path]:
     return sorted(d.glob("*.zip"), reverse=True) if d.exists() else []
 
 
+# What made a backup is the label after the time stamp: "20250101-120000-auto.zip". Older
+# backups have only a label too ("world", "before-1.21.4"), so they read right without changes.
+AUTO_LABEL = "auto"  # when the server stopped (the only kind ever deleted automatically)
+MANUAL_LABEL = "world"  # "Back up now"
+RESTORE_LABEL = "before-restore"  # the world that a restore replaced
+AUTO_BACKUP_KEEP_CHOICES = (3, 5, 10, 20)
+_STAMP_RE = re.compile(r"^(\d{8}-\d{6})(?:-(.*))?$")
+# labels written exactly like this, so a "-2" after them is the same-second counter
+# (after "before-1.21" it could be part of a version)
+_EXACT_LABELS = {"", AUTO_LABEL, MANUAL_LABEL, "manual", RESTORE_LABEL, "world-before-import", "world-before-reset"}
+
+
+@dataclass
+class BackupInfo:
+    path: Path
+    when: float  # seconds since the epoch (from the name; the file time for odd names)
+    kind: str  # auto | manual | update | restore | other
+    label: str  # "1.21.4" for an update, the raw label for other kinds, "" otherwise
+    size: int
+    seq: int = 1  # the same-second counter, to order backups made in one second
+
+
+def parse_backup_name(name: str):
+    """(time stamp or None, kind, label, counter) from a backup file name."""
+    stem = name[:-4] if name.lower().endswith(".zip") else name
+    m = _STAMP_RE.match(stem)
+    if not m:
+        return None, "other", stem, 1
+    rest, seq = m.group(2) or "", 1
+    counter = re.match(r"^(?:(.*)-)?(\d{1,3})$", rest)
+    if counter and (counter.group(1) or "") in _EXACT_LABELS:
+        rest, seq = counter.group(1) or "", int(counter.group(2))
+    try:
+        when = time.mktime(time.strptime(m.group(1), "%Y%m%d-%H%M%S"))
+    except (ValueError, OverflowError):
+        when = None
+    if rest in ("", MANUAL_LABEL, "manual"):
+        return when, "manual", "", seq
+    if rest == AUTO_LABEL:
+        return when, "auto", "", seq
+    if rest == RESTORE_LABEL:
+        return when, "restore", "", seq
+    if rest.startswith("before-") and len(rest) > 7:
+        return when, "update", rest[7:], seq  # "before-1.21.4", "before-paper-1.21.4"
+    return when, "other", rest, seq
+
+
+def backup_infos(meta: ServerMeta) -> List[BackupInfo]:
+    """Every backup, newest first."""
+    out = []
+    for p in list_backups(meta):
+        try:
+            st = p.stat()
+        except OSError:
+            continue  # deleted meanwhile
+        when, kind, label, seq = parse_backup_name(p.name)
+        out.append(BackupInfo(p, when if when is not None else st.st_mtime, kind, label, st.st_size, seq))
+    out.sort(key=lambda b: (b.when, b.seq), reverse=True)
+    return out
+
+
+def prune_auto_backups(meta: ServerMeta, keep: int) -> List[Path]:
+    """Delete automatic backups beyond the newest `keep`. Other kinds are never touched."""
+    autos = [b for b in backup_infos(meta) if b.kind == "auto"]
+    removed = []
+    for b in autos[max(1, keep):]:
+        try:
+            b.path.unlink()
+            removed.append(b.path)
+        except OSError:
+            pass  # open in another program: deleted next time
+    return removed
+
+
+def backup_has_server_files(path: Path) -> bool:
+    """A whole-server backup (made before an update) rather than just the world."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return any(n in ("server.properties", META_FILE) for n in z.namelist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def _zip_level_name(z: zipfile.ZipFile) -> str:
+    """level-name from the server.properties inside a whole-server backup ("" if none)."""
+    try:
+        text = z.read("server.properties").decode("utf-8", "replace")
+    except KeyError:
+        return ""
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "level-name":
+            return value.strip()
+    return ""
+
+
+def _backup_world_prefix(z: zipfile.ZipFile, level: str) -> str:
+    """The world folder inside a backup ("world", "worlds/main", "" for level.dat at the top).
+
+    The level-name the backup was made with comes first (a server with several worlds has more
+    than one level.dat), then this server's, then the shallowest one."""
+    names = [n for n in z.namelist() if _safe_member(n)]
+    worlds = {n[:-len("level.dat")].rstrip("/") for n in names if n == "level.dat" or n.endswith("/level.dat")}
+    for wanted in (_zip_level_name(z), level):
+        if wanted and wanted in worlds:
+            return wanted
+    worlds = {w for w in worlds if w.count("/") < WORLD_SEARCH_DEPTH}
+    if not worlds:
+        raise ServerError(t("The zip file has no level.dat."))
+    return min(worlds, key=_world_rank)
+
+
 # ------------------------------------------------------------------ worlds
 
 
@@ -698,13 +812,69 @@ def replace_world_with_import(meta: ServerMeta, src: Path, task: Optional[Task] 
     with tempfile.TemporaryDirectory(dir=meta.folder, prefix=".import-") as tmp:
         staging = Path(tmp)
         import_world(staging, src, level, meta.software, task)
-        task.check()  # last chance to cancel: the old world is untouched until here
-        _remove_worlds(meta)
-        for name in (level, f"{level}_nether", f"{level}_the_end"):  # level-name may be "worlds/main"
-            if (staging / name).exists():
-                (meta.folder / name).parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(staging / name), str(meta.folder / name))
+        _swap_in_world(meta, staging, level, task)
     task.log(t("World imported!"))
+
+
+def _swap_in_world(meta: ServerMeta, staging: Path, level: str, task: Task) -> None:
+    """Replace the world with the one ready in `staging`."""
+    task.check()  # last chance to cancel: the old world is untouched until here
+    _remove_worlds(meta)
+    for name in (level, f"{level}_nether", f"{level}_the_end"):  # level-name may be "worlds/main"
+        if (staging / name).exists():
+            (meta.folder / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(staging / name), str(meta.folder / name))
+
+
+def restore_backup(meta: ServerMeta, path: Path, task: Optional[Task] = None) -> None:
+    """Put the world from a backup back; the current world is backed up first ("before-restore").
+
+    Only the world: a whole-server backup (made before an update) leaves the server's version,
+    settings and plugins as they are now. Extracted next to the server first, like an import,
+    so a cancel or an error keeps the current world."""
+    task = task or Task()
+    path = Path(path)
+    level = level_name(meta)
+    try:
+        with zipfile.ZipFile(path) as z:
+            if not all(_safe_member(n) for n in z.namelist()):
+                raise ServerError(t("The archive contains an invalid path."))
+            src = _backup_world_prefix(z, level)
+    except (OSError, zipfile.BadZipFile) as e:
+        raise ServerError(t("The backup can't be read: {err}", err=e)) from e
+    # its folders, under this server's level-name (it may have been renamed since)
+    folders = {src: level, f"{src}_nether": f"{level}_nether", f"{src}_the_end": f"{level}_the_end"} if src \
+        else {"": level}
+    if any(d.exists() for d in world_dirs(meta)):
+        backup_server(meta, RESTORE_LABEL, worlds_only=True, task=task)
+    task.log(t("Restoring the world from {name}...", name=path.name))
+    with tempfile.TemporaryDirectory(dir=meta.folder, prefix=".restore-") as tmp:
+        staging = Path(tmp).resolve()
+        with zipfile.ZipFile(path) as z:
+            infos = z.infolist()
+            for i, info in enumerate(infos):
+                task.check()
+                name = info.filename
+                for prefix, target in folders.items():
+                    if not prefix or name.startswith(prefix + "/"):
+                        rel = name[len(prefix) + 1:] if prefix else name
+                        break
+                else:
+                    continue  # not the world (the jar, plugins... of a whole-server backup)
+                if not rel or rel.endswith("/") or rel.rsplit("/", 1)[-1] == "session.lock":
+                    continue
+                dest = (staging / target / rel).resolve()
+                if not dest.is_relative_to(staging):
+                    raise ServerError(t("The archive contains an invalid path."))
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(info) as fin, open(dest, "wb") as fout:
+                    shutil.copyfileobj(fin, fout)
+                task.progress(i + 1, len(infos))
+        if not (staging / level / "level.dat").is_file():
+            raise ServerError(t("The zip file has no level.dat."))
+        _fit_dimensions(staging, level, meta.software, task)
+        _swap_in_world(meta, staging, level, task)
+    task.log(t("World restored."))
 
 
 def regenerate_world(meta: ServerMeta, seed: str, level_type: str, task: Optional[Task] = None) -> None:
