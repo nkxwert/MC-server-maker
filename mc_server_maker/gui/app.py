@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QProgressBar,
+    QScrollArea,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -165,12 +166,28 @@ class UpdateDialog(FadeInDialog):
         layout.addWidget(buttons)
 
 
-class PreferencesDialog(FadeInDialog):
-    def __init__(self, parent, settings: AppSettings, on_check_updates=None, servers=None):
-        super().__init__(parent)
-        self.setWindowTitle(t("App settings"))
-        self.setMinimumWidth(360)
-        layout = QVBoxLayout(self)
+class PreferencesPage(QWidget):
+    """App settings as a page in the main window (not a separate window): Save / Cancel return
+    to where the user was."""
+
+    def __init__(self, settings: AppSettings, on_check_updates=None, servers=None, on_save=None, on_close=None):
+        super().__init__()
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        head = QHBoxLayout()
+        head.setContentsMargins(24, 18, 24, 8)
+        back = set_kind(QPushButton("← " + t("Back")), "ghost")
+        back.clicked.connect(lambda: on_close and on_close())
+        head.addWidget(back)
+        title = QLabel(t("App settings"))
+        title.setObjectName("PageTitle")
+        head.addWidget(title)
+        head.addStretch()
+        outer.addLayout(head)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(24, 8, 24, 24)
         form = form_layout()
         self.theme = QComboBox()
         self.theme.addItem(t("Dark"), "dark")
@@ -215,13 +232,25 @@ class PreferencesDialog(FadeInDialog):
         row.addWidget(check)
         row.addStretch()
         form.addRow(t("App"), row)
-        layout.addLayout(form)
-        buttons = QDialogButtonBox()
-        set_kind(buttons.addButton(t("Save"), QDialogButtonBox.AcceptRole), "primary")
-        buttons.addButton(t("Cancel"), QDialogButtonBox.RejectRole)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        form_w = QWidget()
+        form_w.setLayout(form)
+        form_w.setMaximumWidth(720)  # a readable column, not stretched across a wide window
+        layout.addWidget(form_w)
+        layout.addStretch()
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setWidget(body)
+        outer.addWidget(area, 1)
+        bar = QHBoxLayout()  # always visible at the bottom, like the server settings
+        bar.setContentsMargins(24, 10, 24, 14)
+        bar.addStretch()
+        cancel = QPushButton(t("Cancel"))
+        cancel.clicked.connect(lambda: on_close and on_close())
+        save = set_kind(QPushButton(t("Save")), "primary")
+        save.clicked.connect(lambda: on_save and on_save(self))
+        bar.addWidget(cancel)
+        bar.addWidget(save)
+        outer.addLayout(bar)
 
     def _autostart_toggled(self, on: bool):
         self.autostart_min.setEnabled(on)
@@ -339,6 +368,7 @@ class MainWindow(QMainWindow):
         self.runner = runner
         self.settings = settings
         self._replaced = False
+        self._prefs_page = None  # app settings page while it's open
         self.runner.state_changed.connect(self._on_state_changed)
         self.runner.process_started.connect(self._process_started)
         self.runner.stop_slow.connect(self._stop_slow)
@@ -385,6 +415,7 @@ class MainWindow(QMainWindow):
         self.list = QListWidget()
         self.list.setObjectName("ServerList")
         self.list.currentRowChanged.connect(self._select)
+        self.list.itemClicked.connect(lambda _i: self._close_preferences())  # a server picked: leave app settings
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._list_context_menu)
         sv.addWidget(self.list, 1)
@@ -573,7 +604,8 @@ class MainWindow(QMainWindow):
             self._select(row)
         else:
             self.meta = None
-            if self.stack.currentIndex() != 0:
+            in_prefs = self._prefs_page is not None and self.stack.currentWidget() is self._prefs_page
+            if self.stack.currentIndex() != 0 and not in_prefs:
                 anim.crossfade(self.stack, lambda: self.stack.setCurrentIndex(0))
 
     def _add_item(self, m: srv.ServerMeta, row: Optional[int] = None):
@@ -630,11 +662,13 @@ class MainWindow(QMainWindow):
                     if not self.settings_tab.has_unsaved():
                         QTimer.singleShot(0, lambda: self._select_folder(target))
                 return
+        in_prefs = self._prefs_page is not None and self.stack.currentWidget() is self._prefs_page
         changed = self.meta is None or self.meta.folder != self.servers[row].folder or self.stack.currentIndex() != 1
-        if changed:  # switching servers blends the old one into the new one
+        if changed and not in_prefs:  # switching servers blends the old one into the new one
             anim.crossfade(self.stack)
         self.meta = self.servers[row]
-        self.stack.setCurrentIndex(1)
+        if not in_prefs:
+            self.stack.setCurrentIndex(1)
         # Plugins / Mods tab only for software that supports them
         label = addons.kind_label(self.meta)
         idx = self.tabs.indexOf(self.addons_tab)
@@ -721,9 +755,28 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def open_preferences(self):
-        dlg = PreferencesDialog(self, self.settings, lambda: self.check_updates(manual=True), self.servers)
-        if not dlg.exec():
+        """Show the app settings in this window (a fresh page each time, with current values)."""
+        if self._prefs_page is not None:
+            self.stack.removeWidget(self._prefs_page)
+            self._prefs_page.deleteLater()
+        page = PreferencesPage(self.settings, lambda: self.check_updates(manual=True), self.servers,
+                               on_save=self._save_preferences, on_close=self._close_preferences)
+        self._prefs_page = page
+        self.stack.addWidget(page)
+        theme.flatten_groups(page)
+        anim.crossfade(self.stack, lambda: self.stack.setCurrentWidget(page))
+
+    def _close_preferences(self):
+        page = self._prefs_page
+        if page is None:
             return
+        self._prefs_page = None
+        back = 1 if self.servers and self.meta else 0
+        anim.crossfade(self.stack, lambda: self.stack.setCurrentIndex(back))
+        self.stack.removeWidget(page)
+        page.deleteLater()
+
+    def _save_preferences(self, dlg):
         if autostart.supported():
             on = dlg.autostart.isChecked()
             self.settings.autostart_server = dlg.autostart_server.currentData() if on else ""
@@ -742,6 +795,7 @@ class MainWindow(QMainWindow):
             install_qt_translation(QApplication.instance(), new_lang)
         theme.apply(QApplication.instance(), new_theme)
         self.console_tab.refresh()  # log lines carry their colors: draw them again in the new theme
+        self._close_preferences()
         if changed_lang:
             # rebuild the window in the new language; running servers keep running
             retranslate_tray()

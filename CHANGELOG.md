@@ -3,6 +3,12 @@
 Each version has an English and a Korean list. The release workflow publishes the section for the
 current version as the GitHub Release notes, and the app shows it as "What's new".
 
+## 1.26.3
+### en
+- App settings open inside the main window instead of a separate pop-up: **← Back** or Cancel returns to where you were, Save applies. Picking a server in the list also leaves the settings.
+### ko
+- 앱 설정이 따로 뜨는 팝업 창이 아니라 지금 창 안에서 열려요. **← 돌아가기**나 취소를 누르면 보던 화면으로 돌아가고, 저장하면 적용돼요. 왼쪽 목록에서 서버를 눌러도 설정에서 나가요.
+
 ## 1.26.2
 ### en
 - Windows open at their full size right away (the fade-in of dialog windows is gone; it made them show small first).

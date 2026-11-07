@@ -896,4 +896,5 @@ KO = {
     'Use port {port}': '포트 {port}(으)로 바꾸기',
     'Use {gb} GB': '{gb} GB로 줄이기',
     'Warnings': '경고',
+    'Back': '돌아가기',
 }
